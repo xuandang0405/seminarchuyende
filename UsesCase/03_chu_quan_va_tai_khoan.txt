@@ -1,0 +1,52 @@
+// USE CASE - FASTAPI + MONGODB - DÁN VÀO ERASER FLOW CHART
+// Mô hình phân tích đề xuất từ HTML và mô tả ban đầu, không phải sơ đồ trích xuất từ code.
+// Không có nhãn: dựa trên mô tả HTML; [G]: từ yêu cầu ban đầu; [P]: cần chốt phạm vi.
+// Các trường hợp đăng nhập, quyền truy cập, xác minh và quyền sở hữu là tiền điều kiện.
+// Khách du lịch không bắt buộc đăng nhập để dùng chức năng công khai.
+// Đường liền: tham gia. include: hành vi dùng chung. extend: bổ sung theo điều kiện.
+// Super Admin được nối đến các chức năng của Admin; bản PlantUML thể hiện bằng kế thừa.
+// Đây là hình thức biểu diễn use case bằng Eraser Flow Chart, không phải DSL UML riêng.
+// Sơ đồ: Chủ quán, đăng ký và nội dung chờ duyệt
+
+direction down
+colorMode pastel
+styleMode plain
+typeface clean
+
+AI [label: "Dịch vụ AI", icon: cloud, shape: rectangle, color: gray]
+Admin [label: "Quản trị viên", icon: user, shape: rectangle, color: orange]
+Owner [label: "Chủ quán / người đăng ký", icon: user, shape: rectangle, color: purple]
+Weather [label: "Dịch vụ thời tiết", icon: cloud, shape: rectangle, color: gray]
+
+System [label: "Hệ thống thuyết minh du lịch đa ngôn ngữ", color: blue] {
+  ContentAdmin [label: "Quản trị nội dung và dịch vụ", color: orange] {
+    C06 [label: "C06 Duyệt đăng ký chủ quán", shape: ellipse]
+    C07 [label: "C07 Duyệt nội dung chủ quán gửi", shape: ellipse]
+    C14 [label: "C14 Dùng AI gợi ý mô tả", shape: ellipse]
+  }
+  OwnerPortal [label: "Tài khoản và chủ quán", color: purple] {
+    U01 [label: "U01 Đăng nhập cổng quản trị hoặc chủ quán", shape: ellipse]
+    U02 [label: "U02 Đăng xuất", shape: ellipse]
+    U03 [label: "U03 Đổi mật khẩu", shape: ellipse]
+    O01 [label: "O01 Đăng ký làm chủ quán", shape: ellipse]
+    O02 [label: "O02 Xem trạng thái đăng ký chủ quán", shape: ellipse]
+    O03 [label: "O03 Xem các địa điểm của mình", shape: ellipse]
+    O04 [label: "O04 Soạn hoặc sửa nội dung quán", shape: ellipse]
+    O05 [label: "O05 Gửi nội dung chờ duyệt", shape: ellipse]
+    O06 [label: "O06 Xem kết quả duyệt nội dung", shape: ellipse]
+    O07 [label: "O07 Xem thông báo xét duyệt", shape: ellipse]
+    O08 [label: "O08 Đánh dấu thông báo đã đọc", shape: ellipse]
+    O09 [label: "O09 Quản lý món ăn của quán", shape: ellipse]
+    O10 [label: "O10 Xem thống kê quán của mình", shape: ellipse]
+  }
+}
+
+// TÁC NHÂN THAM GIA
+AI - C14
+Admin - U01, U02, U03, C06, C07, C14
+Owner - U01, U02, U03, O01, O02, O03, O04, O05, O06, O07, O08, O09, O10, C14
+Weather - C14: khi bật ngữ cảnh thời tiết
+
+// INCLUDE / EXTEND - không biểu diễn thứ tự thời gian
+// Điều kiện C14 -> O04: chủ quán yêu cầu và còn hạn mức.
+C14 --> O04: extend

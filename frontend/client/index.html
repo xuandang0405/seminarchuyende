@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TourVoice - Thuyết Minh Du Lịch Ẩm Thực Quận 4</title>
+  
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  
+  <!-- Leaflet Map CDN -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <div id="app-container">
+    <!-- Sidebar / Tour Guide Panel -->
+    <aside id="sidebar">
+      <div class="sidebar-header">
+        <div class="logo-badge">
+          <span style="background: white; color: #ff6b35; border-radius: 50%; width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center; font-weight: 900;">🎙️</span>
+          <div>
+            <h1>TourVoice</h1>
+            <p style="font-size: 0.65rem; opacity: 0.85;">Ẩm Thực & Di Tích Quận 4</p>
+          </div>
+        </div>
+        <div class="lang-select">
+          <select id="select-language">
+            <option value="vi" selected>🇻🇳 Tiếng Việt</option>
+            <option value="en">🇬🇧 English</option>
+            <option value="zh">🇨🇳 中文</option>
+            <option value="ja">🇯🇵 日本語</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- GPS Geofence Simulator -->
+      <div class="sim-controls">
+        <div class="sim-title">
+          <span>🎯 Giả lập Vị trí Du Khách (GPS)</span>
+          <span id="current-coords" style="font-size: 0.65rem; color: #94a3b8;">106.706, 10.768</span>
+        </div>
+        <p style="font-size: 0.7rem; color: #94a3b8; margin-bottom: 0.5rem;">
+          💡 <em>Bấm trực tiếp lên bản đồ hoặc chọn điểm bên dưới để đưa du khách bước vào vùng Geofence:</em>
+        </p>
+        <div class="gps-teleport-buttons">
+          <button class="btn-sim" onclick="teleportTo(106.70678, 10.76814, 'Bến Nhà Rồng')">
+            🏛️ Bến Nhà Rồng
+            <span>Enter: 40m | Exit: 80m</span>
+          </button>
+          <button class="btn-sim" onclick="teleportTo(106.70012, 10.75882, 'Phố Ốc Vĩnh Khánh')">
+            🍲 Phố Ốc Vĩnh Khánh
+            <span>Enter: 35m | Exit: 70m</span>
+          </button>
+          <button class="btn-sim" onclick="teleportTo(106.70425, 10.76135, 'Chợ Xóm Chiếu')">
+            🍢 Chợ Xóm Chiếu
+            <span>Enter: 30m | Exit: 65m</span>
+          </button>
+          <button class="btn-sim" onclick="teleportTo(106.70488, 10.76895, 'Cầu Mống')">
+            🌉 Cầu Mống Cổ Kính
+            <span>Enter: 25m | Exit: 55m</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- POI List -->
+      <div class="poi-list-container" id="poi-list">
+        <!-- POI items injected dynamically -->
+      </div>
+    </aside>
+
+    <!-- Map Area -->
+    <main id="map-container">
+      <div id="map"></div>
+
+      <!-- Floating Map Tools -->
+      <div class="map-overlay-tools">
+        <button class="tool-btn" id="btn-open-qr">
+          <span>📷</span> Quét Mã QR
+        </button>
+        <button class="tool-btn" id="btn-open-offline">
+          <span>📦</span> Gói Ngoại Tuyến
+        </button>
+        <a href="../admin/index.html" class="tool-btn" style="text-decoration: none;">
+          <span>🛠️</span> Quản Trị / Chủ Quán
+        </a>
+      </div>
+
+      <!-- Bottom Audio Player Bar -->
+      <div id="player-bar" style="display: none;">
+        <div class="player-info">
+          <div class="player-title">
+            <span id="player-poi-title">Tên Điểm Tham Quan</span>
+            <span class="trigger-indicator" id="player-trigger-type">GPS AUTO</span>
+          </div>
+          <div class="player-subtitle" id="player-poi-desc">Mô tả tóm tắt thuyết minh</div>
+        </div>
+
+        <div class="progress-container">
+          <span class="time-label" id="current-time">0:00</span>
+          <div class="progress-bar" id="seek-bar">
+            <div class="progress-fill" id="progress-fill"></div>
+          </div>
+          <span class="time-label" id="total-time">0:00</span>
+        </div>
+
+        <div class="player-controls">
+          <button class="btn-play" id="btn-play-pause">▶</button>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- QR Scanner Modal -->
+  <div class="modal" id="qr-modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>📷 Quét Mã QR Thuyết Minh</h3>
+        <button class="modal-close" onclick="closeModal('qr-modal')">&times;</button>
+      </div>
+      <p style="font-size: 0.8rem; color: #94a3b8; margin-bottom: 1rem;">
+        Mô phỏng du khách quét mã QR dán tại cổng di tích hoặc quán ăn để kích hoạt thuyết minh tức thì:
+      </p>
+      <div id="qr-options" style="display: flex; flex-direction: column; gap: 0.5rem;">
+        <!-- QR buttons injected -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Offline Pack Modal -->
+  <div class="modal" id="offline-modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>📦 Tải Gói Dữ Liệu Ngoại Tuyến</h3>
+        <button class="modal-close" onclick="closeModal('offline-modal')">&times;</button>
+      </div>
+      <p style="font-size: 0.85rem; color: #cbd5e1; margin-bottom: 0.75rem;">
+        Gói Tour "Khám Phá Di Tích & Ẩm Thực Quận 4" gồm toàn bộ tọa độ Geofence, kịch bản thuyết minh và file âm thanh MP3 để sử dụng khi không có 4G/Wifi.
+      </p>
+      <div id="offline-details" style="background: #0f172a; padding: 0.75rem; border-radius: 8px; font-size: 0.8rem; color: #94a3b8; margin-bottom: 1rem;">
+        Đang nạp thông tin gói...
+      </div>
+      <button class="btn-primary" id="btn-download-pack">💾 Tải và Lưu Vào Bộ Nhớ Trình Duyệt</button>
+    </div>
+  </div>
+
+  <!-- Audio Element -->
+  <audio id="global-audio" preload="auto"></audio>
+
+  <script src="app.js"></script>
+</body>
+</html>

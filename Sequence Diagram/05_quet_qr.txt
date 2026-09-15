@@ -1,0 +1,53 @@
+// Quét QR để nghe thuyết minh
+// G: từ mô tả ban đầu, cần bổ sung ngoài schema HTML
+// Use case: T11, N01
+// Đây là mô hình đề xuất, không phải sơ đồ trích xuất từ backend đã chạy.
+// QR là yêu cầu ban đầu; HTML chưa mô tả API hoặc collection QR đầy đủ.
+// Chỉ chấp nhận QR thuộc định dạng/miền được ứng dụng hỗ trợ; mã được ánh xạ sang POI, không gọi tùy ý URL lạ.
+// Offline chỉ biết trạng thái QR từ snapshot đã lưu và thời hạn cục bộ; không thể bảo đảm biết ngay việc vô hiệu hóa từ server.
+// Narration tiếp tục xử lý chọn nguồn và hàng chờ như sơ đồ 04, bỏ qua điều kiện khoảng cách GPS.
+
+autoNumber on
+colorMode pastel
+styleMode plain
+typeface clean
+
+User [label: "Du khách", color: blue]
+App [label: "Ứng dụng quét QR", color: blue]
+Cache [label: "Bộ nhớ offline", color: green]
+API [label: "FastAPI", color: orange]
+Audio [label: "Narration", color: purple]
+
+User > App: Mở camera và quét QR
+App > App: Kiểm tra định dạng và lấy mã QR
+break [label: "QR không được hỗ trợ"] {
+  App --> User: Thông báo mã không hợp lệ
+}
+alt [label: "Có mạng"] {
+  App > API: Tra cứu QR và nội dung POI
+  alt [label: "QR còn hiệu lực và POI công khai"] {
+    API --> App: Thông tin POI và nguồn thuyết minh
+    App > Cache: Lưu ánh xạ và dữ liệu theo chính sách cache
+    App > Audio: Yêu cầu nghe chủ động với nguồn QR
+  }
+  else [label: "Trường hợp còn lại"] {
+    alt [label: "QR bị vô hiệu hoặc không tìm thấy"] {
+      API --> App: Không có POI khả dụng
+      App --> User: Thông báo không thể dùng mã QR này
+    }
+    else [label: "Lỗi mạng khi tra cứu"] {
+      API --> App: Yêu cầu không hoàn tất
+      App --> User: Thông báo lỗi và lựa chọn nội dung đã tải nếu có
+    }
+  }
+}
+else [label: "Không có mạng"] {
+  App > Cache: Tìm ánh xạ QR cùng POI và nội dung đã tải
+  Cache --> App: Snapshot còn dùng được hoặc chưa có
+  alt [label: "Có snapshot và nội dung phù hợp"] {
+    App > Audio: Nghe từ nội dung đã lưu với nguồn QR
+  }
+  else [label: "Thiếu dữ liệu offline"] {
+    App --> User: Cần mạng hoặc cần tải nội dung trước
+  }
+}

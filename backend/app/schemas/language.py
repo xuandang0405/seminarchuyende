@@ -4,17 +4,23 @@ from pydantic import BaseModel, Field
 
 
 class LanguageBase(BaseModel):
-    code: str = Field(..., description="Language code (e.g., 'vi', 'en')")
     name: str = Field(..., description="Language name in English (e.g., 'Vietnamese')")
     native_name: str = Field(..., description="Language name in native tongue (e.g., 'Tiếng Việt')")
     is_enabled: bool = True
 
 
 class LanguageCreate(LanguageBase):
-    pass
+    code: str = Field(..., description="Language code (e.g., 'vi', 'en')")
+
+
+class LanguageUpdate(BaseModel):
+    name: Optional[str] = None
+    native_name: Optional[str] = None
+    is_enabled: Optional[bool] = None
 
 
 class LanguageResponse(LanguageBase):
+    id: str = Field(..., alias="_id")
     created_at: datetime
     updated_at: datetime
 

@@ -1,0 +1,61 @@
+// Tự động thuyết minh khi đến gần POI
+// H: mô hình hóa từ HTML, có cụ thể hóa thiết kế
+// Use case: T02, T04, T09, N01, N02
+// Đây là mô hình đề xuất, không phải sơ đồ trích xuất từ backend đã chạy.
+// Geofence và Narration chạy trong client; không gửi mọi tọa độ lên backend để quyết định phát.
+// API gộp việc cung cấp metadata và tài nguyên audio tại ranh giới HTTP; triển khai thật có thể tải audio từ URL storage riêng.
+// Cooldown, debounce và ưu tiên theo cấu hình. Chỉ xử lý nội dung khi mục đã đến lượt phát.
+// Nếu local TTS không có giọng đã cài phù hợp, phải báo thiếu nội dung, không hứa TTS luôn hoạt động offline.
+// Kết quả tải chỉ được phát nếu request token và ngôn ngữ vẫn còn hiệu lực.
+
+autoNumber on
+colorMode pastel
+styleMode plain
+typeface clean
+
+GPS [label: "Dịch vụ vị trí", color: gray]
+Geo [label: "Geofence trên ứng dụng", color: blue]
+Audio [label: "Narration trên ứng dụng", color: purple]
+Cache [label: "Bộ nhớ offline", color: green]
+API [label: "API nội dung và audio", color: orange]
+
+GPS > Geo: Cập nhật tọa độ và độ chính xác
+Geo > Geo: Kiểm tra bán kính, debounce, cooldown và ưu tiên
+alt [label: "Chưa đủ điều kiện"] {
+  Geo > Geo: Tiếp tục theo dõi vị trí
+}
+else [label: "POI đủ điều kiện"] {
+  Geo > Audio: Gửi sự kiện POI và ngôn ngữ hiện tại
+  Audio > Audio: Loại sự kiện trùng và sắp xếp hàng chờ
+  opt [label: "Mục được chọn đã đến lượt phát"] {
+    Audio > Cache: Tìm audio phù hợp với POI và ngôn ngữ
+    Cache --> Audio: Có file hoặc chưa có
+    alt [label: "Có audio đã tải"] {
+      Audio > Audio: Chọn file offline
+    }
+    else [label: "Trường hợp còn lại"] {
+      alt [label: "Chưa có audio nhưng có mạng"] {
+        Audio > API: Yêu cầu nội dung và nguồn audio phù hợp
+        alt [label: "Tải hoặc tạo audio thành công"] {
+          API --> Audio: Audio hoặc URL cùng phiên bản nội dung
+          Audio > Cache: Lưu tài nguyên tải thành công
+        }
+        else [label: "API lỗi hoặc quá thời gian"] {
+          API --> Audio: Kết quả lỗi
+          Audio > Audio: Chọn nguồn dự phòng nếu còn khả dụng
+        }
+      }
+      else [label: "Không có mạng và không có file"] {
+        Audio > Audio: Dùng text và giọng local đã có nếu phù hợp
+      }
+    }
+    Audio > Audio: Kiểm tra lại request token và ngôn ngữ
+    alt [label: "Yêu cầu còn hiệu lực và có nguồn phát"] {
+      Audio > Audio: Phát thuyết minh và cập nhật trạng thái phát
+      Audio --> Geo: Thông báo đã bắt đầu phát POI
+    }
+    else [label: "Yêu cầu đã cũ hoặc không có nội dung"] {
+      Audio > Audio: Bỏ kết quả cũ hoặc báo chưa có nội dung
+    }
+  }
+}

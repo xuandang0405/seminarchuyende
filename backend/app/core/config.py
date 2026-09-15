@@ -2,10 +2,11 @@ from typing import List, Union, Optional
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 import json
+import os
 
 
 class Settings(BaseSettings):
-    PROJECT_NAME: str = "Tour Guide API"
+    PROJECT_NAME: str = "TourVoice API"
     HOST: str = "0.0.0.0"
     PORT: int = 8000
     DEBUG: bool = True
@@ -25,9 +26,20 @@ class Settings(BaseSettings):
         return "mongodb://localhost:27017"
 
     # Security Settings
-    SECRET_KEY: str = "tour_guide_super_secret_jwt_key_for_development"
+    SECRET_KEY: str = "tourvoice_super_secret_jwt_key_seminar_district_4"
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 10080  # 7 days
+
+    # Media Storage
+    MEDIA_STORAGE_DIR: str = "storage"
+
+    # Default Super Admin
+    SUPERADMIN_EMAIL: str = "admin@tourvoice.vn"
+    SUPERADMIN_PASSWORD: str = "Admin@123456"
+
+    # External AI / TTS / Weather integrations (Optional)
+    OPENAI_API_KEY: Optional[str] = None
+    GEMINI_API_KEY: Optional[str] = None
 
     # CORS
     CORS_ORIGINS: Union[List[str], str] = [
@@ -37,6 +49,7 @@ class Settings(BaseSettings):
         "http://127.0.0.1:3000",
         "http://127.0.0.1:5173",
         "http://127.0.0.1:8000",
+        "*"
     ]
 
     @field_validator("CORS_ORIGINS", mode="before")
@@ -59,3 +72,8 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+# Ensure media storage directories exist
+os.makedirs(os.path.join(settings.MEDIA_STORAGE_DIR, "audio"), exist_ok=True)
+os.makedirs(os.path.join(settings.MEDIA_STORAGE_DIR, "images"), exist_ok=True)
+os.makedirs(os.path.join(settings.MEDIA_STORAGE_DIR, "packages"), exist_ok=True)

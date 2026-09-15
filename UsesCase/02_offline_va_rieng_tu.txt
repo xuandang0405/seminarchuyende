@@ -1,0 +1,34 @@
+// USE CASE - FASTAPI + MONGODB - DÁN VÀO ERASER FLOW CHART
+// Mô hình phân tích đề xuất từ HTML và mô tả ban đầu, không phải sơ đồ trích xuất từ code.
+// Không có nhãn: dựa trên mô tả HTML; [G]: từ yêu cầu ban đầu; [P]: cần chốt phạm vi.
+// Các trường hợp đăng nhập, quyền truy cập, xác minh và quyền sở hữu là tiền điều kiện.
+// Khách du lịch không bắt buộc đăng nhập để dùng chức năng công khai.
+// Đường liền: tham gia. include: hành vi dùng chung. extend: bổ sung theo điều kiện.
+// Super Admin được nối đến các chức năng của Admin; bản PlantUML thể hiện bằng kế thừa.
+// Đây là hình thức biểu diễn use case bằng Eraser Flow Chart, không phải DSL UML riêng.
+// Sơ đồ: Offline và lựa chọn thu thập thống kê
+
+direction down
+colorMode pastel
+styleMode plain
+typeface clean
+
+Tourist [label: "Khách du lịch", icon: user, shape: rectangle, color: blue]
+
+System [label: "Hệ thống thuyết minh du lịch đa ngôn ngữ", color: blue] {
+  Offline [label: "Offline và lựa chọn riêng tư", color: green] {
+    F01 [label: "F01 Chọn chế độ bản đồ", shape: ellipse]
+    F02 [label: "F02 Tải gói sử dụng offline", shape: ellipse]
+    F03 [label: "F03 Cập nhật gói offline", shape: ellipse]
+    F04 [label: "F04 Sửa gói offline thiếu hoặc lỗi", shape: ellipse]
+    F05 [label: "F05 Xóa gói offline", shape: ellipse]
+    F06 [label: "F06 Sử dụng nội dung đã tải offline", shape: ellipse]
+    F07 [label: "F07 Đồng bộ nội dung khi có mạng", shape: ellipse]
+    F08 [label: "F08 Cho phép hoặc từ chối thống kê", shape: ellipse]
+  }
+}
+
+// TÁC NHÂN THAM GIA
+Tourist - F01, F02, F03, F04, F05, F06, F07, F08
+
+// INCLUDE / EXTEND - không biểu diễn thứ tự thời gian

@@ -1,0 +1,41 @@
+// Admin hoặc chủ quán xem thống kê đúng phạm vi
+// H: mô hình hóa từ HTML, có cụ thể hóa thiết kế
+// Use case: O10, S05, S06, S07
+// Đây là mô hình đề xuất, không phải sơ đồ trích xuất từ backend đã chạy.
+// Chủ quán chỉ được đọc chỉ số cho POI thuộc mình và phải có quyền view_own; Admin cần quyền analytics tương ứng.
+// Kho dữ liệu tổng hợp được chuẩn bị bởi sơ đồ 12. Không mặc định mỗi request phải quét mọi sự kiện.
+// Chỉ số online từ Redis nếu triển khai được lấy qua adapter ở Service, lược khỏi sơ đồ MongoDB này.
+// Xuất báo cáo, cấu hình và sao lưu vẫn là các mục P cần chốt, không được khẳng định đã có luồng triển khai.
+// Thời gian nghe trung bình lấy từ yêu cầu ban đầu; các field/chỉ số cụ thể cần bổ sung khi triển khai.
+
+autoNumber on
+colorMode pastel
+styleMode plain
+typeface clean
+
+Web [label: "Web Admin hoặc Owner", color: blue]
+Router [label: "Analytics Router", color: orange]
+Service [label: "Analytics Read Service", color: purple]
+Repo [label: "Analytics Repository", color: green]
+DB [label: "MongoDB", color: green]
+
+Web > Router: Yêu cầu thống kê theo thời gian và POI
+Router > Router: Xác thực phiên và kiểm tra tham số
+Router > Service: Chuyển yêu cầu cùng danh tính và quyền
+Service > Repo: Xác định phạm vi POI người dùng được phép xem
+Repo > DB: Đọc dữ liệu sở hữu và phạm vi cần thiết
+DB --> Repo: Danh sách POI hợp lệ
+Repo --> Service: Phạm vi cho phép
+alt [label: "Yêu cầu nằm ngoài phạm vi được phép"] {
+  Service --> Router: Từ chối truy cập
+  Router --> Web: 403 Forbidden
+}
+else [label: "Được phép xem"] {
+  Service > Repo: Đọc read model theo kỳ và phạm vi đã kiểm tra
+  Repo > DB: Truy vấn các collection chỉ số tổng hợp
+  DB --> Repo: Số liệu và thời điểm cập nhật
+  Repo --> Service: Kết quả đọc
+  Service > Service: Tính tỷ lệ hoặc trung bình với mẫu số phù hợp
+  Service --> Router: Kết quả thống kê cùng độ mới dữ liệu
+  Router --> Web: 200 và dữ liệu dashboard
+}

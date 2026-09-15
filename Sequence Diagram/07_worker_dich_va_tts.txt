@@ -1,0 +1,68 @@
+// Worker tạo audio và lưu kết quả an toàn
+// H: mô hình hóa từ HTML, có cụ thể hóa thiết kế
+// Use case: C09, C11, C12, C13, N02
+// Đây là mô hình đề xuất, không phải sơ đồ trích xuất từ backend đã chạy.
+// Worker và Audio Service được gộp một cột; broker có thể là Celery/Redis hoặc cơ chế task manager, không bị khẳng định là bắt buộc.
+// Bắt đầu khi worker nhận được task ID; MongoDB giữ trạng thái bền vững. Claim bằng lease và heartbeat là thiết kế đề xuất.
+// Cột Dịch vụ dịch và TTS gộp các API cung cấp nội dung để sơ đồ có tối đa 5 lifeline.
+// Audio được lưu ở storage; MongoDB lưu metadata và trạng thái. Việc commit cần kiểm tra version đầu vào và task còn được phép hoàn tất.
+// Cleanup phải kiểm tra tài nguyên không còn được tham chiếu trước khi xóa; lỗi ghi không được mặc định đồng nghĩa transaction chưa commit.
+// Mọi lệnh ghi trạng thái retry hoặc hoàn tất phải kiểm tra lease còn thuộc worker và tác vụ chưa bị hủy.
+
+autoNumber on
+colorMode pastel
+styleMode plain
+typeface clean
+
+Worker [label: "Worker và Audio Service", color: purple]
+Repo [label: "Task Repository", color: green]
+DB [label: "MongoDB", color: green]
+Provider [label: "Dịch vụ dịch và TTS", color: gray]
+Storage [label: "Audio Storage", color: gray]
+
+Worker > Repo: Nhận task ID và yêu cầu claim tác vụ
+Repo > DB: Claim nguyên tử theo trạng thái và lease
+DB --> Repo: Kết quả claim và snapshot đầu vào
+Repo --> Worker: Task khả dụng hoặc đã có worker xử lý
+break [label: "Không claim được hoặc task đã kết thúc"] {
+  Worker > Worker: Bỏ lần xử lý trùng
+}
+opt [label: "Cần bản dịch mới"] {
+  Worker > Provider: Dịch văn bản sang ngôn ngữ đích
+  Provider --> Worker: Bản dịch hoặc lỗi
+  break [label: "Dịch thất bại"] {
+    Worker > Repo: Ghi lỗi và lịch retry có giới hạn
+    Repo > DB: Cập nhật trạng thái queued hoặc failed
+  }
+}
+Worker > Provider: Tạo MP3 từ văn bản đã chọn
+Provider --> Worker: MP3 hoặc lỗi TTS
+break [label: "TTS thất bại"] {
+  Worker > Repo: Ghi lỗi và lịch retry có giới hạn
+  Repo > DB: Cập nhật trạng thái queued hoặc failed
+}
+Worker > Storage: Lưu MP3 bằng key gắn với phiên bản nội dung
+Storage --> Worker: Key cùng checksum và metadata hoặc lỗi
+break [label: "Lưu file thất bại"] {
+  Worker > Repo: Ghi lỗi và lịch retry phù hợp
+  Repo > DB: Cập nhật trạng thái tác vụ
+}
+Worker > Repo: Hoàn tất nếu version đầu vào và task vẫn hợp lệ
+Repo > DB: Transaction kiểm tra version rồi lưu localization và task
+alt [label: "Kết quả vẫn phù hợp"] {
+  DB --> Repo: Commit metadata và trạng thái hoàn tất
+  Repo --> Worker: Thông báo hoàn tất
+}
+else [label: "Trường hợp còn lại"] {
+  alt [label: "Nội dung đã đổi hoặc tác vụ đã bị hủy"] {
+    DB --> Repo: Không gắn audio cũ vào nội dung hiện hành
+    Repo --> Worker: Báo kết quả không còn được sử dụng
+    Worker > Repo: Lên lịch kiểm tra tài nguyên mồ côi
+    Repo > DB: Lưu yêu cầu kiểm tra và cleanup an toàn
+  }
+  else [label: "Lỗi cập nhật chưa xác định kết quả"] {
+    Repo --> Worker: Yêu cầu đối soát theo task ID
+    Worker > Repo: Đọc lại kết quả trước khi retry hoặc cleanup
+    Repo > DB: Kiểm tra trạng thái task và tham chiếu audio
+  }
+}

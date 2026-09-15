@@ -1,0 +1,40 @@
+// Chủ quán gửi nội dung chờ kiểm duyệt
+// H: mô hình hóa từ HTML, có cụ thể hóa thiết kế
+// Use case: O03, O04, O05, O06
+// Đây là mô hình đề xuất, không phải sơ đồ trích xuất từ backend đã chạy.
+// Đã đăng nhập là tiền điều kiện; phía server vẫn phải kiểm tra owner đã xác minh và quyền sở hữu.
+// Những thay đổi thuộc phạm vi kiểm duyệt được lưu thành submission, không sửa trực tiếp nội dung công khai.
+// Một mã yêu cầu ổn định khi retry giúp tránh tạo hai submission; cần thiết kế index hoặc bản ghi idempotency phù hợp.
+
+autoNumber on
+colorMode pastel
+styleMode plain
+typeface clean
+
+Web [label: "Web chủ quán", color: blue]
+Router [label: "Owner Router", color: orange]
+Service [label: "Owner Service", color: purple]
+Repo [label: "Owner Repository", color: green]
+DB [label: "MongoDB", color: green]
+
+Web > Router: Gửi đề nghị POI mới hoặc sửa POI cùng mã yêu cầu
+Router > Router: Xác thực phiên và kiểm tra dữ liệu
+Router > Service: Yêu cầu gửi nội dung với owner ID từ phiên
+Service > Repo: Đọc trạng thái xác minh và POI đích nếu có
+Repo > DB: Đọc user và dữ liệu sở hữu POI
+DB --> Repo: Trạng thái tài khoản và POI
+Repo --> Service: Dữ liệu kiểm tra quyền
+alt [label: "Chưa xác minh hoặc không sở hữu POI"] {
+  Service --> Router: Từ chối gửi nội dung
+  Router --> Web: 403 và hướng dẫn phù hợp
+}
+else [label: "Đủ điều kiện"] {
+  Service > Service: Kiểm tra nội dung đề nghị và phạm vi thay đổi
+  Service > Repo: Lưu submission pending theo mã yêu cầu
+  Repo > DB: Ghi poi_submissions có chống tạo trùng
+  DB --> Repo: Submission đã lưu hoặc bản ghi cùng yêu cầu
+  Repo --> Service: Trả submission ID và trạng thái
+  Service --> Router: Kết quả gửi nội dung
+  Router --> Web: 201 hoặc kết quả lần gửi trước
+  Web > Web: Hiển thị chờ duyệt và theo dõi kết quả
+}

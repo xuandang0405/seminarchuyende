@@ -1,0 +1,67 @@
+// USE CASE - FASTAPI + MONGODB - DÁN VÀO ERASER FLOW CHART
+// Mô hình phân tích đề xuất từ HTML và mô tả ban đầu, không phải sơ đồ trích xuất từ code.
+// Không có nhãn: dựa trên mô tả HTML; [G]: từ yêu cầu ban đầu; [P]: cần chốt phạm vi.
+// Các trường hợp đăng nhập, quyền truy cập, xác minh và quyền sở hữu là tiền điều kiện.
+// Khách du lịch không bắt buộc đăng nhập để dùng chức năng công khai.
+// Đường liền: tham gia. include: hành vi dùng chung. extend: bổ sung theo điều kiện.
+// Super Admin được nối đến các chức năng của Admin; bản PlantUML thể hiện bằng kế thừa.
+// Đây là hình thức biểu diễn use case bằng Eraser Flow Chart, không phải DSL UML riêng.
+// Sơ đồ: Khách du lịch, tour và thuyết minh
+
+direction down
+colorMode pastel
+styleMode plain
+typeface clean
+
+GPS [label: "Dịch vụ định vị thiết bị", icon: cloud, shape: rectangle, color: gray]
+Maps [label: "Dịch vụ bản đồ cloud", icon: cloud, shape: rectangle, color: gray]
+TTS [label: "Dịch vụ TTS", icon: cloud, shape: rectangle, color: gray]
+Tourist [label: "Khách du lịch", icon: user, shape: rectangle, color: blue]
+Translator [label: "Dịch vụ dịch thuật", icon: cloud, shape: rectangle, color: gray]
+
+System [label: "Hệ thống thuyết minh du lịch đa ngôn ngữ", color: blue] {
+  ContentAdmin [label: "Quản trị nội dung và dịch vụ", color: orange] {
+    C09 [label: "C09 Dịch nội dung tự động", shape: ellipse]
+    C11 [label: "C11 Tạo audio bằng TTS", shape: ellipse]
+  }
+  Public [label: "Khách du lịch và thuyết minh", color: blue] {
+    T01 [label: "T01 Xem bản đồ du lịch", shape: ellipse]
+    T02 [label: "T02 Xác định vị trí hiện tại", shape: ellipse]
+    T03 [label: "T03 Tìm kiếm địa điểm", shape: ellipse]
+    T04 [label: "T04 Xem địa điểm gần nhất", shape: ellipse]
+    T05 [label: "T05 Xem chi tiết địa điểm", shape: ellipse]
+    T06 [label: "T06 Xem món ăn của địa điểm", shape: ellipse]
+    T07 [label: "T07 Chọn ngôn ngữ nội dung và giao diện", shape: ellipse]
+    T08 [label: "T08 Nghe thuyết minh theo yêu cầu", shape: ellipse]
+    T09 [label: "T09 Nghe tự động khi đến gần POI", shape: ellipse]
+    T10 [label: "T10 Điều khiển phát thuyết minh [G]", shape: ellipse]
+    T11 [label: "T11 Quét QR để nghe [G]", shape: ellipse]
+    T12 [label: "T12 Xem và chọn tour [G]", shape: ellipse]
+    T13 [label: "T13 Bắt đầu hoặc kết thúc tour [G]", shape: ellipse]
+    N01 [label: "N01 Phát nội dung thuyết minh", shape: ellipse]
+    N02 [label: "N02 Chuẩn bị thuyết minh theo yêu cầu", shape: ellipse]
+  }
+}
+
+// TÁC NHÂN THAM GIA
+GPS - T02
+Maps - T01
+TTS - C11
+Tourist - T01, T02, T03, T04, T05, T06, T07, T08, T09, T10, T11, T12, T13
+Translator - C09
+
+// INCLUDE / EXTEND - không biểu diễn thứ tự thời gian
+T04 --> T02: include
+T09 --> T02: include
+T08 --> N01: include
+T09 --> N01: include
+T11 --> N01: include
+// Điều kiện T06 -> T05: có menu và người dùng chọn xem.
+T06 --> T05: extend
+// Điều kiện T10 -> N01: đang phát hoặc tạm dừng.
+T10 --> N01: extend
+// Điều kiện N02 -> N01: thiếu audio phù hợp và có mạng.
+N02 --> N01: extend
+N02 --> C11: include
+// Điều kiện C09 -> N02: chưa có bản dịch ngôn ngữ đích.
+C09 --> N02: extend

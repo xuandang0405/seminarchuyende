@@ -1,0 +1,451 @@
+:root {
+  --primary: #ff6b35;
+  --primary-dark: #d84a1b;
+  --primary-light: #ffa07a;
+  --accent: #00b4d8;
+  --bg-dark: #0f172a;
+  --card-bg: rgba(30, 41, 59, 0.85);
+  --card-border: rgba(255, 255, 255, 0.1);
+  --text-main: #f8fafc;
+  --text-muted: #94a3b8;
+  --success: #10b981;
+  --warning: #f59e0b;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+body {
+  background-color: var(--bg-dark);
+  color: var(--text-main);
+  height: 100vh;
+  display: flex;
+  overflow: hidden;
+}
+
+/* App Layout */
+#app-container {
+  display: flex;
+  width: 100%;
+  height: 100%;
+}
+
+/* Sidebar / Mobile Frame */
+#sidebar {
+  width: 380px;
+  background: #1e293b;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--card-border);
+  z-index: 20;
+  box-shadow: 4px 0 20px rgba(0,0,0,0.3);
+}
+
+.sidebar-header {
+  padding: 1.25rem 1rem;
+  background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.logo-badge {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.logo-badge h1 {
+  font-size: 1.3rem;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+}
+
+.logo-badge span {
+  background: rgba(255,255,255,0.25);
+  font-size: 0.65rem;
+  padding: 2px 6px;
+  border-radius: 6px;
+  text-transform: uppercase;
+  font-weight: 700;
+}
+
+.lang-select select {
+  background: rgba(0,0,0,0.25);
+  color: white;
+  border: 1px solid rgba(255,255,255,0.3);
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  outline: none;
+  cursor: pointer;
+}
+
+/* Simulator controls */
+.sim-controls {
+  padding: 0.75rem 1rem;
+  background: #0f172a;
+  border-bottom: 1px solid var(--card-border);
+}
+
+.sim-title {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  color: var(--accent);
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  margin-bottom: 0.5rem;
+  display: flex;
+  justify-content: space-between;
+}
+
+.gps-teleport-buttons {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+
+.btn-sim {
+  background: #334155;
+  color: #e2e8f0;
+  border: 1px solid var(--card-border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-align: left;
+}
+
+.btn-sim:hover {
+  background: var(--accent);
+  color: white;
+}
+
+.btn-sim span {
+  display: block;
+  font-size: 0.65rem;
+  color: var(--text-muted);
+}
+
+/* POI List */
+.poi-list-container {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.poi-card {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  overflow: hidden;
+  transition: transform 0.2s, box-shadow 0.2s;
+  cursor: pointer;
+}
+
+.poi-card:hover, .poi-card.active {
+  border-color: var(--primary);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(255, 107, 53, 0.2);
+}
+
+.poi-img {
+  width: 100%;
+  height: 110px;
+  object-fit: cover;
+  background: #334155;
+}
+
+.poi-body {
+  padding: 0.75rem;
+}
+
+.poi-badge-cat {
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: var(--primary-light);
+  text-transform: uppercase;
+}
+
+.poi-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  margin: 2px 0 4px 0;
+  color: #fff;
+}
+
+.poi-desc {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.poi-meta {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 6px;
+  font-size: 0.7rem;
+  color: var(--accent);
+}
+
+/* Map area */
+#map-container {
+  flex: 1;
+  position: relative;
+  height: 100%;
+}
+
+#map {
+  width: 100%;
+  height: 100%;
+}
+
+/* Floating overlay toolbar on map */
+.map-overlay-tools {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  z-index: 1000;
+  display: flex;
+  gap: 0.5rem;
+}
+
+.tool-btn {
+  background: rgba(15, 23, 42, 0.85);
+  backdrop-filter: blur(8px);
+  color: white;
+  border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+  transition: all 0.2s;
+}
+
+.tool-btn:hover {
+  background: var(--primary);
+  border-color: var(--primary);
+}
+
+/* Bottom Player Bar */
+#player-bar {
+  position: absolute;
+  bottom: 1.5rem;
+  left: calc(380px + 2rem);
+  right: 2rem;
+  z-index: 1000;
+  background: rgba(15, 23, 42, 0.92);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 107, 53, 0.4);
+  border-radius: 16px;
+  padding: 1rem 1.5rem;
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+  animation: slideUp 0.3s ease;
+}
+
+@keyframes slideUp {
+  from { transform: translateY(50px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.player-info {
+  flex: 1;
+}
+
+.player-title {
+  font-size: 1rem;
+  font-weight: 700;
+  color: white;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.trigger-indicator {
+  font-size: 0.65rem;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--accent);
+  color: #0f172a;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.player-subtitle {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.player-controls {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.btn-play {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--primary);
+  border: none;
+  color: white;
+  font-size: 1.2rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 15px rgba(255, 107, 53, 0.5);
+  transition: transform 0.15s;
+}
+
+.btn-play:hover {
+  transform: scale(1.08);
+}
+
+.progress-container {
+  width: 220px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.progress-bar {
+  flex: 1;
+  height: 6px;
+  background: #334155;
+  border-radius: 3px;
+  overflow: hidden;
+  cursor: pointer;
+  position: relative;
+}
+
+.progress-fill {
+  width: 0%;
+  height: 100%;
+  background: linear-gradient(90deg, var(--primary), var(--accent));
+  transition: width 0.1s linear;
+}
+
+.time-label {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  min-width: 32px;
+}
+
+/* Modal */
+.modal {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.6);
+  backdrop-filter: blur(4px);
+  z-index: 2000;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal.active {
+  display: flex;
+}
+
+.modal-content {
+  background: #1e293b;
+  border: 1px solid var(--card-border);
+  border-radius: 16px;
+  width: 420px;
+  max-width: 90vw;
+  padding: 1.5rem;
+  box-shadow: 0 15px 35px rgba(0,0,0,0.5);
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.modal-close {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 1.5rem;
+  cursor: pointer;
+}
+
+.btn-primary {
+  background: var(--primary);
+  color: white;
+  border: none;
+  padding: 10px 16px;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  width: 100%;
+  margin-top: 1rem;
+}
+
+/* Pulse animation for user GPS */
+.user-marker {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #00b4d8;
+  border: 2px solid white;
+  box-shadow: 0 0 10px #00b4d8;
+  position: relative;
+}
+
+.user-marker::after {
+  content: '';
+  position: absolute;
+  top: -8px;
+  left: -8px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid #00b4d8;
+  animation: pulse 1.8s infinite;
+}
+
+@keyframes pulse {
+  0% { transform: scale(0.6); opacity: 1; }
+  100% { transform: scale(1.8); opacity: 0; }
+}
+
+@media (max-width: 800px) {
+  #sidebar {
+    width: 100%;
+    height: 45%;
+  }
+  #app-container {
+    flex-direction: column-reverse;
+  }
+  #player-bar {
+    left: 1rem;
+    right: 1rem;
+    bottom: 0.5rem;
+    padding: 0.75rem 1rem;
+  }
+}

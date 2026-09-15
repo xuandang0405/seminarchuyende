@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TourVoice CMS - Cổng Quản Trị & Chủ Quán Quận 4</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="admin.css">
+</head>
+<body>
+
+  <!-- Sidebar -->
+  <aside>
+    <div class="brand">
+      <span style="font-size: 1.5rem;">🎙️</span>
+      <div>
+        <h2>TourVoice CMS</h2>
+        <p style="font-size: 0.7rem; color: #94a3b8;">Hệ Thống Quản Trị Quận 4</p>
+      </div>
+    </div>
+
+    <ul class="nav-links">
+      <li class="active" onclick="switchTab('dashboard', this)"><a href="#">📊 Thống Kê & Báo Cáo</a></li>
+      <li onclick="switchTab('pois', this)"><a href="#">📍 Quản Lý Điểm Đến (POI)</a></li>
+      <li onclick="switchTab('approvals', this)"><a href="#">🛡️ Xét Duyệt Chủ Quán</a></li>
+      <li onclick="switchTab('ai-assistant', this)"><a href="#">🤖 Trợ Lý Soạn Thảo AI</a></li>
+      <li><a href="../client/index.html" target="_blank">🌐 Mở Ứng Dụng Du Khách</a></li>
+    </ul>
+
+    <div class="user-status">
+      <div>Đăng nhập: <strong id="logged-user-name" style="color: #ff6b35;">Super Admin</strong></div>
+      <div style="font-size: 0.7rem; margin-top: 4px;">Role: <span class="badge badge-info">super_admin</span></div>
+    </div>
+  </aside>
+
+  <!-- Main Content -->
+  <main>
+    <!-- TAB 1: DASHBOARD -->
+    <section id="tab-dashboard" class="tab-section active">
+      <div class="page-header">
+        <h1>Báo Cáo Hoạt Động Hệ Thống</h1>
+        <button class="btn btn-primary" onclick="loadDashboardStats()">🔄 Cập nhật số liệu</button>
+      </div>
+
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-label">Tổng Lượt Nghe (Playbacks)</div>
+          <div class="stat-num" id="stat-playbacks">0</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Thời Lượng Đã Thuyết Minh</div>
+          <div class="stat-num"><span id="stat-hours">0</span> <small style="font-size: 1rem;">giờ</small></div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Điểm Đến Đang Hoạt Động</div>
+          <div class="stat-num" id="stat-pois">0</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Phiên Tham Quan (Sessions)</div>
+          <div class="stat-num" id="stat-sessions">0</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>🏆 Top Điểm Tham Quan Được Lắng Nghe Nhiều Nhất</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Mã POI</th>
+              <th>Tên Điểm Đến</th>
+              <th>Số Lượt Nghe</th>
+              <th>Tổng Thời Gian (Phút)</th>
+            </tr>
+          </thead>
+          <tbody id="top-pois-table">
+            <tr><td colspan="4" style="text-align: center; color: #94a3b8;">Đang nạp dữ liệu thống kê...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- TAB 2: POI MANAGEMENT -->
+    <section id="tab-pois" class="tab-section">
+      <div class="page-header">
+        <h1>Quản Lý Điểm Đến Du Lịch & Ẩm Thực</h1>
+        <button class="btn btn-primary" onclick="toggleAddPoiForm()">+ Thêm Điểm POI Mới</button>
+      </div>
+
+      <!-- Add POI Form -->
+      <div class="card" id="add-poi-card" style="display: none;">
+        <h3>Thêm Mới Địa Điểm Tham Quan Quận 4</h3>
+        <form id="add-poi-form" onsubmit="handleCreatePoi(event)" style="margin-top: 1rem;">
+          <div class="form-grid">
+            <div class="form-group">
+              <label>Mã Điểm Đến (Unique Code):</label>
+              <input type="text" id="poi-code" class="form-control" placeholder="VD: Q4-OC-OANH" required>
+            </div>
+            <div class="form-group">
+              <label>Danh Mục:</label>
+              <select id="poi-cat" class="form-control">
+                <option value="attraction">Di tích / Tham quan</option>
+                <option value="food" selected>Ẩm thực / Quán ăn</option>
+                <option value="bus_stop">Trạm trung chuyển / Bus</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Kinh độ (Longitude):</label>
+              <input type="number" step="any" id="poi-lng" class="form-control" value="106.70012" required>
+            </div>
+            <div class="form-group">
+              <label>Vĩ độ (Latitude):</label>
+              <input type="number" step="any" id="poi-lat" class="form-control" value="10.75882" required>
+            </div>
+            <div class="form-group">
+              <label>Bán kính Kích hoạt (Enter Radius - mét):</label>
+              <input type="number" id="poi-enter" class="form-control" value="30" min="1" required>
+            </div>
+            <div class="form-group">
+              <label>Bán kính Rời khỏi (Exit Radius - mét):</label>
+              <input type="number" id="poi-exit" class="form-control" value="60" min="1" required>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Địa Chỉ Thực Tế:</label>
+            <input type="text" id="poi-address" class="form-control" placeholder="534 Vĩnh Khánh, Phường 9, Quận 4" required>
+          </div>
+          <button type="submit" class="btn btn-primary" style="margin-top: 0.5rem;">Lưu Địa Điểm</button>
+        </form>
+      </div>
+
+      <!-- POIs Table -->
+      <div class="card">
+        <h3>Danh Sách POI Hiện Tại</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Mã Điểm</th>
+              <th>Danh Mục</th>
+              <th>Tọa Độ [Lng, Lat]</th>
+              <th>Bán Kính Vào / Ra</th>
+              <th>Trạng Thái</th>
+            </tr>
+          </thead>
+          <tbody id="poi-admin-table">
+            <!-- Rendered by JS -->
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- TAB 3: APPROVALS -->
+    <section id="tab-approvals" class="tab-section">
+      <div class="page-header">
+        <h1>Duyệt Đăng Ký Chủ Quán & Nội Dung Mới</h1>
+        <button class="btn btn-primary" onclick="loadApprovalsQueue()">🔄 Làm Mới Hàng Đợi</button>
+      </div>
+
+      <div class="card">
+        <h3>Danh Sách Chủ Quán Chờ Xác Minh (Sequence Diagram 10)</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Họ Tên</th>
+              <th>Email</th>
+              <th>Tên Quán Ăn</th>
+              <th>Địa Chỉ</th>
+              <th>Số Điện Thoại</th>
+              <th>Thao Tác</th>
+            </tr>
+          </thead>
+          <tbody id="pending-owners-table">
+            <tr><td colspan="6" style="text-align: center; color: #94a3b8;">Không có hồ sơ nào đang chờ duyệt.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- TAB 4: AI ASSISTANT -->
+    <section id="tab-ai-assistant" class="tab-section">
+      <div class="page-header">
+        <h1>Trợ Lý AI Soạn Thảo Thuyết Minh</h1>
+      </div>
+
+      <div class="card">
+        <p style="font-size: 0.85rem; color: #94a3b8; margin-bottom: 1.5rem;">
+          Sử dụng trí tuệ nhân tạo để tự động soạn kịch bản thuyết minh truyền cảm, tự động gắn ngữ cảnh thời tiết thực tế cho từng điểm đến.
+        </p>
+
+        <form id="ai-form" onsubmit="handleGenerateAI(event)">
+          <div class="form-grid">
+            <div class="form-group">
+              <label>Tên Quán / Địa Điểm:</label>
+              <input type="text" id="ai-poi-name" class="form-control" value="Quán Ốc Vũ Vĩnh Khánh" required>
+            </div>
+            <div class="form-group">
+              <label>Thời Tiết Hiện Tại:</label>
+              <select id="ai-weather" class="form-control">
+                <option value="mưa se se lạnh">🌧️ Mưa se se lạnh</option>
+                <option value="nắng rực rỡ buổi chiều">☀️ Nắng rực rỡ buổi chiều</option>
+                <option value="gió mát mẻ hoàng hôn" selected>🌆 Gió mát mẻ hoàng hôn</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Món Đặc Sản / Nét Độc Đáo (cách nhau bằng dấu phẩy):</label>
+            <input type="text" id="ai-specialties" class="form-control" value="Ốc hương rang muối ớt, Sò điệp nướng phô mai, Mì xào ốc móng tay">
+          </div>
+          <button type="submit" class="btn btn-primary" id="btn-ai-submit">✨ Gợi Ý Thuyết Minh Bằng AI</button>
+        </form>
+
+        <div id="ai-result-card" style="margin-top: 1.5rem; display: none; background: #0f172a; border: 1px solid var(--border); border-radius: 8px; padding: 1.25rem;">
+          <h4 id="ai-res-title" style="color: #ff6b35;">Tiêu Đề Được Tạo</h4>
+          <p id="ai-res-desc" style="font-size: 0.85rem; color: #94a3b8; margin: 6px 0;"></p>
+          <div style="margin-top: 10px;">
+            <label style="font-size: 0.75rem; color: #00b4d8; font-weight: bold;">KỊCH BẢN THUYẾT MINH ÂM THANH:</label>
+            <blockquote id="ai-res-narration" style="border-left: 3px solid #ff6b35; padding-left: 10px; margin-top: 4px; font-style: italic; color: #e2e8f0; line-height: 1.6;"></blockquote>
+          </div>
+          <div style="margin-top: 1rem; display: flex; gap: 0.5rem;">
+            <button class="btn btn-success" id="btn-create-tts-direct">🎙️ Chuyển Thành File Giọng Đọc MP3 Bằng Edge-TTS</button>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="admin.js"></script>
+</body>
+</html>

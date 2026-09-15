@@ -1,0 +1,51 @@
+// Worker tổng hợp dữ liệu cho dashboard
+// H: mô hình hóa từ HTML, có cụ thể hóa thiết kế
+// Use case: S05, S06, S07
+// Đây là mô hình đề xuất, không phải sơ đồ trích xuất từ backend đã chạy.
+// Job có lease và thế hệ dữ liệu cần xử lý là thiết kế đề xuất để không mất sự kiện đến trong lúc đang tổng hợp.
+// Kết quả của một kỳ được ghi đè có kiểm soát thay vì cộng lại toàn bộ khi retry.
+// Cần đọc snapshot nhất quán hoặc mốc dữ liệu xác định. Commit phải kiểm tra lease và không ghi đè kết quả của worker mới hơn.
+// Nếu có sự kiện mới, job vẫn còn dirty và tiếp tục được xử lý; không xóa dấu dirty bằng kết quả cũ.
+// Số liệu dashboard có độ trễ tổng hợp, không phải mọi thay đổi xuất hiện ngay lập tức.
+
+autoNumber on
+colorMode pastel
+styleMode plain
+typeface clean
+
+Worker [label: "Analytics Worker", color: orange]
+Service [label: "Aggregation Service", color: purple]
+Repo [label: "Analytics Repository", color: green]
+DB [label: "MongoDB", color: green]
+
+loop [label: "Khi có kỳ dữ liệu cần tổng hợp"] {
+  Worker > Service: Yêu cầu xử lý một job đến hạn
+  Service > Repo: Claim job và lấy lease cùng generation
+  Repo > DB: Cập nhật nguyên tử job đủ điều kiện
+  DB --> Repo: Job đã claim hoặc không có job
+  Repo --> Service: Kết quả claim
+  opt [label: "Claim thành công"] {
+    Service > Repo: Đọc tập sự kiện nhất quán cho kỳ cần xử lý
+    Repo > DB: Truy vấn analytics_events theo kỳ và môi trường
+    DB --> Repo: Sự kiện thuộc snapshot đã chọn
+    Repo --> Service: Dữ liệu đầu vào
+    Service > Service: Tính lượt nghe, thời gian, tìm kiếm và chỉ số POI
+    Service > Repo: Ghi read model nếu lease còn hợp lệ
+    Repo > DB: Transaction thay kết quả tổng hợp và ghi mốc đã xử lý
+    alt [label: "Không có generation mới"] {
+      DB --> Repo: Commit kết quả và đánh dấu job hoàn tất
+      Repo --> Service: Hoàn tất kỳ hiện tại
+    }
+    else [label: "Trường hợp còn lại"] {
+      alt [label: "Có dữ liệu mới cần tổng hợp"] {
+        DB --> Repo: Giữ job dirty cho thế hệ mới
+        Repo --> Service: Cần xử lý tiếp ở lượt sau
+      }
+      else [label: "Lease đã mất hoặc ghi lỗi"] {
+        DB --> Repo: Không ghi đè kết quả của worker hợp lệ
+        Repo --> Service: Bỏ kết quả hoặc thử lại theo chính sách
+      }
+    }
+  }
+  Service --> Worker: Kết quả xử lý lượt hiện tại
+}

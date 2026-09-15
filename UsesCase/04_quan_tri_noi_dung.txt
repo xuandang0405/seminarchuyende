@@ -1,0 +1,56 @@
+// USE CASE - FASTAPI + MONGODB - DÁN VÀO ERASER FLOW CHART
+// Mô hình phân tích đề xuất từ HTML và mô tả ban đầu, không phải sơ đồ trích xuất từ code.
+// Không có nhãn: dựa trên mô tả HTML; [G]: từ yêu cầu ban đầu; [P]: cần chốt phạm vi.
+// Các trường hợp đăng nhập, quyền truy cập, xác minh và quyền sở hữu là tiền điều kiện.
+// Khách du lịch không bắt buộc đăng nhập để dùng chức năng công khai.
+// Đường liền: tham gia. include: hành vi dùng chung. extend: bổ sung theo điều kiện.
+// Super Admin được nối đến các chức năng của Admin; bản PlantUML thể hiện bằng kế thừa.
+// Đây là hình thức biểu diễn use case bằng Eraser Flow Chart, không phải DSL UML riêng.
+// Sơ đồ: Quản trị nội dung, audio, tour và QR
+
+direction down
+colorMode pastel
+styleMode plain
+typeface clean
+
+AI [label: "Dịch vụ AI", icon: cloud, shape: rectangle, color: gray]
+Admin [label: "Quản trị viên", icon: user, shape: rectangle, color: orange]
+TTS [label: "Dịch vụ TTS", icon: cloud, shape: rectangle, color: gray]
+Translator [label: "Dịch vụ dịch thuật", icon: cloud, shape: rectangle, color: gray]
+Weather [label: "Dịch vụ thời tiết", icon: cloud, shape: rectangle, color: gray]
+
+System [label: "Hệ thống thuyết minh du lịch đa ngôn ngữ", color: blue] {
+  ContentAdmin [label: "Quản trị nội dung và dịch vụ", color: orange] {
+    C01 [label: "C01 Thêm địa điểm", shape: ellipse]
+    C02 [label: "C02 Sửa địa điểm", shape: ellipse]
+    C03 [label: "C03 Xóa địa điểm", shape: ellipse]
+    C04 [label: "C04 Bật hoặc tắt công bố địa điểm", shape: ellipse]
+    C05 [label: "C05 Quản lý món ăn", shape: ellipse]
+    C06 [label: "C06 Duyệt đăng ký chủ quán", shape: ellipse]
+    C07 [label: "C07 Duyệt nội dung chủ quán gửi", shape: ellipse]
+    C08 [label: "C08 Nhập hoặc sửa bản dịch thuyết minh [G]", shape: ellipse]
+    C09 [label: "C09 Dịch nội dung tự động", shape: ellipse]
+    C10 [label: "C10 Upload file audio MP3 [G]", shape: ellipse]
+    C11 [label: "C11 Tạo audio bằng TTS", shape: ellipse]
+    C12 [label: "C12 Theo dõi tác vụ tạo audio", shape: ellipse]
+    C13 [label: "C13 Tạm dừng, tiếp tục hoặc hủy tác vụ audio", shape: ellipse]
+    C14 [label: "C14 Dùng AI gợi ý mô tả", shape: ellipse]
+    C15 [label: "C15 Quản lý tour và thứ tự địa điểm [G]", shape: ellipse]
+    C16 [label: "C16 Tạo hoặc vô hiệu hóa mã QR [G]", shape: ellipse]
+  }
+}
+
+// TÁC NHÂN THAM GIA
+AI - C14
+Admin - C01, C02, C03, C04, C05, C06, C07, C08, C09, C10, C11, C12, C13, C14, C15, C16
+TTS - C11
+Translator - C09
+Weather - C14: khi bật ngữ cảnh thời tiết
+
+// INCLUDE / EXTEND - không biểu diễn thứ tự thời gian
+// Điều kiện C13 -> C12: người quản trị chọn điều khiển tác vụ.
+C13 --> C12: extend
+// Điều kiện C14 -> C01: admin chọn hỗ trợ AI.
+C14 --> C01: extend
+// Điều kiện C14 -> C02: admin chọn hỗ trợ AI.
+C14 --> C02: extend

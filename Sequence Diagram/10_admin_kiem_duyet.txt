@@ -1,0 +1,55 @@
+// Admin xét duyệt hồ sơ hoặc nội dung chủ quán
+// H: mô hình hóa từ HTML, có cụ thể hóa thiết kế
+// Use case: C06, C07, O02, O06, O07, O08
+// Đây là mô hình đề xuất, không phải sơ đồ trích xuất từ backend đã chạy.
+// Reviewer đã đăng nhập và có quyền tương ứng; trạng thái hiện hành vẫn được kiểm tra tại thời điểm ghi.
+// Nhánh hồ sơ đăng ký và nhánh submission là hai nghiệp vụ thay thế, không phải lúc nào cũng thực hiện cả hai.
+// Thông báo được lưu trong ứng dụng; owner đọc ở lần tải portal tiếp theo theo điều kiện xác minh, không giả định có email hoặc SMS.
+// POI được duyệt chưa nhất thiết công khai ngay: còn điều kiện English/audio readiness và activation_requested.
+
+autoNumber on
+colorMode pastel
+styleMode plain
+typeface clean
+
+Web [label: "Web Admin", color: blue]
+Router [label: "Review Router", color: orange]
+Service [label: "Review Service", color: purple]
+Repo [label: "Review Repository", color: green]
+DB [label: "MongoDB", color: green]
+
+Web > Router: Gửi quyết định duyệt hoặc từ chối và admin note
+Router > Router: Xác thực phiên và kiểm tra dữ liệu
+Router > Service: Yêu cầu xét duyệt với danh tính reviewer
+Service > Service: Kiểm tra quyền duyệt đúng loại hồ sơ
+break [label: "Không có quyền"] {
+  Service --> Router: Từ chối
+  Router --> Web: 403 Forbidden
+}
+Service > Repo: Đọc hồ sơ và trạng thái hiện tại
+Repo > DB: Tìm hồ sơ hoặc submission
+DB --> Repo: Dữ liệu hiện hành
+Repo --> Service: Trả trạng thái cùng version
+break [label: "Hồ sơ không còn chờ duyệt"] {
+  Service --> Router: Báo xung đột xét duyệt
+  Router --> Web: 409 và trạng thái mới nhất
+}
+alt [label: "Duyệt đăng ký chủ quán"] {
+  Service > Repo: Lưu quyết định và cập nhật xác minh khi được chấp nhận
+}
+else [label: "Duyệt submission nội dung"] {
+  Service > Repo: Lưu quyết định và áp dụng POI nếu được chấp nhận
+}
+Repo > DB: Transaction có điều kiện pending và version còn khớp
+alt [label: "Ghi thành công"] {
+  DB --> Repo: Commit quyết định, dữ liệu liên quan và thông báo
+  Repo --> Service: Trả kết quả đã duyệt
+  Service --> Router: Kết quả xử lý
+  Router --> Web: 200 với trạng thái mới
+}
+else [label: "Reviewer khác đã xử lý hoặc lỗi ghi"] {
+  DB --> Repo: Rollback hoặc xung đột
+  Repo --> Service: Báo thao tác chưa được áp dụng
+  Service --> Router: Kết quả lỗi phù hợp
+  Router --> Web: Yêu cầu nạp lại trạng thái hồ sơ
+}
