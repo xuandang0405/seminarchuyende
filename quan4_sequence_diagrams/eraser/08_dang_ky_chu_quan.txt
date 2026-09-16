@@ -1,0 +1,47 @@
+// Đăng ký chủ quán chờ xác minh
+// H: mô hình hóa từ HTML, có cụ thể hóa thiết kế
+// Use case: O01, O02
+// Đây là mô hình đề xuất, không phải sơ đồ trích xuất từ backend đã chạy.
+// Đăng ký là luồng công khai; tạo tài khoản không đồng nghĩa được phép quản lý POI.
+// Unique email phải được kiểm tra bằng index, không chỉ bằng thao tác tìm trước khi insert.
+// Tạo user và hồ sơ đăng ký trong cùng transaction là thiết kế đề xuất cần MongoDB hỗ trợ transaction.
+// PII nếu được thu thập được mã hóa ở Service theo mô tả HTML; không trả password hash hoặc dữ liệu nhạy cảm trong response.
+
+autoNumber on
+colorMode pastel
+styleMode plain
+typeface clean
+
+Web [label: "Web chủ quán", color: blue]
+Router [label: "Registration Router", color: orange]
+Service [label: "Registration Service", color: purple]
+Repo [label: "Registration Repository", color: green]
+DB [label: "MongoDB", color: green]
+
+Web > Router: Nộp email, mật khẩu và hồ sơ chủ quán
+Router > Router: Kiểm tra định dạng và trường bắt buộc
+Router > Service: Yêu cầu đăng ký
+Service > Service: Chuẩn hóa email, băm mật khẩu và xử lý PII
+Service > Repo: Tạo tài khoản chưa xác minh và hồ sơ pending
+Repo > DB: Transaction ghi admin_users và poi_owner_registrations
+alt [label: "Email chưa được sử dụng và ghi thành công"] {
+  DB --> Repo: Commit user và hồ sơ pending
+  Repo --> Service: Trả định danh và trạng thái đăng ký
+  Service --> Router: Kết quả an toàn
+  Router --> Web: 201 với trạng thái chờ duyệt
+  Web > Web: Hướng dẫn đăng nhập để xem trạng thái đăng ký
+}
+else [label: "Trường hợp còn lại"] {
+  alt [label: "Email đã tồn tại"] {
+    DB --> Repo: Vi phạm unique index
+    Repo --> Service: Email đã được đăng ký
+    Service --> Router: Kết quả xung đột
+    Router --> Web: 409 và thông báo phù hợp
+  }
+  else [label: "Không ghi được đầy đủ"] {
+    DB --> Repo: Rollback transaction
+    Repo --> Service: Báo lỗi ghi
+    Service --> Router: Chưa tạo đăng ký thành công
+    Router --> Web: Thông báo lỗi để thử lại
+  }
+}

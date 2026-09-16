@@ -1,0 +1,42 @@
+// AD05 — Quét QR d? nghe thuy?t minh
+// Eraser: Flow Chart
+// QR không c?n ki?m tra kho?ng cách GPS.
+// Offline ch? ki?m tra tr?ng thái và th?i h?n dã luu.
+
+direction down
+
+Start [shape: oval, label: "B?t d?u"]
+OpenScanner [label: "M? ch?c nang quét QR"]
+Permission [shape: diamond, label: "Có quy?n camera?"]
+PermissionError [label: "Ğ? ngh? c?p quy?n camera"]
+Decode [label: "Quét và gi?i mã QR"]
+Supported [shape: diamond, label: "Ğúng d?nh d?ng QR du?c h? tr??"]
+InvalidQR [label: "Thông báo QR không h?p l?"]
+Online [shape: diamond, label: "Có m?ng?"]
+ServerLookup [label: "API ki?m tra QR và POI công khai"]
+ServerValid [shape: diamond, label: "Server xác nh?n mã h?p l??"]
+LocalLookup [label: "Tra QR trong d? li?u c?c b?"]
+LocalValid [shape: diamond, label: "Có snapshot h?p l? và còn h?n?"]
+Unavailable [label: "Thông báo không th? tra c?u d?a di?m"]
+Request [label: "G?i POI và ngôn ng? sang AD16"]
+End [shape: oval, label: "K?t thúc"]
+
+Start > OpenScanner
+OpenScanner > Permission
+Permission > PermissionError: Không
+PermissionError > End
+Permission > Decode: Có
+Decode > Supported
+Supported > InvalidQR: Không
+InvalidQR > End
+Supported > Online: Có
+Online > ServerLookup: Có
+ServerLookup > ServerValid
+ServerValid > Request: Có
+ServerValid > Unavailable: Không
+Online > LocalLookup: Không
+LocalLookup > LocalValid
+LocalValid > Request: Có
+LocalValid > Unavailable: Không
+Unavailable > End
+Request > End

@@ -1,0 +1,51 @@
+// AD06 — T?i ho?c c?p nh?t gói offline
+// Eraser: Flow Chart
+// Ch? kích ho?t khi d? metadata và tài nguyên h?p l?.
+// G?p l?i thì gi? gói dang ho?t d?ng.
+
+direction down
+
+Start [shape: oval, label: "B?t d?u"]
+Select [label: "Ch?n khu v?c và ngôn ng?"]
+Online [shape: diamond, label: "Có m?ng?"]
+NeedNetwork [label: "Thông báo c?n k?t n?i"]
+Manifest [label: "L?y manifest, phiên b?n và checksum"]
+Check [label: "Ki?m tra manifest và dung lu?ng"]
+Ready [shape: diamond, label: "Có th? b?t d?u t?i?"]
+Prepare [label: "Chu?n b? staging cùng phiên b?n"]
+Continue [shape: diamond, label: "Còn t?p thi?u và chua h?y?"]
+Download [label: "T?i t?p ti?p theo"]
+Verify [label: "Ki?m tra checksum và ghi t?p c?c b?"]
+FileOK [shape: diamond, label: "T?p du?c luu thành công?"]
+MarkDone [label: "Ğánh d?u t?p hoàn t?t"]
+Complete [shape: diamond, label: "Ğ? d? li?u h?p l? và chua h?y?"]
+Activate [label: "Chuy?n active pointer sang gói m?i"]
+Activated [shape: diamond, label: "Kích ho?t thành công?"]
+Success [label: "Thông báo có th? dùng offline"]
+KeepOld [label: "Gi? gói cu và ph?n t?i h?p l? d? th? l?i"]
+End [shape: oval, label: "K?t thúc"]
+
+Start > Select
+Select > Online
+Online > NeedNetwork: Không
+NeedNetwork > End
+Online > Manifest: Có
+Manifest > Check
+Check > Ready
+Ready > KeepOld: Không
+Ready > Prepare: Có
+Prepare > Continue
+Continue > Download: Có
+Download > Verify
+Verify > FileOK
+FileOK > MarkDone: Có
+MarkDone > Continue
+FileOK > KeepOld: Không
+Continue > Complete: Không
+Complete > KeepOld: Không
+Complete > Activate: Có
+Activate > Activated
+Activated > Success: Có
+Activated > KeepOld: Không
+Success > End
+KeepOld > End

@@ -1,0 +1,53 @@
+%% Worker tạo audio và lưu kết quả an toàn
+%% H: mô hình hóa từ HTML, có cụ thể hóa thiết kế
+sequenceDiagram
+    autonumber
+    participant Worker as Worker và Audio Service
+    participant Repo as Task Repository
+    participant DB as MongoDB
+    participant Provider as Dịch vụ dịch và TTS
+    participant Storage as Audio Storage
+    Worker->>Repo: Nhận task ID và yêu cầu claim tác vụ
+    Repo->>DB: Claim nguyên tử theo trạng thái và lease
+    DB-->>Repo: Kết quả claim và snapshot đầu vào
+    Repo-->>Worker: Task khả dụng hoặc đã có worker xử lý
+    break Không claim được hoặc task đã kết thúc
+        Worker->>Worker: Bỏ lần xử lý trùng
+    end
+    opt Cần bản dịch mới
+        Worker->>Provider: Dịch văn bản sang ngôn ngữ đích
+        Provider-->>Worker: Bản dịch hoặc lỗi
+        break Dịch thất bại
+            Worker->>Repo: Ghi lỗi và lịch retry có giới hạn
+            Repo->>DB: Cập nhật trạng thái queued hoặc failed
+        end
+    end
+    Worker->>Provider: Tạo MP3 từ văn bản đã chọn
+    Provider-->>Worker: MP3 hoặc lỗi TTS
+    break TTS thất bại
+        Worker->>Repo: Ghi lỗi và lịch retry có giới hạn
+        Repo->>DB: Cập nhật trạng thái queued hoặc failed
+    end
+    Worker->>Storage: Lưu MP3 bằng key gắn với phiên bản nội dung
+    Storage-->>Worker: Key cùng checksum và metadata hoặc lỗi
+    break Lưu file thất bại
+        Worker->>Repo: Ghi lỗi và lịch retry phù hợp
+        Repo->>DB: Cập nhật trạng thái tác vụ
+    end
+    Worker->>Repo: Hoàn tất nếu version đầu vào và task vẫn hợp lệ
+    Repo->>DB: Transaction kiểm tra version rồi lưu localization và task
+    alt Kết quả vẫn phù hợp
+        DB-->>Repo: Commit metadata và trạng thái hoàn tất
+        Repo-->>Worker: Thông báo hoàn tất
+    else Trường hợp còn lại
+        alt Nội dung đã đổi hoặc tác vụ đã bị hủy
+            DB-->>Repo: Không gắn audio cũ vào nội dung hiện hành
+            Repo-->>Worker: Báo kết quả không còn được sử dụng
+            Worker->>Repo: Lên lịch kiểm tra tài nguyên mồ côi
+            Repo->>DB: Lưu yêu cầu kiểm tra và cleanup an toàn
+        else Lỗi cập nhật chưa xác định kết quả
+            Repo-->>Worker: Yêu cầu đối soát theo task ID
+            Worker->>Repo: Đọc lại kết quả trước khi retry hoặc cleanup
+            Repo->>DB: Kiểm tra trạng thái task và tham chiếu audio
+        end
+    end

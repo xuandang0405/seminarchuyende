@@ -1,0 +1,61 @@
+@startuml
+title AD02 - Hoạt động đăng nhập email và mật khẩu
+skinparam shadowing false
+skinparam defaultFontName "Arial"
+
+start
+:Mở trang đăng nhập (/login);
+:Nhập email và mật khẩu;
+:Kiểm tra tính hợp lệ dữ liệu form và CSRF token;
+if (Request hợp lệ?) then (Có)
+else (Không)
+  :Hiển thị thông báo lỗi nhập liệu;
+  stop
+endif
+
+:Kiểm tra giới hạn tần suất đăng nhập (Anti brute-force);
+if (Được phép thử tiếp?) then (Có)
+else (Không)
+  :Thông báo vượt quá số lần thử, yêu cầu chờ;
+  stop
+endif
+
+:Truy vấn tài khoản trong MongoDB (admin_users);
+if (Tài khoản tồn tại và đang hoạt động (is_active)?) then (Có)
+else (Không)
+  :Thông báo đăng nhập thất bại (thông báo bảo mật chung);
+  stop
+endif
+
+if (Tài khoản có thiết lập password_hash?) then (Có)
+  :Xác minh bcrypt hash của mật khẩu;
+  if (Mật khẩu chính xác?) then (Có)
+  else (Không)
+    :Thông báo đăng nhập thất bại (thông báo bảo mật chung);
+    stop
+  endif
+else (Không - Tài khoản Google-only)
+  :Thông báo yêu cầu đăng nhập bằng Google;
+  stop
+endif
+
+:Tạo phiên đăng nhập trong auth_sessions với refresh token hash;
+:Tạo JWT access token ngắn hạn (15 phút);
+:Trả về access token trong response body và refresh token trong HttpOnly cookie;
+:Client Web lưu access token vào bộ nhớ trong (Memory State);
+:Đọc thông tin quyền hạn và vai trò người dùng (role, permissions);
+
+if (Có returnTo nội bộ được phép trong whitelist?) then (Có)
+  :Chuyển hướng tới trang đã yêu cầu;
+else (Không)
+  if (Vai trò là 'user'?) then (Có)
+    :Chuyển hướng tới /account;
+  else if (Vai trò là 'poi_owner' chưa duyệt?) then (Có)
+    :Chuyển hướng tới /owner/registration-status;
+  else
+    :Chuyển hướng tới Bảng điều khiển tổng quan (/);
+  endif
+endif
+
+stop
+@enduml

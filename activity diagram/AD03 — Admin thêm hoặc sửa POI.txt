@@ -1,0 +1,51 @@
+// AD03 — Admin thêm ho?c s?a POI
+// Eraser: Flow Chart
+// Mã yêu c?u gi? nguyên khi retry cùng m?t thao tác.
+// Luu POI, job và k?t qu? ch?ng trùng nguyên t?.
+// Không ch? worker t?o audio xong m?i tr? k?t qu?.
+
+direction down
+
+Start [shape: oval, label: "B?t d?u"]
+Submit [label: "G?i n?i dung POI và mã yêu c?u"]
+Check [label: "Router và Service ki?m tra d? li?u, quy?n"]
+Allowed [shape: diamond, label: "Yêu c?u h?p l? và du?c phép?"]
+Reject [label: "Tr? l?i d? li?u ho?c quy?n"]
+Lookup [label: "Tra k?t qu? theo mã yêu c?u"]
+Processed [shape: diamond, label: "Mã yêu c?u dã du?c x? lı?"]
+SamePayload [shape: diamond, label: "N?i dung yêu c?u gi?ng l?n tru?c?"]
+OldResult [label: "Tr? l?i k?t qu? dã luu"]
+KeyConflict [label: "T? ch?i mã yêu c?u b? dùng sai"]
+ReadVersion [label: "Ğ?c POI và phiên b?n hi?n t?i"]
+VersionMatch [shape: diamond, label: "Thêm m?i ho?c phiên b?n còn kh?p?"]
+Conflict [label: "Tr? xung d?t và yêu c?u t?i l?i"]
+Prepare [label: "Chu?n b? POI và job audio n?u c?n"]
+Save [label: "Repository luu thay d?i vào MongoDB"]
+Saved [shape: diamond, label: "Xác nh?n luu thành công?"]
+Success [label: "Tr? POI và tr?ng thái tác v?"]
+Retry [label: "Xác minh k?t qu? ho?c retry cùng mã"]
+End [shape: oval, label: "K?t thúc"]
+
+Start > Submit
+Submit > Check
+Check > Allowed
+Allowed > Reject: Không
+Reject > End
+Allowed > Lookup: Có
+Lookup > Processed
+Processed > SamePayload: Có
+SamePayload > OldResult: Có
+SamePayload > KeyConflict: Không
+OldResult > End
+KeyConflict > End
+Processed > ReadVersion: Không
+ReadVersion > VersionMatch
+VersionMatch > Conflict: Không
+Conflict > End
+VersionMatch > Prepare: Có
+Prepare > Save
+Save > Saved
+Saved > Success: Có
+Saved > Retry: Không
+Success > End
+Retry > End

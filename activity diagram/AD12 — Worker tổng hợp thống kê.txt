@@ -1,0 +1,36 @@
+// AD12 — Worker t?ng h?p th?ng kê
+// Eraser: Flow Chart
+// Ghi metrics và ch?t generation nguyên t?, có ki?m tra lease.
+// Retry không c?ng l?p toàn b? k?t qu? c?a cùng m?t k?.
+
+direction down
+
+Start [shape: oval, label: "B?t d?u"]
+Select [label: "Ch?n k? c?n t?ng h?p"]
+Claim [label: "Claim lease và ch?p generation"]
+Claimed [shape: diamond, label: "Claim thành công?"]
+Read [label: "Ğ?c snapshot s? ki?n h?p l?"]
+Calculate [label: "Tính lu?t nghe, th?i gian và ch? s? POI"]
+Commit [label: "Ghi metrics và ch?t generation theo lease"]
+Saved [shape: diamond, label: "Xác nh?n commit thành công?"]
+NewGeneration [shape: diamond, label: "Còn generation m?i chua x? lı?"]
+Reschedule [label: "Gi? l?ch x? lı ti?p cho k? còn thay d?i"]
+Complete [label: "Hoàn t?t t?i m?c dã ch?t"]
+Reconcile [label: "Ğ?c l?i tr?ng thái tru?c khi retry có di?u ki?n"]
+End [shape: oval, label: "K?t thúc"]
+
+Start > Select
+Select > Claim
+Claim > Claimed
+Claimed > End: Không
+Claimed > Read: Có
+Read > Calculate
+Calculate > Commit
+Commit > Saved
+Saved > Reconcile: Không
+Reconcile > End
+Saved > NewGeneration: Có
+NewGeneration > Reschedule: Có
+NewGeneration > Complete: Không
+Reschedule > End
+Complete > End

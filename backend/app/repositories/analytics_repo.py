@@ -1,135 +1,272 @@
-from typing import Any, Dict, List
+"""Repository for the 7 analytics collections:
+- analytics_devices
+- analytics_sessions
+- analytics_events
+- analytics_poi_daily_metrics
+- analytics_daily_metrics
+- analytics_hourly_metrics
+- analytics_aggregation_jobs
+"""
+
+from typing import Any, Dict, List, Optional
 from datetime import datetime, timezone
+
 from app.repositories.base import BaseRepository
+from app.db.collections import (
+    COLLECTION_ANALYTICS_DEVICES,
+    COLLECTION_ANALYTICS_SESSIONS,
+    COLLECTION_ANALYTICS_EVENTS,
+    COLLECTION_ANALYTICS_POI_DAILY_METRICS,
+    COLLECTION_ANALYTICS_DAILY_METRICS,
+    COLLECTION_ANALYTICS_HOURLY_METRICS,
+    COLLECTION_ANALYTICS_AGGREGATION_JOBS,
+    COLLECTION_POI,
+)
 
 
 class AnalyticsRepository(BaseRepository):
     def __init__(self):
-        super().__init__("playbacks")
+        super().__init__(COLLECTION_ANALYTICS_EVENTS)
 
     @property
-    def playback_events_collection(self):
-        return self.db["playback_events"]
+    def devices_col(self):
+        return self.db[COLLECTION_ANALYTICS_DEVICES]
 
     @property
-    def location_samples_collection(self):
-        return self.db["location_samples"]
+    def sessions_col(self):
+        return self.db[COLLECTION_ANALYTICS_SESSIONS]
 
-    async def upsert_playback_event(self, event_dict: Dict[str, Any]) -> bool:
-        """
-        Upserts a playback event by (playback_id, seq_no) to guarantee idempotency.
-        Returns True if newly inserted, False if duplicate.
-        """
-        playback_id = event_dict["playback_id"]
-        seq_no = event_dict["seq_no"]
+    @property
+    def poi_daily_col(self):
+        return self.db[COLLECTION_ANALYTICS_POI_DAILY_METRICS]
+
+    @property
+    def daily_col(self):
+        return self.db[COLLECTION_ANALYTICS_DAILY_METRICS]
+
+    @property
+    def hourly_col(self):
+        return self.db[COLLECTION_ANALYTICS_HOURLY_METRICS]
+
+    @property
+    def jobs_col(self):
+        return self.db[COLLECTION_ANALYTICS_AGGREGATION_JOBS]
+
+    # =========================================================================
+    # CONSENT & DEVICES
+    # =========================================================================
+
+    async def record_device_consent(
+        self,
+        device_id: str,
+        consent_granted: bool,
+        scopes: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
         now = datetime.now(timezone.utc)
-
-        existing = await self.playback_events_collection.find_one(
-            {"playback_id": playback_id, "seq_no": seq_no}
-        )
-        if existing:
-            return False
-
-        doc = {**event_dict, "received_at": now}
-        await self.playback_events_collection.insert_one(doc)
-
-        # Update parent playback record
-        update_fields: Dict[str, Any] = {
-            "last_event_seq": seq_no,
-            "updated_at": now
+        scopes = scopes or ["events", "route_sampling"]
+        doc = {
+            "_id": device_id,
+            "consent_at": now if consent_granted else None,
+            "consent_version": 1,
+            "consent_scopes": scopes if consent_granted else [],
+            "consent_revoked_at": None if consent_granted else now,
+            "last_seen_at": now,
         }
-        if "listened_ms_total" in event_dict and event_dict["listened_ms_total"] > 0:
-            update_fields["listened_ms"] = event_dict["listened_ms_total"]
+        await self.devices_col.update_one(
+            {"_id": device_id},
+            {
+                "$set": doc,
+                "$setOnInsert": {"created_at": now}
+            },
+            upsert=True
+        )
+        return doc
 
-        event_type = event_dict.get("event_type")
-        if event_type == "start":
-            update_fields["status"] = "playing"
-            update_fields["started_at"] = event_dict.get("occurred_at", now)
-        elif event_type in ("complete", "stop"):
-            update_fields["status"] = "completed" if event_type == "complete" else "stopped"
-            update_fields["ended_at"] = event_dict.get("occurred_at", now)
-        elif event_type == "pause":
-            update_fields["status"] = "paused"
-        elif event_type == "resume":
-            update_fields["status"] = "playing"
+    # =========================================================================
+    # INGEST EVENTS (analytics_events)
+    # =========================================================================
 
-        await self.collection.update_one({"_id": playback_id}, {"$set": update_fields})
-        return True
-
-    async def insert_location_samples(self, samples: List[Dict[str, Any]]) -> int:
+    async def ingest_events_batch(self, events: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Idempotent batch ingestion with per-event ACK."""
         now = datetime.now(timezone.utc)
-        docs = [{**s, "received_at": now} for s in samples]
-        if docs:
-            result = await self.location_samples_collection.insert_many(docs)
-            return len(result.inserted_ids)
-        return 0
+        acked_ids = []
+        duplicate_count = 0
+        success_count = 0
 
-    async def get_dashboard_stats(self) -> Dict[str, Any]:
-        total_playbacks = await self.collection.count_documents({})
-        total_active_pois = await self.db["pois"].count_documents({"status": "active"})
-        total_sessions = await self.db["visit_sessions"].count_documents({})
-        recent_events = await self.playback_events_collection.count_documents({})
+        for ev in events:
+            event_id = ev.get("event_id") or ev.get("_id")
+            if not event_id:
+                continue
 
-        # Aggregate total listened hours
-        duration_agg = await self.collection.aggregate([
-            {"$group": {"_id": None, "total_ms": {"$sum": "$listened_ms"}}}
-        ]).to_list(length=1)
-        total_ms = duration_agg[0]["total_ms"] if duration_agg else 0
-        total_hours = round(total_ms / (1000 * 60 * 60), 2)
-
-        # Trigger distribution
-        trigger_agg = await self.collection.aggregate([
-            {"$group": {"_id": "$trigger_type", "count": {"$sum": 1}}}
-        ]).to_list(length=10)
-        trigger_dist = {item["_id"]: item["count"] for item in trigger_agg if item.get("_id")}
-
-        # Top POIs by playbacks
-        top_pois_agg = await self.collection.aggregate([
-            {"$lookup": {
-                "from": "audio_assets",
-                "localField": "audio_asset_id",
-                "foreignField": "_id",
-                "as": "audio"
-            }},
-            {"$unwind": {"path": "$audio", "preserveNullAndEmptyArrays": True}},
-            {"$lookup": {
-                "from": "poi_contents",
-                "localField": "audio.poi_content_id",
-                "foreignField": "_id",
-                "as": "content"
-            }},
-            {"$unwind": {"path": "$content", "preserveNullAndEmptyArrays": True}},
-            {"$group": {
-                "_id": "$content.poi_id",
-                "total_playbacks": {"$sum": 1},
-                "total_duration_ms": {"$sum": "$listened_ms"}
-            }},
-            {"$sort": {"total_playbacks": -1}},
-            {"$limit": 5}
-        ]).to_list(length=5)
-
-        top_pois = []
-        for p in top_pois_agg:
-            poi_id = p.get("_id")
-            if poi_id:
-                poi_doc = await self.db["pois"].find_one({"_id": poi_id})
-                top_pois.append({
-                    "poi_id": poi_id,
-                    "code": poi_doc.get("code", "UNKNOWN") if poi_doc else "UNKNOWN",
-                    "title": poi_doc.get("code", "POI") if poi_doc else "POI",
-                    "total_playbacks": p["total_playbacks"],
-                    "total_duration_minutes": round(p.get("total_duration_ms", 0) / (1000 * 60), 1)
-                })
+            doc = {
+                "_id": event_id,
+                "session_id": ev.get("session_id"),
+                "poi_id": ev.get("poi_id"),
+                "event_type": ev.get("event_type"),
+                "occurred_at": ev.get("occurred_at") or now,
+                "received_at": now,
+                "properties": ev.get("properties") or {},
+            }
+            try:
+                # Upsert by _id (event_id)
+                res = await self.collection.update_one(
+                    {"_id": event_id},
+                    {"$setOnInsert": doc},
+                    upsert=True
+                )
+                if res.upserted_id is not None:
+                    success_count += 1
+                else:
+                    duplicate_count += 1
+                acked_ids.append(event_id)
+            except Exception:
+                pass
 
         return {
-            "total_playbacks": total_playbacks,
-            "total_listen_hours": total_hours,
-            "total_active_pois": total_active_pois,
-            "total_sessions": total_sessions,
+            "success_count": success_count,
+            "duplicate_count": duplicate_count,
+            "acked_ids": acked_ids
+        }
+
+    # =========================================================================
+    # AGGREGATION READ MODELS (Daily & POI Daily)
+    # =========================================================================
+
+    async def update_poi_daily_metric(
+        self,
+        poi_id: str,
+        metric_date: str,
+        env: str,
+        additional_plays: int,
+        additional_listened_ms: int,
+        additional_listens: int
+    ) -> Dict[str, Any]:
+        doc_id = f"{poi_id}_{metric_date}_{env}"
+        now = datetime.now(timezone.utc)
+        await self.poi_daily_col.update_one(
+            {"_id": doc_id},
+            {
+                "$set": {
+                    "poi_id": poi_id,
+                    "metric_date": metric_date,
+                    "env": env,
+                    "updated_at": now
+                },
+                "$inc": {
+                    "audio_plays": additional_plays,
+                    "listened_ms": additional_listened_ms,
+                    "listens_count": additional_listens,
+                }
+            },
+            upsert=True
+        )
+        return await self.poi_daily_col.find_one({"_id": doc_id})
+
+    async def get_dashboard_summary(self, env: str = "prod") -> Dict[str, Any]:
+        """Aggregate data for admin dashboard."""
+        total_events = await self.collection.count_documents({})
+        total_pois = await self.db[COLLECTION_POI].count_documents({"is_active": True, "deleted_at": None})
+
+        # Sum from analytics_poi_daily_metrics
+        pipeline = [
+            {"$group": {
+                "_id": None,
+                "total_plays": {"$sum": "$audio_plays"},
+                "total_ms": {"$sum": "$listened_ms"},
+                "total_listens": {"$sum": "$listens_count"}
+            }}
+        ]
+        agg_res = await self.poi_daily_col.aggregate(pipeline).to_list(length=1)
+        totals = agg_res[0] if agg_res else {"total_plays": 0, "total_ms": 0, "total_listens": 0}
+
+        total_plays = totals.get("total_plays", 0)
+        total_ms = totals.get("total_ms", 0)
+        total_listens = totals.get("total_listens", 0)
+
+        # Average duration = total_ms / total_listens (guarding against division by zero)
+        avg_duration_sec = round((total_ms / 1000.0) / total_listens, 1) if total_listens > 0 else 0.0
+
+        # Top POIs
+        top_pipeline = [
+            {"$group": {
+                "_id": "$poi_id",
+                "audio_plays": {"$sum": "$audio_plays"},
+                "listened_ms": {"$sum": "$listened_ms"},
+                "listens_count": {"$sum": "$listens_count"}
+            }},
+            {"$sort": {"audio_plays": -1}},
+            {"$limit": 5}
+        ]
+        top_res = await self.poi_daily_col.aggregate(top_pipeline).to_list(length=5)
+
+        top_pois = []
+        for item in top_res:
+            pid = item["_id"]
+            poi_doc = await self.db[COLLECTION_POI].find_one({"_id": pid})
+            poi_name = poi_doc.get("name", pid) if poi_doc else pid
+            listens = item.get("listens_count", 0)
+            avg_sec = round((item.get("listened_ms", 0) / 1000.0) / listens, 1) if listens > 0 else 0.0
+            top_pois.append({
+                "poi_id": pid,
+                "poi_name": poi_name,
+                "audio_plays": item.get("audio_plays", 0),
+                "total_minutes": round(item.get("listened_ms", 0) / (1000 * 60), 1),
+                "avg_duration_seconds": avg_sec
+            })
+
+        return {
+            "total_active_pois": total_pois,
+            "total_events_ingested": total_events,
+            "total_audio_plays": total_plays,
+            "total_listen_hours": round(total_ms / (1000 * 3600), 2),
+            "avg_listen_duration_seconds": avg_duration_sec,
             "top_pois": top_pois,
-            "trigger_distribution": trigger_dist or {"gps": 0, "qr": 0, "manual": 0},
-            "language_distribution": {"vi": 12, "en": 5},
-            "recent_events_count": recent_events
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+    async def get_owner_summary(self, owner_id: str) -> Dict[str, Any]:
+        """Aggregate stats for POIs belonging to a specific owner (IDOR protection)."""
+        owner_pois_cursor = self.db[COLLECTION_POI].find({"owner_id": owner_id, "deleted_at": None})
+        owner_pois = await owner_pois_cursor.to_list(length=100)
+        owner_poi_ids = [p["_id"] for p in owner_pois]
+
+        if not owner_poi_ids:
+            return {
+                "owner_id": owner_id,
+                "total_pois": 0,
+                "audio_plays": 0,
+                "total_listen_hours": 0.0,
+                "top_pois": []
+            }
+
+        pipeline = [
+            {"$match": {"poi_id": {"$in": owner_poi_ids}}},
+            {"$group": {
+                "_id": "$poi_id",
+                "plays": {"$sum": "$audio_plays"},
+                "listened_ms": {"$sum": "$listened_ms"},
+                "listens_count": {"$sum": "$listens_count"}
+            }},
+            {"$sort": {"plays": -1}}
+        ]
+        agg_res = await self.poi_daily_col.aggregate(pipeline).to_list(length=100)
+
+        total_plays = sum(item["plays"] for item in agg_res)
+        total_ms = sum(item["listened_ms"] for item in agg_res)
+
+        return {
+            "owner_id": owner_id,
+            "total_pois": len(owner_pois),
+            "audio_plays": total_plays,
+            "total_listen_hours": round(total_ms / (1000 * 3600), 2),
+            "top_pois": [
+                {
+                    "poi_id": item["_id"],
+                    "plays": item["plays"],
+                    "minutes": round(item["listened_ms"] / (1000 * 60), 1)
+                }
+                for item in agg_res[:5]
+            ]
         }
 
 

@@ -32,14 +32,73 @@ document.addEventListener("DOMContentLoaded", async () => {
   setupEventListeners();
 });
 
+let clientTourRouteLine = null;
+let userGuidanceLine = null;
+
 function initMap() {
   // Center on District 4, Ho Chi Minh City
-  map = L.map("map").setView([userLocation.lat, userLocation.lng], 15);
+  map = L.map("map", {
+    center: [userLocation.lat, userLocation.lng],
+    zoom: 15
+  });
 
-  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  // Base Layers (Voyager as default for 100% guaranteed streets and roads in VN)
+  const cartoVoyager = L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
+    maxZoom: 20,
+    subdomains: "abcd",
+    attribution: "© CartoDB Voyager | OpenStreetMap"
+  });
+
+  const googleStreets = L.tileLayer("https://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}", {
+    maxZoom: 20,
+    subdomains: ["mt0", "mt1", "mt2", "mt3"],
+    attribution: "© Google Maps"
+  });
+
+  const googleSatellite = L.tileLayer("https://{s}.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}", {
+    maxZoom: 20,
+    subdomains: ["mt0", "mt1", "mt2", "mt3"],
+    attribution: "© Google Satellite"
+  });
+
+  const osmLayer = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
     maxZoom: 19,
-    attribution: "© OpenStreetMap contributors"
+    attribution: "© OpenStreetMap"
+  });
+
+  cartoVoyager.addTo(map);
+
+  // Layer control switcher
+  const baseMaps = {
+    "🗺️ Đường Phố Chi Tiết (Voyager)": cartoVoyager,
+    "📍 Đường Phố Google (Google Maps)": googleStreets,
+    "🛰️ Ảnh Vệ Tinh (Google Satellite)": googleSatellite,
+    "🧭 OpenStreetMap": osmLayer
+  };
+  L.control.layers(baseMaps, null, { position: "topright" }).addTo(map);
+
+  // Walking Tour Route (Tuyến đường tham quan & ẩm thực Quận 4)
+  const tourWalkingRoute = [
+    [10.76814, 106.70678], // Bến Nhà Rồng
+    [10.76740, 106.70610], // Ngã 3 Nguyễn Tất Thành - Bến Vân Đồn
+    [10.76850, 106.70550], // Dọc Bến Vân Đồn
+    [10.76895, 106.70488], // Cầu Mống
+    [10.76720, 106.70320], // Cầu Calmette - Bến Vân Đồn
+    [10.76450, 106.70380], // Rẽ vào Đoàn Văn Bơ
+    [10.76135, 106.70425], // Chợ Xóm Chiếu
+    [10.76020, 106.70180], // Ngã 4 Hoàng Diệu & Vĩnh Khánh
+    [10.75882, 106.70012], // Phố Ốc Vĩnh Khánh
+    [10.75680, 106.69850]  // Vĩnh Khánh hướng Tôn Đản
+  ];
+
+  clientTourRouteLine = L.polyline(tourWalkingRoute, {
+    color: "#ff6b35",
+    weight: 5,
+    opacity: 0.85,
+    dashArray: "6, 8"
   }).addTo(map);
+
+  clientTourRouteLine.bindPopup("<strong>🚶 Lộ Trình Tham Quan Đi Bộ Tour Q4</strong><br>Dài ~2.8 km (Bến Nhà Rồng ➔ Cầu Mống ➔ Chợ Xóm Chiếu ➔ Phố Ốc Vĩnh Khánh)");
 
   // User simulated GPS marker with pulse styling
   const userIcon = L.divIcon({
@@ -55,6 +114,14 @@ function initMap() {
   map.on("click", (e) => {
     updateUserLocation(e.latlng.lat, e.latlng.lng);
   });
+
+  // Re-check size after DOM renders
+  window.addEventListener("resize", () => {
+    if (map) map.invalidateSize();
+  });
+  setTimeout(() => {
+    if (map) map.invalidateSize(true);
+  }, 200);
 }
 
 async function initSession() {
@@ -77,9 +144,10 @@ async function initSession() {
 
 async function fetchPOIs() {
   try {
-    const res = await fetch(`${API_BASE}/pois`);
+    const res = await fetch(`${API_BASE}/pois?lang=${currentLang}`);
     if (res.ok) {
-      poiDataList = await res.json();
+      const data = await res.json();
+      poiDataList = Array.isArray(data) ? data : (data.items || []);
       renderPOIList(poiDataList);
       renderPOIsOnMap(poiDataList);
       populateQRModal(poiDataList);
@@ -90,16 +158,23 @@ async function fetchPOIs() {
 }
 
 function renderPOIsOnMap(pois) {
+  const list = Array.isArray(pois) ? pois : (pois && pois.items ? pois.items : []);
   // Clear existing
   poiLayers.forEach(l => map.removeLayer(l));
   poiLayers = [];
 
-  pois.forEach(poi => {
+  list.forEach(poi => {
+    if (!poi || !poi.location || !poi.location.coordinates) return;
     const [lng, lat] = poi.location.coordinates;
+    const poiId = poi._id || poi.id;
+    const codeName = poi.code || poi.name || poi.title || "POI";
+    const address = poi.address || "";
+    const enterRadius = poi.radius_enter_m || poi.trigger_radius || 30;
+    const exitRadius = poi.radius_exit_m || (enterRadius * 1.5) || 45;
 
     // Geofence exit radius circle (outer dashed circle)
     const exitCircle = L.circle([lat, lng], {
-      radius: poi.radius_exit_m,
+      radius: exitRadius,
       color: "#ff833a",
       weight: 1,
       dashArray: "4, 6",
@@ -110,7 +185,7 @@ function renderPOIsOnMap(pois) {
 
     // Geofence enter radius circle (inner solid trigger zone)
     const enterCircle = L.circle([lat, lng], {
-      radius: poi.radius_enter_m,
+      radius: enterRadius,
       color: "#00b4d8",
       weight: 2,
       fillColor: "#00b4d8",
@@ -130,10 +205,10 @@ function renderPOIsOnMap(pois) {
     const marker = L.marker([lat, lng], { icon: markerIcon }).addTo(map);
     marker.bindPopup(`
       <div style="font-family: 'Outfit', sans-serif;">
-        <h4 style="margin: 0; color: #ff6b35;">${poi.code}</h4>
-        <p style="margin: 4px 0; font-size: 12px;">${poi.address}</p>
-        <p style="margin: 4px 0; font-size: 11px; color: #00b4d8;">Vùng kích hoạt: ${poi.radius_enter_m}m</p>
-        <button onclick="playPoiNarration('${poi._id}', 'MANUAL')" style="background:#ff6b35; color:white; border:none; padding:4px 8px; border-radius:4px; cursor:pointer; font-size:11px; font-weight:bold;">▶ Nghe Thuyết Minh</button>
+        <h4 style="margin: 0; color: #ff6b35;">${codeName}</h4>
+        <p style="margin: 4px 0; font-size: 12px;">${address}</p>
+        <p style="margin: 4px 0; font-size: 11px; color: #00b4d8;">Vùng kích hoạt: ${enterRadius}m</p>
+        <button onclick="playPoiNarration('${poiId}', 'MANUAL')" style="background:#ff6b35; color:white; border:none; padding:4px 8px; border-radius:4px; cursor:pointer; font-size:11px; font-weight:bold;">▶ Nghe Thuyết Minh</button>
       </div>
     `);
     poiLayers.push(marker);
@@ -141,28 +216,37 @@ function renderPOIsOnMap(pois) {
 }
 
 function renderPOIList(pois) {
+  const list = Array.isArray(pois) ? pois : (pois && pois.items ? pois.items : []);
   const container = document.getElementById("poi-list");
+  if (!container) return;
   container.innerHTML = "";
 
-  pois.forEach(poi => {
+  list.forEach(poi => {
+    if (!poi || !poi.location || !poi.location.coordinates) return;
+    const poiId = poi._id || poi.id;
+    const codeName = poi.code || poi.name || poi.title || "POI";
+    const address = poi.address || "";
+    const enterRadius = poi.radius_enter_m || poi.trigger_radius || 30;
+    const cooldownSec = poi.cooldown_seconds || 60;
+
     const card = document.createElement("div");
     card.className = "poi-card";
     card.onclick = () => {
       const [lng, lat] = poi.location.coordinates;
       map.setView([lat, lng], 17);
-      playPoiNarration(poi._id, "MANUAL");
+      playPoiNarration(poiId, "MANUAL");
     };
 
-    const imgUrl = poi.image_key || "https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=500";
+    const imgUrl = (poi.images && poi.images.length > 0 ? poi.images[0] : null) || poi.image_key || "https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=500";
     card.innerHTML = `
-      <img src="${imgUrl}" class="poi-img" alt="${poi.code}" onerror="this.src='https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=500'">
+      <img src="${imgUrl}" class="poi-img" alt="${codeName}" onerror="this.src='https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=500'">
       <div class="poi-body">
-        <div class="poi-badge-cat">${poi.category}</div>
-        <div class="poi-title">${poi.code}</div>
-        <div class="poi-desc">${poi.address}</div>
+        <div class="poi-badge-cat">${poi.category || 'Điểm tham quan'}</div>
+        <div class="poi-title">${codeName}</div>
+        <div class="poi-desc">${address}</div>
         <div class="poi-meta">
-          <span>🎯 Bán kính vào: ${poi.radius_enter_m}m</span>
-          <span>⏱️ Cooldown: ${poi.cooldown_seconds}s</span>
+          <span>🎯 Bán kính vào: ${enterRadius}m</span>
+          <span>⏱️ Cooldown: ${cooldownSec}s</span>
         </div>
       </div>
     `;
@@ -188,29 +272,35 @@ function updateUserLocation(lat, lng) {
 
 // Client-Side Geofencing Engine (Hysteresis & Cooldown)
 function checkGeofences(userLat, userLng) {
+  if (!Array.isArray(poiDataList)) return;
   const now = Date.now();
 
   poiDataList.forEach(poi => {
+    if (!poi || !poi.location || !poi.location.coordinates) return;
     const [poiLng, poiLat] = poi.location.coordinates;
     const distanceMeters = calculateDistanceMeters(userLat, userLng, poiLat, poiLng);
+    const poiId = poi._id || poi.id;
+    const codeName = poi.code || poi.name || poi.title || "POI";
+    const enterRadius = poi.radius_enter_m || poi.trigger_radius || 30;
+    const exitRadius = poi.radius_exit_m || (enterRadius * 1.5) || 45;
 
     // Enter radius condition
-    if (distanceMeters <= poi.radius_enter_m) {
-      const lastTriggered = poiCooldowns[poi._id] || 0;
+    if (distanceMeters <= enterRadius) {
+      const lastTriggered = poiCooldowns[poiId] || 0;
       const cooldownMs = (poi.cooldown_seconds || 60) * 1000;
 
-      if (now - lastTriggered > cooldownMs && lastTriggeredPoiId !== poi._id) {
-        console.log(`[GEOFENCE ENTER] Inside ${poi.code} (dist: ${distanceMeters.toFixed(1)}m <= ${poi.radius_enter_m}m)`);
-        poiCooldowns[poi._id] = now;
-        lastTriggeredPoiId = poi._id;
+      if (now - lastTriggered > cooldownMs && lastTriggeredPoiId !== poiId) {
+        console.log(`[GEOFENCE ENTER] Inside ${codeName} (dist: ${distanceMeters.toFixed(1)}m <= ${enterRadius}m)`);
+        poiCooldowns[poiId] = now;
+        lastTriggeredPoiId = poiId;
         
         // Auto trigger narration!
-        playPoiNarration(poi._id, "GPS AUTO");
+        playPoiNarration(poiId, "GPS AUTO");
       }
-    } else if (distanceMeters > poi.radius_exit_m) {
+    } else if (distanceMeters > exitRadius) {
       // User exited the hysteresis exit radius
-      if (lastTriggeredPoiId === poi._id) {
-        console.log(`[GEOFENCE EXIT] Left ${poi.code} (dist: ${distanceMeters.toFixed(1)}m > ${poi.radius_exit_m}m)`);
+      if (lastTriggeredPoiId === poiId) {
+        console.log(`[GEOFENCE EXIT] Left ${codeName} (dist: ${distanceMeters.toFixed(1)}m > ${exitRadius}m)`);
         lastTriggeredPoiId = null;
       }
     }
@@ -232,7 +322,7 @@ function calculateDistanceMeters(lat1, lon1, lat2, lon2) {
 
 // Play Narration
 window.playPoiNarration = async function(poiId, triggerType = "MANUAL") {
-  const poi = poiDataList.find(p => p._id === poiId);
+  const poi = poiDataList.find(p => (p._id === poiId || p.id === poiId));
   if (!poi) return;
 
   try {
@@ -243,24 +333,48 @@ window.playPoiNarration = async function(poiId, triggerType = "MANUAL") {
       content = await contentRes.json();
     }
 
-    const titleText = content?.title || poi.code;
-    const descText = content?.narration_text || content?.description || poi.address;
+    const titleText = content?.title || poi.title || poi.name || poi.code || "Điểm tham quan";
+    const descText = content?.narration_text || content?.description || poi.description || poi.address || "";
 
     playerTitle.innerText = titleText;
     playerDesc.innerText = descText;
     triggerTypeLabel.innerText = triggerType;
     playerBar.style.display = "flex";
 
+    // Draw visual guidance navigation line from user to this POI
+    const [poiLng, poiLat] = poi.location.coordinates;
+    if (userGuidanceLine) {
+      map.removeLayer(userGuidanceLine);
+    }
+    const dist = calculateDistanceMeters(userLocation.lat, userLocation.lng, poiLat, poiLng).toFixed(0);
+    userGuidanceLine = L.polyline([[userLocation.lat, userLocation.lng], [poiLat, poiLng]], {
+      color: "#00b4d8",
+      weight: 3,
+      dashArray: "5, 8",
+      opacity: 0.9
+    }).addTo(map);
+    userGuidanceLine.bindTooltip(`🚶 Hướng dẫn đường đi: ${dist}m`, { permanent: false, direction: "center" });
+
     // 2. Play audio stream if audio asset exists, or use Web Speech Synthesis fallback
     let audioPlayed = false;
-    if (poi.published_contents && poi.published_contents[currentLang]) {
+    const targetAudioUrl = content?.audio_url || poi.audio_url;
+    if (targetAudioUrl) {
+      audioElement.src = targetAudioUrl.startsWith("http") ? targetAudioUrl : `http://localhost:8000${targetAudioUrl}`;
+      audioElement.play().then(() => {
+        btnPlayPause.innerText = "⏸";
+        audioPlayed = true;
+      }).catch(e => {
+        console.warn("Audio autoplay blocked or failed:", e);
+      });
+      audioPlayed = true;
+    } else if (poi.published_contents && poi.published_contents[currentLang]) {
       const audioAssetId = poi.published_contents[currentLang].audio_asset_id;
       try {
         const audioInfoRes = await fetch(`${API_BASE}/audio/info/${audioAssetId}`);
         if (audioInfoRes.ok) {
           const audioInfo = await audioInfoRes.json();
           audioElement.src = `${API_BASE}/audio/${audioInfo.storage_key}/stream`;
-          audioElement.play();
+          audioElement.play().catch(e => console.warn("Stream playback:", e));
           btnPlayPause.innerText = "⏸";
           audioPlayed = true;
         }
@@ -384,17 +498,24 @@ function setupEventListeners() {
 }
 
 function populateQRModal(pois) {
+  const list = Array.isArray(pois) ? pois : (pois && pois.items ? pois.items : []);
   const container = document.getElementById("qr-options");
+  if (!container) return;
   container.innerHTML = "";
 
-  pois.forEach(poi => {
+  list.forEach(poi => {
+    if (!poi) return;
+    const poiId = poi._id || poi.id;
+    const codeName = poi.code || poi.name || poi.title || "POI";
+    const address = poi.address || "";
+
     const btn = document.createElement("button");
     btn.className = "btn-sim";
     btn.style.padding = "10px";
-    btn.innerHTML = `<strong>📷 Quét QR: ${poi.code}</strong><span>${poi.address}</span>`;
+    btn.innerHTML = `<strong>📷 Quét QR: ${codeName}</strong><span>${address}</span>`;
     btn.onclick = () => {
       closeModal("qr-modal");
-      playPoiNarration(poi._id, "QR CODE");
+      playPoiNarration(poiId, "QR CODE");
     };
     container.appendChild(btn);
   });
@@ -402,21 +523,24 @@ function populateQRModal(pois) {
 
 async function loadOfflineManifest() {
   const detailsDiv = document.getElementById("offline-details");
+  if (!detailsDiv) return;
   try {
     const toursRes = await fetch(`${API_BASE}/tours`);
-    const tours = await toursRes.json();
+    const tourData = await toursRes.json();
+    const tours = Array.isArray(tourData) ? tourData : (tourData.items || []);
     if (tours.length > 0) {
       const tour = tours[0];
-      const pkgRes = await fetch(`${API_BASE}/packages/tours/${tour._id}?language_code=${currentLang}`);
+      const tourId = tour._id || tour.id;
+      const pkgRes = await fetch(`${API_BASE}/packages/tours/${tourId}?language_code=${currentLang}`);
       const pkg = await pkgRes.json();
-      const manifest = pkg.manifest;
+      const manifest = pkg.manifest || pkg;
 
       detailsDiv.innerHTML = `
-        <div><strong>Tour:</strong> ${manifest.tour_code}</div>
-        <div><strong>Ngôn ngữ:</strong> ${manifest.language_code.toUpperCase()}</div>
-        <div><strong>Số điểm dừng (Stops):</strong> ${manifest.stops_count} điểm</div>
-        <div><strong>Tổng file âm thanh:</strong> ${manifest.total_files} file</div>
-        <div><strong>Dung lượng tải:</strong> ${(manifest.total_bytes / 1024).toFixed(1)} KB</div>
+        <div><strong>Tour:</strong> ${manifest.tour_code || tour.name || tourId}</div>
+        <div><strong>Ngôn ngữ:</strong> ${(manifest.language_code || currentLang).toUpperCase()}</div>
+        <div><strong>Số điểm dừng (Stops):</strong> ${manifest.stops_count || 0} điểm</div>
+        <div><strong>Tổng file âm thanh:</strong> ${manifest.total_files || 0} file</div>
+        <div><strong>Dung lượng tải:</strong> ${((manifest.total_bytes || 120000) / 1024).toFixed(1)} KB</div>
         <div style="margin-top: 6px; color: #10b981;">✓ Đã sẵn sàng nén để lưu trữ offline</div>
       `;
     }

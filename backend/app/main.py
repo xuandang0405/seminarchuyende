@@ -4,31 +4,24 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+
 from app.core.config import settings
 from app.core.database import connect_to_mongo, close_mongo_connection
 from app.api.v1.router import api_router
-from app.services.job_worker import job_worker
-
-worker_task = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: Connect to MongoDB Atlas
+    # Startup: Connect to MongoDB via PyMongo Async
     await connect_to_mongo()
-    # Start async content job worker
-    global worker_task
-    worker_task = asyncio.create_task(job_worker.worker_loop())
     yield
     # Shutdown
-    if worker_task:
-        worker_task.cancel()
     await close_mongo_connection()
 
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
-    description="TourVoice: Hệ Thống Thuyết Minh Du Lịch Đa Ngôn Ngữ Quận 4 (FastAPI + MongoDB Atlas).",
+    description="Hệ thống Thuyết minh Du lịch Tự động Đa ngôn ngữ Quận 4 (FastAPI + PyMongo Async + MongoDB).",
     version="1.0.0",
     docs_url="/docs",
     redoc_url="/redoc",
@@ -49,7 +42,7 @@ app.add_middleware(
 if os.path.exists(settings.MEDIA_STORAGE_DIR):
     app.mount("/storage", StaticFiles(directory=settings.MEDIA_STORAGE_DIR), name="storage")
 
-# Mount Frontend Client & Admin (relative to backend dir)
+# Mount Frontend Client & Admin (legacy fallback if present)
 frontend_base = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "frontend"))
 client_dir = os.path.join(frontend_base, "client")
 admin_dir = os.path.join(frontend_base, "admin")

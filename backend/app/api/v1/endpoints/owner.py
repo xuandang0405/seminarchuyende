@@ -1,99 +1,97 @@
-import uuid
-from datetime import datetime, timezone
-from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, status
+"""Router for Owner Portal endpoints.
+
+O02 / O03 / O04 / O05 / O06 / O07 / O08 / O10 / SD09 / AD09.
+"""
+
+from typing import Any, Dict, List, Optional
+from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+
 from app.api.v1.endpoints.auth import get_current_owner
-from app.repositories.owner_repo import owner_repo
-from app.repositories.poi_repo import poi_repo
-from app.repositories.analytics_repo import analytics_repo
-from app.schemas.poi import POIResponse, MenuItem
-from app.schemas.owner import OwnerSubmissionCreate, OwnerSubmissionResponse
+from app.services.owner_service import owner_service
+from app.services.analytics_service import analytics_service
 
 router = APIRouter(prefix="/owner", tags=["Store Owner Portal (Chủ quán)"])
 
 
-@router.get("/my-pois", response_model=List[POIResponse])
-async def get_my_pois(current_owner: dict = Depends(get_current_owner)):
-    """List all POIs owned and managed by the current store owner."""
-    pois = await poi_repo.find_by_owner(current_owner["_id"])
+class SubmissionCreateRequest(BaseModel):
+    action: str = Field("create", description="'create' or 'update'")
+    poi_id: Optional[str] = None
+    payload: Dict[str, Any]
+    request_key: Optional[str] = None
+
+
+@router.get("/registration")
+async def get_registration_status(current_owner: dict = Depends(get_current_owner)):
+    """Use Case O02: Check owner verification status."""
+    reg = await owner_service.get_registration_status(current_owner["_id"])
+    return {
+        "user_id": current_owner["_id"],
+        "is_poi_owner_verified": current_owner.get("is_poi_owner_verified", False),
+        "registration": reg
+    }
+
+
+@router.get("/pois")
+async def get_my_pois(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=100),
+    current_owner: dict = Depends(get_current_owner)
+):
+    """Use Case O03: View list of POIs owned by current owner."""
+    pois = await owner_service.get_my_pois(owner_id=current_owner["_id"], skip=skip, limit=limit)
     return pois
 
 
-@router.post("/submissions", response_model=OwnerSubmissionResponse, status_code=status.HTTP_201_CREATED)
-async def submit_content_change(
-    sub_in: OwnerSubmissionCreate,
+@router.post("/submissions", status_code=status.HTTP_201_CREATED)
+async def create_submission(
+    req: SubmissionCreateRequest,
     current_owner: dict = Depends(get_current_owner)
 ):
-    """
-    Sequence Diagram 09: Owner submits new POI or modification for Admin review.
-    """
-    if current_owner.get("owner_status") != "approved":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Your owner account has not been approved by an administrator yet."
-        )
-
-    now = datetime.now(timezone.utc)
-    sub_doc = {
-        "_id": str(uuid.uuid4()),
-        "owner_id": current_owner["_id"],
-        "poi_id": sub_in.poi_id,
-        "submission_type": sub_in.submission_type,
-        "title": sub_in.title,
-        "proposed_content": sub_in.proposed_content,
-        "owner_notes": sub_in.owner_notes,
-        "status": "pending",
-        "admin_notes": None,
-        "reviewed_by": None,
-        "reviewed_at": None,
-        "created_at": now,
-        "updated_at": now
-    }
-    await owner_repo.create_submission(sub_doc)
-    return sub_doc
+    """Use Case O04, O05: Submit draft POI or modification for Admin review."""
+    res = await owner_service.submit_content(
+        owner_id=current_owner["_id"],
+        action=req.action,
+        payload=req.payload,
+        poi_id=req.poi_id,
+        request_key=req.request_key
+    )
+    if not res.get("success"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=res.get("error"))
+    return res
 
 
-@router.get("/submissions", response_model=List[OwnerSubmissionResponse])
+@router.get("/submissions")
 async def list_my_submissions(current_owner: dict = Depends(get_current_owner)):
-    """View submission review status (pending, approved, rejected) and admin notes."""
-    subs = await owner_repo.list_submissions(owner_id=current_owner["_id"])
+    """Use Case O06: View owner's submissions and admin feedback."""
+    subs = await owner_service.list_my_submissions(owner_id=current_owner["_id"])
     return subs
 
 
-@router.post("/pois/{poi_id}/menu", response_model=POIResponse)
-async def owner_update_menu(
-    poi_id: str,
-    item: MenuItem,
+@router.get("/notifications")
+async def list_my_notifications(current_owner: dict = Depends(get_current_owner)):
+    """Use Case O07: View in-app notifications."""
+    notifs = await owner_service.list_my_notifications(owner_id=current_owner["_id"])
+    return notifs
+
+
+@router.patch("/notifications/{notif_id}/read")
+async def mark_notification_as_read(
+    notif_id: str,
     current_owner: dict = Depends(get_current_owner)
 ):
-    """Owner adds or updates a specialty dish on their store menu."""
-    poi = await poi_repo.get_by_id(poi_id)
-    if not poi or poi.get("owner_id") != current_owner["_id"]:
-        raise HTTPException(status_code=403, detail="You do not own this POI")
-
-    item_dict = item.model_dump()
-    if not item_dict.get("id"):
-        item_dict["id"] = str(uuid.uuid4())
-
-    menu_list = poi.get("menu_items", [])
-    menu_list.append(item_dict)
-
-    updated = await poi_repo.update_by_id(poi_id, {
-        "menu_items": menu_list,
-        "updated_at": datetime.now(timezone.utc)
-    })
-    return updated
+    """Use Case O08: Mark notification as read."""
+    success = await owner_service.mark_notification_read(notif_id=notif_id, owner_id=current_owner["_id"])
+    if not success:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Thông báo không tồn tại.")
+    return {"success": True, "message": "Đã đánh dấu đã đọc."}
 
 
-@router.get("/stats")
-async def get_owner_stats(current_owner: dict = Depends(get_current_owner)):
-    """Use Case O10: View playbacks and listening metrics for owner's POIs."""
-    my_pois = await poi_repo.find_by_owner(current_owner["_id"])
-    poi_ids = [p["_id"] for p in my_pois]
-
-    # In production, aggregate specifically for these poi_ids
-    return {
-        "total_managed_pois": len(my_pois),
-        "managed_pois": [{"id": p["_id"], "code": p["code"]} for p in my_pois],
-        "message": "Owner analytics successfully fetched."
-    }
+@router.get("/analytics")
+async def get_owner_analytics(current_owner: dict = Depends(get_current_owner)):
+    """Use Case O10: View listening statistics for owned POIs."""
+    stats = await analytics_service.get_dashboard(
+        actor_role=current_owner.get("role", "poi_owner"),
+        actor_id=current_owner["_id"]
+    )
+    return stats

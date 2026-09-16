@@ -28,7 +28,25 @@ class Settings(BaseSettings):
     # Security Settings
     SECRET_KEY: str = "tourvoice_super_secret_jwt_key_seminar_district_4"
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 10080  # 7 days
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 15  # Short-lived access token (15 mins)
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 30    # Long-lived refresh token in HttpOnly cookie
+
+    # Cookies & CSRF Settings
+    SESSION_COOKIE_NAME: str = "tourvoice_refresh_token"
+    CSRF_COOKIE_NAME: str = "tourvoice_csrf_token"
+    CSRF_HEADER_NAME: str = "X-CSRF-Token"
+    COOKIE_SECURE: bool = False
+    COOKIE_SAMESITE: str = "lax"
+    FRONTEND_URL: str = "http://localhost:5173"
+    FRONTEND_CALLBACK_URL: str = "http://localhost:5173/auth/callback"
+    ALLOWED_RETURN_PATHS: List[str] = [
+        "/", "/dashboard", "/pois", "/account", "/account/security", "/owner-registration", "/menu", "/analytics"
+    ]
+
+    # Google OAuth 2.0 / OIDC Settings
+    GOOGLE_CLIENT_ID: Optional[str] = None
+    GOOGLE_CLIENT_SECRET: Optional[str] = None
+    GOOGLE_REDIRECT_URI: str = "http://localhost:8000/api/v1/auth/google/callback"
 
     # Media Storage
     MEDIA_STORAGE_DIR: str = "storage"

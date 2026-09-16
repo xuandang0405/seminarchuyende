@@ -1,0 +1,38 @@
+// AD13 — Admin ho?c ch? quán xem th?ng kê
+// Eraser: Flow Chart
+// Ch? quán ch? du?c xem POI thu?c ph?m vi du?c c?p quy?n.
+
+direction down
+
+Start [shape: oval, label: "B?t d?u"]
+Filters [label: "Ch?n kho?ng th?i gian và b? l?c"]
+CheckPermission [label: "Service xác d?nh quy?n và ph?m vi POI"]
+Allowed [shape: diamond, label: "Ğu?c phép xem ph?m vi yêu c?u?"]
+Denied [label: "Tr? l?i xác th?c ho?c quy?n"]
+ValidFilters [shape: diamond, label: "B? l?c h?p l??"]
+FilterError [label: "Yêu c?u s?a b? l?c"]
+Query [label: "Repository truy v?n d? li?u t?ng h?p"]
+QueryOK [shape: diamond, label: "Truy v?n thành công?"]
+Error [label: "Thông báo l?i và cho phép th? l?i"]
+HasData [shape: diamond, label: "Có d? li?u trong k??"]
+Display [label: "Hi?n th? ch? s?, bi?u d? và m?c c?p nh?t"]
+Empty [label: "Hi?n th? tr?ng thái chua có d? li?u"]
+End [shape: oval, label: "K?t thúc"]
+
+Start > Filters
+Filters > CheckPermission
+CheckPermission > Allowed
+Allowed > Denied: Không
+Denied > End
+Allowed > ValidFilters: Có
+ValidFilters > FilterError: Không
+FilterError > Filters
+ValidFilters > Query: Có
+Query > QueryOK
+QueryOK > Error: Không
+Error > End
+QueryOK > HasData: Có
+HasData > Display: Có
+HasData > Empty: Không
+Display > End
+Empty > End

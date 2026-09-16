@@ -1,0 +1,50 @@
+// AD10 — Admin ki?m duy?t h? so ho?c n?i dung
+// Eraser: Flow Chart
+// Duy?t POI chua d?ng nghia công b? ngay.
+// Công b? còn ph? thu?c yêu c?u kích ho?t và n?i dung s?n sàng.
+
+direction down
+
+Start [shape: oval, label: "B?t d?u"]
+Select [label: "Admin ch?n h? so c?n duy?t"]
+CheckPermission [label: "Ki?m tra quy?n xét duy?t"]
+Allowed [shape: diamond, label: "Có d? quy?n?"]
+Denied [label: "T? ch?i thao tác"]
+Read [label: "Ğ?c h? so và phiên b?n hi?n t?i"]
+Pending [shape: diamond, label: "H? so còn pending?"]
+Changed [label: "Thông báo h? so dã thay d?i"]
+Review [label: "Ch?n quy?t d?nh và nh?p lı do"]
+Approved [shape: diamond, label: "Ch?p thu?n?"]
+Registration [shape: diamond, label: "Là h? so dang kı ch? quán?"]
+VerifyOwner [label: "Chu?n b? xác minh tài kho?n ch? quán"]
+PreparePOI [label: "Chu?n b? c?p nh?t POI và job c?n thi?t"]
+PrepareRejection [label: "Chu?n b? t? ch?i và gi? d? li?u công khai"]
+Save [label: "Luu quy?t d?nh và thông báo theo pending, version"]
+Saved [shape: diamond, label: "Xác nh?n luu thành công?"]
+Success [label: "Hi?n th? k?t qu? xét duy?t"]
+Reload [label: "T?i l?i d? x? lı xung d?t ho?c l?i"]
+End [shape: oval, label: "K?t thúc"]
+
+Start > Select
+Select > CheckPermission
+CheckPermission > Allowed
+Allowed > Denied: Không
+Denied > End
+Allowed > Read: Có
+Read > Pending
+Pending > Changed: Không
+Changed > End
+Pending > Review: Có
+Review > Approved
+Approved > Registration: Có
+Registration > VerifyOwner: Có
+Registration > PreparePOI: Không
+Approved > PrepareRejection: Không
+VerifyOwner > Save
+PreparePOI > Save
+PrepareRejection > Save
+Save > Saved
+Saved > Success: Có
+Saved > Reload: Không
+Success > End
+Reload > End

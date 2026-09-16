@@ -1,0 +1,35 @@
+// AD08 — Ğang kı ch? quán
+// Eraser: Flow Chart
+// Tài kho?n m?i chua có quy?n c?a ch? quán dã xác minh.
+
+direction down
+
+Start [shape: oval, label: "B?t d?u"]
+Input [label: "Nh?p h? so dang kı"]
+Validate [label: "Router ki?m tra d? li?u"]
+Valid [shape: diamond, label: "H? so h?p l??"]
+InputError [label: "Hi?n th? l?i nh?p li?u"]
+Protect [label: "Chu?n hóa email và bam m?t kh?u"]
+Save [label: "Luu user chua xác minh và h? so pending"]
+Saved [shape: diamond, label: "Xác nh?n luu thành công?"]
+Success [label: "Thông báo dang kı thành công và ch? duy?t"]
+Duplicate [shape: diamond, label: "Email dã t?n t?i?"]
+EmailError [label: "Thông báo email dã du?c s? d?ng"]
+Retry [label: "Ki?m tra tr?ng thái ho?c th? l?i"]
+End [shape: oval, label: "K?t thúc"]
+
+Start > Input
+Input > Validate
+Validate > Valid
+Valid > InputError: Không
+InputError > Input
+Valid > Protect: Có
+Protect > Save
+Save > Saved
+Saved > Success: Có
+Saved > Duplicate: Không
+Duplicate > EmailError: Có
+Duplicate > Retry: Không
+Success > End
+EmailError > End
+Retry > End

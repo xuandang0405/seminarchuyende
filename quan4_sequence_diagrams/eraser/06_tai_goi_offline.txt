@@ -1,0 +1,63 @@
+// Tải và kích hoạt gói offline
+// H: mô hình hóa từ HTML, có cụ thể hóa thiết kế
+// Use case: F02, F03, F04, F05, F06
+// Đây là mô hình đề xuất, không phải sơ đồ trích xuất từ backend đã chạy.
+// API manifest và nguồn tài nguyên được biểu diễn theo vai trò; URL cụ thể phụ thuộc triển khai.
+// Gói phải ghim version và checksum. Dữ liệu chưa được kiểm tra nằm trong staging, không được gắn thành gói đang dùng.
+// Cache API và IndexedDB không được giả định cùng một transaction; chỉ đổi active pointer sau khi tài nguyên và metadata đã sẵn sàng.
+// Khi lỗi, giữ gói đang hoạt động. Có thể giữ staging hợp lệ để tiếp tục tải với cùng manifest fingerprint.
+
+autoNumber on
+colorMode pastel
+styleMode plain
+typeface clean
+
+User [label: "Du khách", color: blue]
+App [label: "Trình tải gói", color: blue]
+API [label: "API manifest", color: orange]
+Assets [label: "Nguồn tài nguyên", color: gray]
+Cache [label: "Bộ nhớ offline", color: green]
+
+User > App: Chọn tải hoặc cập nhật gói và ngôn ngữ
+App > API: Yêu cầu manifest và phiên bản gói
+API --> App: Danh sách tài nguyên cùng kích thước và checksum
+App > App: Kiểm tra mạng và dung lượng dự kiến
+break [label: "Thiếu dung lượng hoặc không tải được manifest"] {
+  App --> User: Thông báo lý do và giữ gói hiện tại
+}
+App > Cache: Tạo vùng staging cho phiên bản mới
+loop [label: "Mỗi tài nguyên còn thiếu, khi chưa có lỗi"] {
+  App > Assets: Tải tài nguyên theo manifest đã chọn
+  alt [label: "Tải thành công"] {
+    Assets --> App: Dữ liệu tài nguyên
+    App > App: Kiểm tra checksum
+    alt [label: "Checksum đúng"] {
+      App > Cache: Lưu tài nguyên vào vùng staging
+      Cache --> App: Đã lưu hoặc lỗi hết dung lượng
+      opt [label: "Không lưu được"] {
+        App > App: Đánh dấu lỗi để dừng vòng tải
+      }
+    }
+    else [label: "Checksum sai"] {
+      App > App: Đánh dấu lỗi để dừng vòng tải
+    }
+  }
+  else [label: "Mạng lỗi"] {
+    Assets --> App: Yêu cầu tải không hoàn tất
+    App > App: Đánh dấu lỗi để dừng vòng tải
+  }
+}
+alt [label: "Tất cả tài nguyên và metadata đã hợp lệ"] {
+  App > Cache: Ghi metadata hoàn chỉnh và đổi active pointer
+  Cache --> App: Gói mới sẵn sàng
+  App --> User: Thông báo có thể dùng offline
+}
+else [label: "Gói vẫn thiếu hoặc lỗi"] {
+  App > Cache: Giữ active pointer cũ và lưu tiến độ phù hợp
+  App --> User: Cho phép thử lại hoặc giải phóng dung lượng
+}
+opt [label: "Người dùng yêu cầu xóa gói"] {
+  User > App: Chọn gói cần xóa
+  App > Cache: Gỡ active pointer của gói rồi xóa tài nguyên thuộc gói
+  App --> User: Cập nhật danh sách gói còn có thể sử dụng
+}

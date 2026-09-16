@@ -1,0 +1,60 @@
+// AD16 — Phát thuy?t minh dùng chung cho GPS, QR và nút Nghe
+// Eraser: Flow Chart
+// M?t b? di?u ph?i qu?n lı toàn b? hàng ch?.
+// Audio ph?i kh?p POI, ngôn ng? và phiên b?n.
+// TTS offline ch? dùng khi có van b?n và gi?ng phù h?p trên thi?t b?.
+// Cooldown ch? c?p nh?t khi audio th?c s? b?t d?u phát.
+
+direction down
+
+Start [shape: oval, label: "Nh?n yêu c?u nghe"]
+Queue [label: "X?p hàng theo uu tiên và lo?i yêu c?u trùng"]
+Wait [label: "Ch? d?n lu?t ho?c d? di?u ki?n ng?t uu tiên"]
+ReadRequest [label: "Ğ?c POI, ngôn ng?, version và request token"]
+Cache [label: "Tìm audio phù h?p trong cache"]
+NeedOnline [shape: diamond, label: "Chua có audio và dang online?"]
+Fetch [label: "Yêu c?u audio t? API và d?i có gi?i h?n"]
+NeedFallback [shape: diamond, label: "V?n chua có ngu?n phát?"]
+LocalTTS [label: "Th? TTS c?c b? n?u có van b?n và gi?ng"]
+Available [shape: diamond, label: "Có ngu?n phát s? d?ng du?c?"]
+Missing [label: "Thông báo thi?u n?i dung"]
+Current [shape: diamond, label: "Yêu c?u và ngôn ng? còn hi?n hành?"]
+Discard [label: "B? k?t qu? dã cu"]
+Recheck [label: "Xác nh?n l?i lu?t phát và uu tiên hi?n t?i"]
+Interrupt [label: "Ng?t audio hi?n t?i n?u uu tiên cho phép"]
+Play [label: "B?t d?u phát ngu?n dã ch?n"]
+Started [shape: diamond, label: "Audio b?t d?u phát thành công?"]
+PlayError [label: "Thông báo l?i phát"]
+Cooldown [label: "Ghi th?i di?m b?t d?u và c?p nh?t cooldown"]
+Controls [label: "X? lı t?m d?ng, ti?p t?c, d?ng ho?c nghe h?t"]
+Record [label: "Ch?t th?i gian nghe và chuy?n s? ki?n qua AD11"]
+Next [label: "Chuy?n sang m?c ti?p theo"]
+End [shape: oval, label: "K?t thúc lu?t x? lı"]
+
+Start > Queue
+Queue > Wait
+Wait > ReadRequest
+ReadRequest > Cache
+Cache > NeedOnline
+NeedOnline > Fetch: Có
+Fetch > NeedFallback
+NeedOnline > NeedFallback: Không
+NeedFallback > LocalTTS: Có
+LocalTTS > Available
+NeedFallback > Available: Không
+Available > Missing: Không
+Missing > Next
+Available > Current: Có
+Current > Discard: Không
+Discard > Next
+Current > Recheck: Có
+Recheck > Interrupt
+Interrupt > Play
+Play > Started
+Started > PlayError: Không
+PlayError > Next
+Started > Cooldown: Có
+Cooldown > Controls
+Controls > Record
+Record > Next
+Next > End

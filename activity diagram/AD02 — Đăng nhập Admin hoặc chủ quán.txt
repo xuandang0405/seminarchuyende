@@ -1,0 +1,33 @@
+// AD02 — Ğang nh?p Admin ho?c ch? quán
+// Eraser: Flow Chart
+
+direction down
+
+Start [shape: oval, label: "B?t d?u"]
+Input [label: "Nh?p email và m?t kh?u"]
+Validate [label: "Router ki?m tra d? li?u"]
+Valid [shape: diamond, label: "D? li?u h?p l??"]
+InputError [label: "Hi?n th? l?i nh?p li?u"]
+FindUser [label: "Repository tìm tài kho?n trong MongoDB"]
+CheckAccount [label: "Service ki?m tra m?t kh?u và tr?ng thái"]
+Authenticated [shape: diamond, label: "Ğang nh?p h?p l??"]
+LoginError [label: "Thông báo dang nh?p th?t b?i"]
+ReadPermissions [label: "Ğ?c vai trò và quy?n c?a tài kho?n"]
+CreateSession [label: "T?o phiên dang nh?p"]
+Navigate [label: "M? giao di?n theo quy?n và tr?ng thái xác minh"]
+End [shape: oval, label: "K?t thúc"]
+
+Start > Input
+Input > Validate
+Validate > Valid
+Valid > InputError: Không
+InputError > Input
+Valid > FindUser: Có
+FindUser > CheckAccount
+CheckAccount > Authenticated
+Authenticated > LoginError: Không
+LoginError > End
+Authenticated > ReadPermissions: Có
+ReadPermissions > CreateSession
+CreateSession > Navigate
+Navigate > End

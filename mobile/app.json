@@ -1,0 +1,52 @@
+{
+  "expo": {
+    "name": "TourVoice",
+    "slug": "tourvoice-district4",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.tourvoice.district4",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "TourVoice cần quyền truy cập vị trí của bạn để tự động thuyết minh khi bạn đến gần các điểm ẩm thực và di tích Quận 4.",
+        "NSCameraUsageDescription": "TourVoice cần quyền camera để quét mã QR dán tại các quán ăn và điểm tham quan."
+      },
+      "config": {
+        "googleMapsApiKey": "YOUR_GOOGLE_MAPS_IOS_API_KEY_HERE"
+      }
+    },
+    "android": {
+      "package": "com.tourvoice.district4",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0f172a"
+      },
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "CAMERA"
+      ],
+      "config": {
+        "googleMaps": {
+          "apiKey": "YOUR_GOOGLE_MAPS_ANDROID_API_KEY_HERE"
+        }
+      }
+    },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Cho phép TourVoice phát hiện khi bạn bước vào vùng thuyết minh Geofence."
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Cho phép TourVoice quét mã QR tại các quán ăn."
+        }
+      ]
+    ]
+  }
+}

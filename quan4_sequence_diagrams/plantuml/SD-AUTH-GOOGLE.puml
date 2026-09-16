@@ -1,0 +1,69 @@
+@startuml
+title SD-AUTH-GOOGLE - Đăng nhập Google OpenID Connect trên web
+autonumber
+skinparam shadowing false
+skinparam defaultFontName "Arial"
+
+actor "Người dùng" as U
+participant "Web / Browser" as W
+participant "FastAPI\nAuth Router & Services" as A
+participant "Google OAuth / OIDC" as G
+participant "MongoDB\n(users, identities, transactions)" as D
+
+U -> W: Bấm nút "Đăng nhập bằng Google"
+W -> A: GET /api/v1/auth/google/start?return_to=/
+A -> A: Sinh state, nonce, PKCE verifier/challenge, browser_binding
+A -> D: Lưu oauth_transactions (TTL 10 phút)
+D --> A: Transaction đã lưu
+A --> W: JSON { auth_url }
+W -> G: Redirect tới accounts.google.com
+U -> G: Chọn tài khoản Google & cấp quyền
+G --> W: Redirect callback (code, state)
+W -> A: GET /api/v1/auth/google/callback?code=...&state=...
+A -> D: Atomic consume oauth_transactions theo state
+D --> A: Transaction document hoặc None
+
+alt State sai, hết hạn hoặc browser_binding sai
+  A --> W: 302 Redirect /auth/callback?error=Phiên+xác+thực+hết+hạn
+  W --> U: Hiển thị lỗi, không tạo phiên
+else Transaction hợp lệ
+  A -> G: POST oauth2.googleapis.com/token (code, code_verifier)
+  G --> A: { id_token, access_token }
+  A -> A: Xác minh chữ ký RS256 JWKS, issuer, audience, nonce, expiry
+  alt ID Token không hợp lệ hoặc email_verified=false
+    A --> W: 302 Redirect /auth/callback?error=Xác+minh+Google+thất+bại
+  else Token hợp lệ
+    A -> D: Tra auth_identities (provider=google, issuer, subject)
+    D --> A: Identity hoặc None
+    alt Đã tồn tại Identity
+      A -> D: Lấy user theo user_id
+      D --> A: User hiện hành
+    else Chưa có Identity
+      A -> D: Kiểm tra email trong admin_users
+      D --> A: User hoặc None
+      alt Email trùng tài khoản hiện có
+        A --> W: 302 Redirect /auth/callback?error=Tài+khoản+đã+tồn+tại.+Vui+lòng+đăng+nhập+mật+khẩu+để+liên+kết
+      else Email mới hoàn toàn
+        A -> D: Tạo user mới (role='user', password_hash=None, is_verified=True)
+        A -> D: Tạo auth_identities (user_id, sub, issuer)
+        D --> A: User & Identity đã lưu
+      end
+    end
+
+    alt Tài khoản bị khóa (is_active=False)
+      A --> W: 302 Redirect /auth/callback?error=Tài+khoản+đã+bị+khóa
+    else Tài khoản hợp lệ
+      A -> D: Tạo auth_sessions (session_id, refresh_token_hash)
+      D --> A: Session đã lưu
+      A --> W: 302 Redirect /auth/callback?return_to=...\n+ Set-Cookie: tourvoice_refresh_token (HttpOnly)
+      W -> A: GET /api/v1/auth/csrf
+      A --> W: { csrf_token }
+      W -> A: POST /api/v1/auth/refresh (với cookie)
+      A --> W: { access_token, user }
+      W -> W: Lưu access_token trong memory
+      W -> W: Điều hướng tới returnTo (hoặc /account nếu role=user)
+      W --> U: Mở trang ứng dụng tương ứng
+    end
+  end
+end
+@enduml

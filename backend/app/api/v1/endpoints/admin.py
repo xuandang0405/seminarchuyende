@@ -1,76 +1,134 @@
-from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, Query
+"""Router for Admin Moderation & Management endpoints:
+- C06: Duyệt đăng ký chủ quán
+- C07: Duyệt đề xuất nội dung POI
+- S01: Quản lý người dùng
+- S04: Xem nhật ký audit logs
+"""
+
+from typing import Any, Dict, List, Optional
+from datetime import datetime, timezone
+from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+
 from app.api.v1.endpoints.auth import get_current_admin
+from app.services.moderation_service import moderation_service
+from app.repositories.auth_repo import auth_repo
 from app.repositories.base import BaseRepository
-from app.repositories.owner_repo import owner_repo
-from app.schemas.user import AdminUserResponse
-from app.schemas.owner import OwnerSubmissionResponse, OwnerReviewAction
+from app.db.collections import COLLECTION_AUDIT_LOGS
 
-router = APIRouter(prefix="/admin", tags=["Admin Approval & Management"])
-user_repo = BaseRepository("admin_users")
+router = APIRouter(prefix="/admin", tags=["Admin Moderation & Management"])
+audit_repo = BaseRepository(COLLECTION_AUDIT_LOGS)
 
 
-@router.get("/owners/pending", response_model=List[AdminUserResponse])
-async def list_pending_owners(current_admin: dict = Depends(get_current_admin)):
-    """Sequence Diagram 10: List all owners waiting for verification."""
-    owners = await owner_repo.list_pending_owners()
-    return owners
+class ReviewAction(BaseModel):
+    decision: str = Field(..., description="'approved' or 'rejected'")
+    admin_note: Optional[str] = None
+    expected_version: Optional[int] = None
 
 
-@router.post("/owners/{owner_id}/review", response_model=AdminUserResponse)
+# =============================================================================
+# MODERATION: OWNER REGISTRATIONS (C06 / SD10 / AD10)
+# =============================================================================
+
+@router.get("/moderation/registrations")
+@router.get("/owners/pending")
+async def list_pending_registrations(current_admin: dict = Depends(get_current_admin)):
+    """Use Case C06: List pending owner registrations."""
+    return await moderation_service.list_pending_registrations()
+
+
+@router.post("/moderation/registrations/{registration_id}")
+@router.post("/owners/{registration_id}/review")
 async def review_owner_registration(
-    owner_id: str,
-    review: OwnerReviewAction,
+    registration_id: str,
+    action: ReviewAction,
     current_admin: dict = Depends(get_current_admin)
 ):
-    """Admin approves or rejects owner registration."""
-    status_str = "approved" if review.action == "approve" else "rejected"
-    updated = await owner_repo.update_owner_status(
-        owner_id=owner_id,
-        status=status_str,
-        admin_notes=review.admin_notes
-    )
-    if not updated:
-        raise HTTPException(status_code=404, detail="Owner not found")
-    return updated
-
-
-@router.get("/submissions", response_model=List[OwnerSubmissionResponse])
-async def list_submissions(
-    status_filter: Optional[str] = Query(None, alias="status"),
-    current_admin: dict = Depends(get_current_admin)
-):
-    """List submissions from store owners waiting for content approval."""
-    subs = await owner_repo.list_submissions(status=status_filter)
-    return subs
-
-
-@router.post("/submissions/{submission_id}/review", response_model=OwnerSubmissionResponse)
-async def review_submission(
-    submission_id: str,
-    review: OwnerReviewAction,
-    current_admin: dict = Depends(get_current_admin)
-):
-    """Sequence Diagram 10: Admin approves or rejects owner's submitted content."""
-    status_str = "approved" if review.action == "approve" else "rejected"
-    reviewed = await owner_repo.review_submission(
-        submission_id=submission_id,
-        status=status_str,
+    """Use Case C06: Admin approves or rejects owner registration."""
+    res = await moderation_service.review_registration(
+        registration_id=registration_id,
+        decision=action.decision,
         admin_id=current_admin["_id"],
-        admin_notes=review.admin_notes
+        admin_note=action.admin_note,
+        expected_version=action.expected_version
     )
-    if not reviewed:
-        raise HTTPException(status_code=404, detail="Submission not found")
-    return reviewed
+    if not res.get("success"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=res.get("error"))
+    return res
 
 
-@router.get("/users", response_model=List[AdminUserResponse])
+# =============================================================================
+# MODERATION: POI SUBMISSIONS (C07 / SD10 / AD10)
+# =============================================================================
+
+@router.get("/moderation/submissions")
+@router.get("/submissions")
+async def list_pending_submissions(current_admin: dict = Depends(get_current_admin)):
+    """Use Case C07: List pending POI content submissions."""
+    return await moderation_service.list_pending_submissions()
+
+
+@router.post("/moderation/submissions/{submission_id}")
+@router.post("/submissions/{submission_id}/review")
+async def review_poi_submission(
+    submission_id: str,
+    action: ReviewAction,
+    current_admin: dict = Depends(get_current_admin)
+):
+    """Use Case C07: Admin approves or rejects owner's submitted content."""
+    res = await moderation_service.review_submission(
+        submission_id=submission_id,
+        decision=action.decision,
+        admin_id=current_admin["_id"],
+        admin_note=action.admin_note,
+        expected_version=action.expected_version
+    )
+    if not res.get("success"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=res.get("error"))
+    return res
+
+
+# =============================================================================
+# USER MANAGEMENT (S01)
+# =============================================================================
+
+@router.get("/users")
 async def list_users(
     role: Optional[str] = None,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=100),
     current_admin: dict = Depends(get_current_admin)
 ):
+    """Use Case S01: List users."""
     query = {}
     if role:
         query["role"] = role
-    users = await user_repo.list(query=query, limit=100)
-    return users
+    users = await auth_repo.list(query=query, skip=skip, limit=limit)
+    return [
+        {
+            "id": u["_id"],
+            "email": u["email"],
+            "full_name": u.get("full_name"),
+            "role": u.get("role"),
+            "is_active": u.get("is_active", True),
+            "is_verified": u.get("is_verified", False),
+            "is_poi_owner_verified": u.get("is_poi_owner_verified", False),
+            "created_at": u.get("created_at"),
+        }
+        for u in users
+    ]
+
+
+# =============================================================================
+# AUDIT LOGS (S04)
+# =============================================================================
+
+@router.get("/audit-logs")
+async def list_audit_logs(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=100),
+    current_admin: dict = Depends(get_current_admin)
+):
+    """Use Case S04: View audit logs from audit_logs collection."""
+    logs = await audit_repo.list(skip=skip, limit=limit, sort=[("timestamp", -1)])
+    return logs

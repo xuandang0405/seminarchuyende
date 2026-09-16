@@ -1,0 +1,52 @@
+@startuml
+top to bottom direction
+skinparam packageStyle rectangle
+skinparam shadowing false
+skinparam defaultFontName "Arial"
+
+title Use case - Xác thực và tài khoản Tour Guide (Quận 4)
+
+actor "Người dùng tài khoản" as AccountUser
+actor "Google Identity" as Google
+actor "Dịch vụ email" as Email
+
+rectangle "Tour Guide - Xác thực & Bảo mật" {
+  usecase "U01 - Đăng nhập\nemail và mật khẩu" as U01
+  usecase "U02 - Đăng xuất" as U02
+  usecase "U03 - Đổi mật khẩu" as U03
+  usecase "U04 - Đăng nhập Google" as U04
+  usecase "U05 - Yêu cầu\nkhôi phục mật khẩu" as U05
+  usecase "U06 - Đặt lại mật khẩu" as U06
+  usecase "U07 - Liên kết Google" as U07
+  usecase "U08 - Xem và\nthu hồi phiên của mình" as U08
+}
+
+AccountUser -- U01
+AccountUser -- U02
+AccountUser -- U03
+AccountUser -- U04
+AccountUser -- U05
+AccountUser -- U06
+AccountUser -- U07
+AccountUser -- U08
+
+Google -- U04
+Google -- U07
+Email -- U05
+
+note bottom of U07
+  Cần phiên hợp lệ và xác thực gần đây.
+  Không tự ghép tài khoản theo email nếu chưa liên kết.
+end note
+
+note bottom of U08
+  Chỉ quản lý và thu hồi phiên của chính mình.
+  Không xem hoặc can thiệp phiên người khác.
+end note
+
+note bottom of U04
+  Google xác nhận danh tính (sub, email_verified).
+  Quyền hạn (role, ownership) do Tour Guide quyết định.
+  Mặc định tạo tài khoản với role 'user'.
+end note
+@enduml

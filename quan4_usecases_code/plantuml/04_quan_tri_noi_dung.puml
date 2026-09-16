@@ -1,0 +1,72 @@
+@startuml 04_quan_tri_noi_dung
+' Mô hình đề xuất. H: dựa trên HTML; G: yêu cầu ban đầu; P: cần chốt phạm vi.
+top to bottom direction
+skinparam shadowing false
+skinparam packageStyle rectangle
+skinparam backgroundColor white
+skinparam defaultFontName DejaVu Sans
+skinparam defaultFontSize 12
+skinparam usecaseBackgroundColor #FFFFFF
+skinparam usecaseBorderColor #334155
+skinparam ArrowColor #475569
+skinparam actorBorderColor #334155
+title Quản trị nội dung, audio, tour và QR
+
+actor "Dịch vụ AI" as AI <<external>>
+actor "Quản trị viên" as Admin
+actor "Dịch vụ TTS" as TTS <<external>>
+actor "Dịch vụ dịch thuật" as Translator <<external>>
+actor "Dịch vụ thời tiết" as Weather <<external>>
+
+rectangle "Hệ thống thuyết minh du lịch đa ngôn ngữ" as System {
+  package "Quản trị nội dung và dịch vụ" as ContentAdmin #FFF1DD {
+    usecase "C01 Thêm địa điểm" as C01
+    usecase "C02 Sửa địa điểm" as C02
+    usecase "C03 Xóa địa điểm" as C03
+    usecase "C04 Bật hoặc tắt công bố địa điểm" as C04
+    usecase "C05 Quản lý món ăn" as C05
+    usecase "C06 Duyệt đăng ký chủ quán" as C06
+    usecase "C07 Duyệt nội dung chủ quán gửi" as C07
+    usecase "C08 Nhập hoặc sửa bản dịch thuyết minh\n[G]" as C08
+    usecase "C09 Dịch nội dung tự động" as C09
+    usecase "C10 Upload file audio MP3 [G]" as C10
+    usecase "C11 Tạo audio bằng TTS" as C11
+    usecase "C12 Theo dõi tác vụ tạo audio" as C12
+    usecase "C13 Tạm dừng, tiếp tục hoặc hủy tác vụ\naudio" as C13
+    usecase "C14 Dùng AI gợi ý mô tả" as C14
+    usecase "C15 Quản lý tour và thứ tự địa điểm\n[G]" as C15
+    usecase "C16 Tạo hoặc vô hiệu hóa mã QR [G]" as C16
+  }
+}
+
+Admin -- C01
+Admin -- C02
+Admin -- C03
+Admin -- C04
+Admin -- C05
+Admin -- C06
+Admin -- C07
+Admin -- C08
+Admin -- C09
+Translator -- C09
+Admin -- C10
+Admin -- C11
+TTS -- C11
+Admin -- C12
+Admin -- C13
+Admin -- C14
+AI -- C14
+Weather -- C14 : khi bật ngữ cảnh thời tiết
+Admin -- C15
+Admin -- C16
+
+C13 ..> C12 : <<extend>>\n[người quản trị chọn điều khiển tác vụ]
+C14 ..> C01 : <<extend>>\n[admin chọn hỗ trợ AI]
+C14 ..> C02 : <<extend>>\n[admin chọn hỗ trợ AI]
+
+legend bottom
+Không nhãn: mô hình hóa từ HTML
+[G]: chức năng từ mô tả ban đầu của nhóm
+[P]: chỉ được gợi ra từ quyền; cần chốt phạm vi
+endlegend
+@enduml

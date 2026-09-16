@@ -1,0 +1,58 @@
+// AD07 — Worker d?ch và t?o audio
+// Eraser: Flow Chart
+// D?ch, TTS và upload ch?y ngoài transaction MongoDB.
+// C?p nh?t tr?ng thái ph?i ki?m tra lease.
+// Cleanup ch? xóa file không còn tham chi?u.
+
+direction down
+
+Start [shape: oval, label: "Nh?n task ID"]
+Claim [label: "Claim tác v? trong MongoDB"]
+Claimed [shape: diamond, label: "Claim thành công?"]
+Read [label: "Ğ?c n?i dung và phiên b?n d?u vào"]
+NeedTranslation [shape: diamond, label: "C?n d?ch n?i dung?"]
+Translate [label: "G?i d?ch v? d?ch"]
+TextReady [shape: diamond, label: "Có van b?n h?p l??"]
+TTS [label: "G?i d?ch v? TTS"]
+AudioReady [shape: diamond, label: "T?o audio thành công?"]
+Upload [label: "Upload audio lên storage"]
+Uploaded [shape: diamond, label: "Upload thành công?"]
+Commit [label: "Ghi metadata theo version và lease"]
+Committed [shape: diamond, label: "Xác nh?n hoàn t?t thành công?"]
+Success [label: "Ğánh d?u audio s?n sàng"]
+Rejected [shape: diamond, label: "Ğã xác nh?n k?t qu? b? t? ch?i?"]
+Cleanup [label: "B? k?t qu? cu và lên l?ch d?n file th?a"]
+Reconcile [label: "Ğ?c l?i tr?ng thái tru?c khi retry"]
+Retryable [shape: diamond, label: "L?i t?m th?i và còn lu?t th??"]
+Retry [label: "Lên l?ch retry có gi?i h?n"]
+Failed [label: "Ghi tr?ng thái failed"]
+End [shape: oval, label: "K?t thúc"]
+
+Start > Claim
+Claim > Claimed
+Claimed > End: Không
+Claimed > Read: Có
+Read > NeedTranslation
+NeedTranslation > Translate: Có
+Translate > TextReady
+NeedTranslation > TextReady: Không
+TextReady > TTS: Có
+TextReady > Retryable: Không
+TTS > AudioReady
+AudioReady > Upload: Có
+AudioReady > Retryable: Không
+Upload > Uploaded
+Uploaded > Commit: Có
+Uploaded > Retryable: Không
+Commit > Committed
+Committed > Success: Có
+Committed > Rejected: Không
+Rejected > Cleanup: Có
+Rejected > Reconcile: Không
+Retryable > Retry: Có
+Retryable > Failed: Không
+Success > End
+Cleanup > End
+Reconcile > End
+Retry > End
+Failed > End

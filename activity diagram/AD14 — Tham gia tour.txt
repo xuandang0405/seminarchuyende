@@ -1,0 +1,47 @@
+// AD14 — Tham gia tour
+// Eraser: Flow Chart
+// Tour v?n ho?t d?ng khi khách không d?ng ı analytics.
+// AD11 ki?m tra s? d?ng ı tru?c khi ghi s? ki?n.
+
+direction down
+
+Start [shape: oval, label: "B?t d?u"]
+Select [label: "Khách ch?n tour"]
+Online [shape: diamond, label: "Có m?ng?"]
+Fetch [label: "L?y tour công khai t? API"]
+ReadCache [label: "Ğ?c tour dã t?i v?"]
+Available [shape: diamond, label: "Có phiên b?n tour dùng du?c?"]
+Missing [label: "Thông báo thi?u tour ho?c c?n t?i l?i"]
+Display [label: "Hi?n th? tuy?n và danh sách di?m d?ng"]
+Begin [label: "B?t d?u và luu phiên tour c?c b?"]
+StartEvent [label: "Chuy?n s? ki?n b?t d?u qua AD11"]
+Active [shape: diamond, label: "Tour còn ti?p t?c?"]
+Update [label: "C?p nh?t ti?n d? và nh?n GPS ho?c ch?n POI"]
+Listen [shape: diamond, label: "Có yêu c?u nghe t?i POI?"]
+Narration [label: "G?i yêu c?u phát sang AD16"]
+UserAction [label: "Nh?n thao tác ti?p t?c ho?c k?t thúc"]
+Finish [label: "Ch?t phiên tour dang ho?t d?ng"]
+EndEvent [label: "Chuy?n s? ki?n k?t thúc qua AD11"]
+End [shape: oval, label: "K?t thúc"]
+
+Start > Select
+Select > Online
+Online > Fetch: Có
+Online > ReadCache: Không
+Fetch > Available
+ReadCache > Available
+Available > Missing: Không
+Missing > End
+Available > Display: Có
+Display > Begin
+Begin > StartEvent
+StartEvent > Active
+Active > Update: Có
+Update > Listen
+Listen > Narration: Có
+Narration > UserAction
+Listen > UserAction: Không
+UserAction > Active
+Active > Finish: Không
+Finish > EndEvent
+EndEvent > End

@@ -1,0 +1,70 @@
+@startuml
+title AD-AUTH-GOOGLE - Hoạt động đăng nhập Google OpenID Connect
+skinparam shadowing false
+skinparam defaultFontName "Arial"
+
+start
+:Người dùng bấm "Đăng nhập bằng Google" tại /login;
+:Frontend gọi GET /api/v1/auth/google/start;
+:Backend tạo OAuth transaction (state, nonce, PKCE verifier, browser_binding, returnTo);
+:Lưu transaction vào MongoDB (oauth_transactions, TTL 10 phút);
+:Chuyển hướng trình duyệt tới màn hình đăng nhập Google;
+
+if (Người dùng đồng ý cấp quyền?) then (Có)
+  :Google redirect về callback backend kèm authorization code và state;
+else (Không / Người dùng hủy)
+  :Google redirect về kèm thông báo error/access_denied;
+  :Chuyển hướng về web với trạng thái hủy an toàn;
+  stop
+endif
+
+:Backend kiểm tra state trong oauth_transactions;
+if (State tồn tại, chưa hết hạn và browser_binding khớp?) then (Có)
+  :Atomic xóa/consume transaction khỏi MongoDB (chống replay attack);
+else (Không)
+  :Từ chối callback và chuyển hướng thông báo lỗi phiên;
+  stop
+endif
+
+:Backend gửi request đổi code sang tokens tại Google Token Endpoint (với PKCE code_verifier);
+:Google trả về id_token (JWT RS256);
+:Backend xác minh chữ ký id_token qua Google JWKS công khai;
+:Xác minh issuer, audience, nonce và hạn dùng;
+
+if (ID Token hợp lệ và email_verified == true?) then (Có)
+else (Không)
+  :Từ chối xác thực danh tính Google;
+  stop
+endif
+
+:Tìm kiếm trong auth_identities (provider='google', issuer, subject);
+if (Identity đã liên kết trước đó?) then (Có)
+  :Lấy tài khoản người dùng tương ứng từ admin_users;
+else (Không)
+  :Kiểm tra email trong admin_users;
+  if (Email đã tồn tại trong hệ thống?) then (Có - Xung đột Email)
+    :Từ chối tự động ghép tài khoản (STRICT POLICY);
+    :Thông báo yêu cầu đăng nhập bằng mật khẩu rồi liên kết trong Bảo mật;
+    stop
+  else (Không - Tài khoản mới)
+    :Tạo tài khoản mới với role='user', password_hash=None, is_verified=True;
+    :Tạo bản ghi liên kết định danh trong auth_identities;
+  endif
+endif
+
+if (Tài khoản đang hoạt động (is_active == True)?) then (Có)
+else (Không)
+  :Từ chối đăng nhập (tài khoản đã bị khóa);
+  stop
+endif
+
+:Tạo phiên auth_sessions với refresh token hash;
+:Đặt refresh token vào HttpOnly cookie;
+:Redirect trình duyệt về /auth/callback sạch (không chứa token trên URL);
+:Frontend Web gọi /api/v1/auth/csrf lấy CSRF token;
+:Frontend Web gọi POST /api/v1/auth/refresh nhận access token vào bộ nhớ RAM;
+:Frontend Web gọi GET /api/v1/auth/me lấy thông tin vai trò và quyền hạn;
+:Điều hướng người dùng về trang đích hợp lệ (returnTo);
+
+stop
+@enduml

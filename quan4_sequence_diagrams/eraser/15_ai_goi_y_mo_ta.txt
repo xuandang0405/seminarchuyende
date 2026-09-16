@@ -1,0 +1,51 @@
+// AI gợi ý mô tả với kiểm tra quyền và hạn mức
+// H: mô hình hóa từ HTML, có cụ thể hóa thiết kế
+// Use case: C14, O04
+// Đây là mô hình đề xuất, không phải sơ đồ trích xuất từ backend đã chạy.
+// Sơ đồ bắt đầu sau khi Router nhận request từ portal đã xác thực; bỏ lifeline client để giữ đủ Service, Repository, MongoDB và provider.
+// Owner phải được xác minh, có quyền với tài nguyên và còn hạn mức. Admin có chính sách hạn mức riêng theo mô tả HTML.
+// Đề xuất nhận hạn mức nguyên tử trong MongoDB, không tách thao tác đọc count và tăng count thiếu điều kiện.
+// Gateway hoặc provider dự phòng được gộp một cột; weather context là nhánh tùy cấu hình, không phải điều kiện bắt buộc.
+// Kết quả AI là gợi ý; không tự ghi đè hoặc xuất bản POI. Chính sách tính/hoàn quota khi provider lỗi phải được chốt lúc triển khai.
+
+autoNumber on
+colorMode pastel
+styleMode plain
+typeface clean
+
+Router [label: "AI Router", color: orange]
+Service [label: "AI Service", color: purple]
+Repo [label: "Quota Repository", color: green]
+DB [label: "MongoDB", color: green]
+Provider [label: "AI Provider", color: gray]
+
+Router > Service: Yêu cầu gợi ý mô tả với danh tính và tài nguyên
+Service > Repo: Đọc trạng thái tài khoản và phạm vi sở hữu
+Repo > DB: Đọc user và POI liên quan
+DB --> Repo: Thông tin kiểm tra quyền
+Repo --> Service: Kết quả kiểm tra
+break [label: "Không có quyền hoặc owner chưa xác minh"] {
+  Service --> Router: 403 và lý do phù hợp
+}
+opt [label: "Áp dụng hạn mức cho chủ quán"] {
+  Service > Repo: Yêu cầu nhận một lượt trong hạn mức ngày
+  Repo > DB: Tăng count nguyên tử nếu vẫn dưới giới hạn
+  DB --> Repo: Được cấp lượt hoặc đã hết hạn mức
+  Repo --> Service: Kết quả nhận hạn mức
+  break [label: "Đã hết hạn mức"] {
+    Service --> Router: 429 với thông tin hạn mức
+  }
+}
+Service > Provider: Gửi nội dung gốc và yêu cầu cải thiện mô tả
+Provider --> Service: Gợi ý hoặc lỗi provider
+alt [label: "Có gợi ý hợp lệ"] {
+  Service > Service: Kiểm tra và chuẩn hóa kết quả trả về
+  Service --> Router: 200 với gợi ý để người dùng xem và chọn
+}
+else [label: "Provider lỗi hoặc timeout"] {
+  opt [label: "Có provider dự phòng phù hợp"] {
+    Service > Provider: Thử provider dự phòng theo cấu hình
+    Provider --> Service: Kết quả dự phòng hoặc lỗi
+  }
+  Service --> Router: Trả gợi ý nếu thành công hoặc lỗi rõ ràng
+}

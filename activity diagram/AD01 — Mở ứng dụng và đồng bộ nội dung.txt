@@ -1,0 +1,30 @@
+// AD01 — M? ?ng d?ng và d?ng b? n?i dung
+// Eraser: ch?n Flow Chart. M?i kh?i mã là m?t so d? riêng.
+
+direction down
+
+Start [shape: oval, label: "B?t d?u"]
+ReadCache [label: "Ğ?c ngôn ng? và n?i dung c?c b?"]
+Online [shape: diamond, label: "Có m?ng?"]
+Fetch [label: "L?y n?i dung m?i t? FastAPI"]
+Valid [shape: diamond, label: "Ph?n h?i h?p l? và còn hi?n hành?"]
+Update [label: "C?p nh?t cache theo phiên b?n"]
+KeepCache [label: "Gi? n?i dung c?c b?"]
+Available [shape: diamond, label: "Có n?i dung s? d?ng du?c?"]
+Display [label: "Hi?n th? b?n d? và các POI"]
+Missing [label: "Thông báo thi?u n?i dung"]
+End [shape: oval, label: "K?t thúc"]
+
+Start > ReadCache
+ReadCache > Online
+Online > Fetch: Có
+Online > KeepCache: Không
+Fetch > Valid
+Valid > Update: Có
+Valid > KeepCache: Không
+Update > Available
+KeepCache > Available
+Available > Display: Có
+Available > Missing: Không
+Display > End
+Missing > End

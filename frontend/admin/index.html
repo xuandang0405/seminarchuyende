@@ -7,11 +7,16 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  
+  <!-- Leaflet Map CDN for Admin Map Picker -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+
   <link rel="stylesheet" href="admin.css">
 </head>
 <body>
 
-  <!-- Sidebar -->
+  <!-- Sidebar Navigation -->
   <aside>
     <div class="brand">
       <span style="font-size: 1.5rem;">🎙️</span>
@@ -24,24 +29,34 @@
     <ul class="nav-links">
       <li class="active" onclick="switchTab('dashboard', this)"><a href="#">📊 Thống Kê & Báo Cáo</a></li>
       <li onclick="switchTab('pois', this)"><a href="#">📍 Quản Lý Điểm Đến (POI)</a></li>
+      <li onclick="switchTab('tours', this)"><a href="#">🗺️ Quản Lý Tour Du Lịch</a></li>
+      <li onclick="switchTab('qr', this)"><a href="#">📷 Quản Lý Mã QR Code</a></li>
       <li onclick="switchTab('approvals', this)"><a href="#">🛡️ Xét Duyệt Chủ Quán</a></li>
-      <li onclick="switchTab('ai-assistant', this)"><a href="#">🤖 Trợ Lý Soạn Thảo AI</a></li>
+      <li onclick="switchTab('ai-assistant', this)"><a href="#">🤖 Trợ Lý AI & Hàng Chờ TTS</a></li>
+      <li onclick="switchTab('offline-packs', this)"><a href="#">📦 Đóng Gói Ngoại Tuyến</a></li>
+      <li onclick="switchTab('users', this)"><a href="#">👥 Tài Khoản & Nhật Ký</a></li>
       <li><a href="../client/index.html" target="_blank">🌐 Mở Ứng Dụng Du Khách</a></li>
     </ul>
 
     <div class="user-status">
       <div>Đăng nhập: <strong id="logged-user-name" style="color: #ff6b35;">Super Admin</strong></div>
-      <div style="font-size: 0.7rem; margin-top: 4px;">Role: <span class="badge badge-info">super_admin</span></div>
+      <div style="font-size: 0.7rem; margin-top: 4px;">Role: <span class="badge badge-info" id="logged-user-role">super_admin</span></div>
     </div>
   </aside>
 
-  <!-- Main Content -->
+  <!-- Main Content Area -->
   <main>
-    <!-- TAB 1: DASHBOARD -->
+    <!-- TAB 1: DASHBOARD & REPORT (S05-S10) -->
     <section id="tab-dashboard" class="tab-section active">
       <div class="page-header">
-        <h1>Báo Cáo Hoạt Động Hệ Thống</h1>
-        <button class="btn btn-primary" onclick="loadDashboardStats()">🔄 Cập nhật số liệu</button>
+        <div>
+          <h1>Báo Cáo Hoạt Động Hệ Thống</h1>
+          <p style="color: #94a3b8; font-size: 0.85rem; margin-top: 2px;">Dữ liệu thời gian thực từ các phiên tham quan du lịch tại Quận 4</p>
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <button class="btn btn-primary" onclick="loadDashboardStats()">🔄 Cập nhật số liệu</button>
+          <button class="btn btn-primary" style="background: #10b981;" onclick="exportAnalyticsReport()">📥 Xuất Báo Cáo (S10)</button>
+        </div>
       </div>
 
       <div class="stats-grid">
@@ -81,16 +96,33 @@
       </div>
     </section>
 
-    <!-- TAB 2: POI MANAGEMENT -->
+    <!-- TAB 2: POI MANAGEMENT WITH INTERACTIVE MAP PICKER & MENU (C01-C05) -->
     <section id="tab-pois" class="tab-section">
       <div class="page-header">
-        <h1>Quản Lý Điểm Đến Du Lịch & Ẩm Thực</h1>
-        <button class="btn btn-primary" onclick="toggleAddPoiForm()">+ Thêm Điểm POI Mới</button>
+        <div>
+          <h1>Quản Lý Điểm Đến Du Lịch & Ẩm Thực</h1>
+          <p style="color: #94a3b8; font-size: 0.85rem; margin-top: 2px;">Bản đồ Geofence, tọa độ GPS và danh sách món ăn đặc sản</p>
+        </div>
+        <button class="btn btn-primary" onclick="toggleAddPoiForm()" id="btn-toggle-add">+ Thêm Điểm POI Mới</button>
+      </div>
+
+      <!-- Interactive Map Picker Card -->
+      <div class="card">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+          <div>
+            <h3>🗺️ Bản Đồ Vị Trí & Vùng Phủ Sóng Geofence</h3>
+            <p style="font-size: 0.8rem; color: #94a3b8; margin-top: 2px;">
+              💡 <em>Bấm trực tiếp lên bản đồ hoặc kéo rê ghim 📍 để chọn tọa độ. Vòng xanh = Bán kính vào; Vòng nét đứt = Bán kính ra. Tuyến đường cam = Lộ trình tour.</em>
+            </p>
+          </div>
+          <button class="btn btn-primary" style="background:#334155;" onclick="centerMapDistrict4()">🎯 Về Trung Tâm Q4</button>
+        </div>
+        <div id="admin-map" style="width: 100%; height: 380px; border-radius: 8px; border: 1px solid var(--border); z-index: 1;"></div>
       </div>
 
       <!-- Add POI Form -->
       <div class="card" id="add-poi-card" style="display: none;">
-        <h3>Thêm Mới Địa Điểm Tham Quan Quận 4</h3>
+        <h3>📍 Thông Tin Địa Điểm Mới (Tọa độ tự động cập nhật từ bản đồ)</h3>
         <form id="add-poi-form" onsubmit="handleCreatePoi(event)" style="margin-top: 1rem;">
           <div class="form-grid">
             <div class="form-group">
@@ -100,130 +132,396 @@
             <div class="form-group">
               <label>Danh Mục:</label>
               <select id="poi-cat" class="form-control">
-                <option value="attraction">Di tích / Tham quan</option>
                 <option value="food" selected>Ẩm thực / Quán ăn</option>
+                <option value="attraction">Di tích / Tham quan</option>
                 <option value="bus_stop">Trạm trung chuyển / Bus</option>
               </select>
             </div>
             <div class="form-group">
-              <label>Kinh độ (Longitude):</label>
-              <input type="number" step="any" id="poi-lng" class="form-control" value="106.70012" required>
+              <label>Kinh độ (Longitude) - [Click bản đồ]:</label>
+              <input type="number" step="any" id="poi-lng" class="form-control" value="106.70012" oninput="updateCirclesFromInputs()" required>
             </div>
             <div class="form-group">
-              <label>Vĩ độ (Latitude):</label>
-              <input type="number" step="any" id="poi-lat" class="form-control" value="10.75882" required>
+              <label>Vĩ độ (Latitude) - [Click bản đồ]:</label>
+              <input type="number" step="any" id="poi-lat" class="form-control" value="10.75882" oninput="updateCirclesFromInputs()" required>
             </div>
             <div class="form-group">
               <label>Bán kính Kích hoạt (Enter Radius - mét):</label>
-              <input type="number" id="poi-enter" class="form-control" value="30" min="1" required>
+              <input type="number" id="poi-enter" class="form-control" value="30" min="1" oninput="updateCirclesFromInputs()" required>
             </div>
             <div class="form-group">
               <label>Bán kính Rời khỏi (Exit Radius - mét):</label>
-              <input type="number" id="poi-exit" class="form-control" value="60" min="1" required>
+              <input type="number" id="poi-exit" class="form-control" value="60" min="1" oninput="updateCirclesFromInputs()" required>
             </div>
           </div>
           <div class="form-group">
-            <label>Địa Chỉ Thực Tế:</label>
-            <input type="text" id="poi-address" class="form-control" placeholder="534 Vĩnh Khánh, Phường 9, Quận 4" required>
+            <label>Địa chỉ chi tiết (Quận 4):</label>
+            <input type="text" id="poi-address" class="form-control" placeholder="Số nhà, Tên đường, Phường, Quận 4, TP.HCM" required>
           </div>
-          <button type="submit" class="btn btn-primary" style="margin-top: 0.5rem;">Lưu Địa Điểm</button>
+          <div class="form-group">
+            <label>Món Ăn Đặc Sản / Menu (Cách nhau dấu phẩy) (C05):</label>
+            <input type="text" id="poi-menu-items" class="form-control" placeholder="VD: Ốc hương xào me, Sò lông nướng mỡ hành, Càng ghẹ rang muối">
+          </div>
+          <div style="display: flex; gap: 8px;">
+            <button type="submit" class="btn btn-primary">💾 Lưu Điểm POI Lên Hệ Thống</button>
+            <button type="button" class="btn btn-primary" style="background:#475569;" onclick="toggleAddPoiForm()">Hủy</button>
+          </div>
         </form>
       </div>
 
-      <!-- POIs Table -->
+      <!-- POI List Table -->
       <div class="card">
-        <h3>Danh Sách POI Hiện Tại</h3>
+        <h3>📋 Danh Sách Địa Điểm Đã Thiết Lập</h3>
         <table>
           <thead>
             <tr>
-              <th>Mã Điểm</th>
+              <th>Mã POI</th>
               <th>Danh Mục</th>
-              <th>Tọa Độ [Lng, Lat]</th>
-              <th>Bán Kính Vào / Ra</th>
-              <th>Trạng Thái</th>
+              <th>Địa Chỉ</th>
+              <th>Geofence</th>
+              <th>Thực Đơn</th>
+              <th>Hành Động</th>
             </tr>
           </thead>
           <tbody id="poi-admin-table">
-            <!-- Rendered by JS -->
+            <tr><td colspan="6" style="text-align: center; color: #94a3b8;">Đang tải danh sách địa điểm...</td></tr>
           </tbody>
         </table>
       </div>
     </section>
 
-    <!-- TAB 3: APPROVALS -->
+    <!-- TAB 3: TOUR MANAGEMENT (C15, T12, T13) -->
+    <section id="tab-tours" class="tab-section">
+      <div class="page-header">
+        <div>
+          <h1>Quản Lý Tour Tham Quan Tuyến Đường</h1>
+          <p style="color: #94a3b8; font-size: 0.85rem; margin-top: 2px;">Thiết lập các tour khám phá và thứ tự các điểm dừng chân (Waypoints)</p>
+        </div>
+        <button class="btn btn-primary" onclick="toggleAddTourForm()">+ Tạo Tour Mới</button>
+      </div>
+
+      <!-- Add Tour Form -->
+      <div class="card" id="add-tour-card" style="display: none;">
+        <h3>🗺️ Thiết Lập Tuyến Tour Du Lịch Mới</h3>
+        <form id="add-tour-form" onsubmit="handleCreateTour(event)" style="margin-top: 1rem;">
+          <div class="form-grid">
+            <div class="form-group">
+              <label>Mã Tour:</label>
+              <input type="text" id="tour-code" class="form-control" placeholder="VD: TOUR-AM-THUC-Q4" required>
+            </div>
+            <div class="form-group">
+              <label>Tên Tour Tham Quan:</label>
+              <input type="text" id="tour-title" class="form-control" placeholder="VD: Khám Phá Thiên Đường Ốc Vĩnh Khánh & Di Tích Bến Nhà Rồng" required>
+            </div>
+            <div class="form-group">
+              <label>Thời Lượng Ước Tính (Phút):</label>
+              <input type="number" id="tour-duration" class="form-control" value="90" min="15" required>
+            </div>
+            <div class="form-group">
+              <label>Mức Giá Tham Khảo (VNĐ):</label>
+              <input type="number" id="tour-price" class="form-control" value="0" min="0">
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Mô Tả Tour:</label>
+            <textarea id="tour-desc" class="form-control" rows="2" placeholder="Giới thiệu hành trình và trải nghiệm..."></textarea>
+          </div>
+          <div style="display: flex; gap: 8px;">
+            <button type="submit" class="btn btn-primary">💾 Tạo Tour Mới</button>
+            <button type="button" class="btn btn-primary" style="background:#475569;" onclick="toggleAddTourForm()">Hủy</button>
+          </div>
+        </form>
+      </div>
+
+      <!-- Tours List Table -->
+      <div class="card">
+        <h3>📋 Danh Sách Tour Du Lịch Hiện Có</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Mã Tour</th>
+              <th>Tên Tour</th>
+              <th>Thời Lượng</th>
+              <th>Số Điểm Dừng</th>
+              <th>Trạng Thái</th>
+              <th>Hành Động</th>
+            </tr>
+          </thead>
+          <tbody id="tour-admin-table">
+            <tr><td colspan="6" style="text-align: center; color: #94a3b8;">Đang tải danh sách tour...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- TAB 4: QR CODE MANAGEMENT (C16, T11) -->
+    <section id="tab-qr" class="tab-section">
+      <div class="page-header">
+        <div>
+          <h1>Quản Lý & Cấp Phát Mã QR</h1>
+          <p style="color: #94a3b8; font-size: 0.85rem; margin-top: 2px;">Cấp mã QR gắn tại bàn ăn và cổng di tích để du khách quét nghe thuyết minh tức thì</p>
+        </div>
+        <button class="btn btn-primary" onclick="toggleGenerateQRForm()">+ Cấp Mã QR Mới</button>
+      </div>
+
+      <!-- Generate QR Form -->
+      <div class="card" id="generate-qr-card" style="display: none;">
+        <h3>📷 Tạo Mã QR Code Mới Cho Điểm POI</h3>
+        <form id="generate-qr-form" onsubmit="handleGenerateQR(event)" style="margin-top: 1rem;">
+          <div class="form-grid">
+            <div class="form-group">
+              <label>Chọn Điểm POI Gắn Mã:</label>
+              <select id="qr-poi-select" class="form-control" required></select>
+            </div>
+            <div class="form-group">
+              <label>Mã QR Định Danh:</label>
+              <input type="text" id="qr-code-val" class="form-control" placeholder="VD: QR-OANH-BAN01" required>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Vị Trí Dán / Ghi Chú:</label>
+            <input type="text" id="qr-location-desc" class="form-control" placeholder="VD: Dán tại quầy lễ tân hoặc bàn số 1">
+          </div>
+          <div style="display: flex; gap: 8px;">
+            <button type="submit" class="btn btn-primary">✨ Cấp Mã & Tạo QR</button>
+            <button type="button" class="btn btn-primary" style="background:#475569;" onclick="toggleGenerateQRForm()">Hủy</button>
+          </div>
+        </form>
+      </div>
+
+      <!-- QR Codes Table -->
+      <div class="card">
+        <h3>📋 Danh Sách Mã QR Đã Tạo</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Mã QR</th>
+              <th>Điểm Đến (POI)</th>
+              <th>Vị Trí Dán</th>
+              <th>Hiệu Lực</th>
+              <th>Hành Động</th>
+            </tr>
+          </thead>
+          <tbody id="qr-admin-table">
+            <tr><td colspan="5" style="text-align: center; color: #94a3b8;">Đang tải danh sách QR...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- TAB 5: APPROVALS QUEUE (C06, C07, O01-O08) -->
     <section id="tab-approvals" class="tab-section">
       <div class="page-header">
-        <h1>Duyệt Đăng Ký Chủ Quán & Nội Dung Mới</h1>
-        <button class="btn btn-primary" onclick="loadApprovalsQueue()">🔄 Làm Mới Hàng Đợi</button>
+        <div>
+          <h1>Xét Duyệt Đăng Ký Chủ Quán & Bài Viết</h1>
+          <p style="color: #94a3b8; font-size: 0.85rem; margin-top: 2px;">Kiểm duyệt danh tính chủ quán ăn Quận 4 và phê duyệt nội dung cập nhật</p>
+        </div>
+        <button class="btn btn-primary" onclick="loadApprovalsQueue()">🔄 Làm mới hàng chờ</button>
       </div>
 
       <div class="card">
-        <h3>Danh Sách Chủ Quán Chờ Xác Minh (Sequence Diagram 10)</h3>
+        <h3>🛡️ Hồ Sơ Chủ Quán Chờ Xác Minh (O01, O02)</h3>
         <table>
           <thead>
             <tr>
               <th>Họ Tên</th>
-              <th>Email</th>
-              <th>Tên Quán Ăn</th>
+              <th>Email / SĐT</th>
+              <th>Tên Quán</th>
               <th>Địa Chỉ</th>
-              <th>Số Điện Thoại</th>
-              <th>Thao Tác</th>
+              <th>Ghi Chú</th>
+              <th>Hành Động</th>
             </tr>
           </thead>
           <tbody id="pending-owners-table">
-            <tr><td colspan="6" style="text-align: center; color: #94a3b8;">Không có hồ sơ nào đang chờ duyệt.</td></tr>
+            <tr><td colspan="6" style="text-align: center; color: #94a3b8;">Đang tải danh sách duyệt...</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="card" style="margin-top: 1.5rem;">
+        <h3>📝 Nội Dung Cập Nhật Từ Chủ Quán Chờ Duyệt (C07, O06)</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Chủ Quán</th>
+              <th>Điểm POI</th>
+              <th>Ngôn Ngữ</th>
+              <th>Tiêu Đề</th>
+              <th>Trạng Thái</th>
+              <th>Hành Động</th>
+            </tr>
+          </thead>
+          <tbody id="pending-submissions-table">
+            <tr><td colspan="6" style="text-align: center; color: #94a3b8;">Đang nạp danh sách nội dung...</td></tr>
           </tbody>
         </table>
       </div>
     </section>
 
-    <!-- TAB 4: AI ASSISTANT -->
+    <!-- TAB 6: AI ASSISTANT & AUDIO TTS QUEUE (C09, C11-C14) -->
     <section id="tab-ai-assistant" class="tab-section">
       <div class="page-header">
-        <h1>Trợ Lý AI Soạn Thảo Thuyết Minh</h1>
+        <div>
+          <h1>Trợ Lý AI Soạn Thảo & Hàng Chờ Âm Thanh TTS</h1>
+          <p style="color: #94a3b8; font-size: 0.85rem; margin-top: 2px;">Sinh văn bản thuyết minh tự động và chuyển hóa sang giọng đọc tự nhiên (Edge-TTS)</p>
+        </div>
       </div>
 
       <div class="card">
-        <p style="font-size: 0.85rem; color: #94a3b8; margin-bottom: 1.5rem;">
-          Sử dụng trí tuệ nhân tạo để tự động soạn kịch bản thuyết minh truyền cảm, tự động gắn ngữ cảnh thời tiết thực tế cho từng điểm đến.
-        </p>
-
-        <form id="ai-form" onsubmit="handleGenerateAI(event)">
+        <h3>✨ Soạn Kịch Bản Thuyết Minh Truyền Cảm Bằng AI</h3>
+        <form id="ai-form" onsubmit="handleGenerateAI(event)" style="margin-top: 1rem;">
           <div class="form-grid">
             <div class="form-group">
               <label>Tên Quán / Địa Điểm:</label>
-              <input type="text" id="ai-poi-name" class="form-control" value="Quán Ốc Vũ Vĩnh Khánh" required>
+              <input type="text" id="ai-poi-name" class="form-control" value="Quán Ốc Oanh Vĩnh Khánh" required>
             </div>
             <div class="form-group">
-              <label>Thời Tiết Hiện Tại:</label>
+              <label>Thời Tiết Thực Tế:</label>
               <select id="ai-weather" class="form-control">
-                <option value="mưa se se lạnh">🌧️ Mưa se se lạnh</option>
-                <option value="nắng rực rỡ buổi chiều">☀️ Nắng rực rỡ buổi chiều</option>
                 <option value="gió mát mẻ hoàng hôn" selected>🌆 Gió mát mẻ hoàng hôn</option>
+                <option value="nắng rực rỡ buổi chiều">☀️ Nắng rực rỡ buổi chiều</option>
+                <option value="mưa se se lạnh">🌧️ Mưa se se lạnh</option>
               </select>
             </div>
           </div>
           <div class="form-group">
-            <label>Món Đặc Sản / Nét Độc Đáo (cách nhau bằng dấu phẩy):</label>
-            <input type="text" id="ai-specialties" class="form-control" value="Ốc hương rang muối ớt, Sò điệp nướng phô mai, Mì xào ốc móng tay">
+            <label>Món Đặc Sản / Nét Độc Đáo:</label>
+            <input type="text" id="ai-specialties" class="form-control" value="Ốc hương rang muối ớt, Sò điệp nướng phô mai, Càng ghẹ rang me">
           </div>
           <button type="submit" class="btn btn-primary" id="btn-ai-submit">✨ Gợi Ý Thuyết Minh Bằng AI</button>
         </form>
 
         <div id="ai-result-card" style="margin-top: 1.5rem; display: none; background: #0f172a; border: 1px solid var(--border); border-radius: 8px; padding: 1.25rem;">
-          <h4 id="ai-res-title" style="color: #ff6b35;">Tiêu Đề Được Tạo</h4>
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <h4 id="ai-res-title" style="color: #ff6b35;">Tiêu Đề Được Tạo</h4>
+            <button class="btn btn-primary" style="background: #10b981; font-size: 0.8rem;" onclick="triggerTTSFromAI()">🎙️ Tạo Audio Edge-TTS Tức Thì</button>
+          </div>
           <p id="ai-res-desc" style="font-size: 0.85rem; color: #94a3b8; margin: 6px 0;"></p>
           <div style="margin-top: 10px;">
             <label style="font-size: 0.75rem; color: #00b4d8; font-weight: bold;">KỊCH BẢN THUYẾT MINH ÂM THANH:</label>
             <blockquote id="ai-res-narration" style="border-left: 3px solid #ff6b35; padding-left: 10px; margin-top: 4px; font-style: italic; color: #e2e8f0; line-height: 1.6;"></blockquote>
           </div>
-          <div style="margin-top: 1rem; display: flex; gap: 0.5rem;">
-            <button class="btn btn-success" id="btn-create-tts-direct">🎙️ Chuyển Thành File Giọng Đọc MP3 Bằng Edge-TTS</button>
-          </div>
         </div>
+      </div>
+
+      <!-- Realtime Audio Jobs Queue Tracker (C12, C13) -->
+      <div class="card" style="margin-top: 1.5rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <h3>🎙️ Hàng Chờ Tác Vụ Tạo Âm Thanh (Edge-TTS Background Jobs)</h3>
+          <button class="btn btn-primary" style="background: #334155; font-size: 0.8rem;" onclick="loadContentJobs()">🔄 Cập nhật hàng chờ</button>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>Job ID</th>
+              <th>Loại Tác Vụ</th>
+              <th>Ngôn Ngữ</th>
+              <th>Trạng Thái</th>
+              <th>Thời Gian</th>
+              <th>Nghe Thử / Thao Tác</th>
+            </tr>
+          </thead>
+          <tbody id="content-jobs-table">
+            <tr><td colspan="6" style="text-align: center; color: #94a3b8;">Đang nạp danh sách tác vụ...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- TAB 7: OFFLINE PACKAGES BUILDER (F01-F06) -->
+    <section id="tab-offline-packs" class="tab-section">
+      <div class="page-header">
+        <div>
+          <h1>Đóng Gói Dữ Liệu Ngoại Tuyến (Offline Packages)</h1>
+          <p style="color: #94a3b8; font-size: 0.85rem; margin-top: 2px;">Tạo và xuất bản các gói dữ liệu trọn vẹn để du khách tải về máy khi không có mạng 4G/Wifi</p>
+        </div>
+        <button class="btn btn-primary" onclick="handleBuildOfflinePackage()">📦 Tạo Bản Đóng Gói Mới</button>
+      </div>
+
+      <div class="card">
+        <h3>📦 Các Phiên Bản Gói Dữ Liệu Ngoại Tuyến Đã Đóng Gói</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Mã Gói</th>
+              <th>Tour Áp Dụng</th>
+              <th>Ngôn Ngữ</th>
+              <th>Phiên Bản</th>
+              <th>Mã Băm Checksum (SHA-256)</th>
+              <th>Tải Về / Xem</th>
+            </tr>
+          </thead>
+          <tbody id="offline-packages-table">
+            <tr><td colspan="6" style="text-align: center; color: #94a3b8;">Đang tải danh sách gói offline...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- TAB 8: USERS, ROLES & AUDIT LOGS (S01-S04) -->
+    <section id="tab-users" class="tab-section">
+      <div class="page-header">
+        <div>
+          <h1>Quản Lý Người Dùng & Nhật Ký Thao Tác</h1>
+          <p style="color: #94a3b8; font-size: 0.85rem; margin-top: 2px;">Phân quyền vai trò (Super Admin, Content Manager, Owner) và theo dõi Audit Logs</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>👥 Danh Sách Tài Khoản Quản Trị & Chủ Quán</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Họ Tên</th>
+              <th>Email</th>
+              <th>Vai Trò (Role)</th>
+              <th>Trạng Thái</th>
+              <th>Ngày Tạo</th>
+            </tr>
+          </thead>
+          <tbody id="users-admin-table">
+            <tr><td colspan="5" style="text-align: center; color: #94a3b8;">Đang tải danh sách tài khoản...</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="card" style="margin-top: 1.5rem;">
+        <h3>📋 Nhật Ký Thao Tác Hệ Thống (Audit Logs - S04)</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Thời Gian</th>
+              <th>Tài Khoản</th>
+              <th>Hành Động</th>
+              <th>Tài Nguyên</th>
+              <th>Chi Tiết</th>
+            </tr>
+          </thead>
+          <tbody id="audit-logs-table">
+            <tr><td colspan="5" style="text-align: center; color: #94a3b8;">Đang tải nhật ký thao tác...</td></tr>
+          </tbody>
+        </table>
       </div>
     </section>
   </main>
+
+  <!-- QR Code View / Print Modal -->
+  <div id="qr-view-modal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.75); z-index: 9999; align-items: center; justify-content: center;">
+    <div style="background: #1e293b; padding: 2rem; border-radius: 12px; max-width: 400px; width: 90%; text-align: center; border: 1px solid var(--border);">
+      <h3 id="modal-qr-title" style="color: #ff6b35;">Mã QR Điểm Đến</h3>
+      <p id="modal-qr-desc" style="font-size: 0.85rem; color: #94a3b8; margin: 8px 0;"></p>
+      <div id="modal-qr-img-box" style="margin: 1.5rem auto; padding: 12px; background: white; border-radius: 8px; width: 220px; height: 220px; display: flex; align-items: center; justify-content: center;">
+        <img id="modal-qr-img" src="" alt="QR Code" style="width: 100%; height: 100%; object-fit: contain;">
+      </div>
+      <div style="display: flex; gap: 8px; justify-content: center;">
+        <button class="btn btn-primary" onclick="printQRCode()">🖨️ In Mã QR</button>
+        <button class="btn btn-primary" style="background:#475569;" onclick="closeQRModal()">Đóng</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Audio Player Element for TTS Preview -->
+  <audio id="admin-audio-preview"></audio>
 
   <script src="admin.js"></script>
 </body>

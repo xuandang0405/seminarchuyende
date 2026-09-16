@@ -1,0 +1,38 @@
+%% AI gợi ý mô tả với kiểm tra quyền và hạn mức
+%% H: mô hình hóa từ HTML, có cụ thể hóa thiết kế
+sequenceDiagram
+    autonumber
+    participant Router as AI Router
+    participant Service as AI Service
+    participant Repo as Quota Repository
+    participant DB as MongoDB
+    participant Provider as AI Provider
+    Router->>Service: Yêu cầu gợi ý mô tả với danh tính và tài nguyên
+    Service->>Repo: Đọc trạng thái tài khoản và phạm vi sở hữu
+    Repo->>DB: Đọc user và POI liên quan
+    DB-->>Repo: Thông tin kiểm tra quyền
+    Repo-->>Service: Kết quả kiểm tra
+    break Không có quyền hoặc owner chưa xác minh
+        Service-->>Router: 403 và lý do phù hợp
+    end
+    opt Áp dụng hạn mức cho chủ quán
+        Service->>Repo: Yêu cầu nhận một lượt trong hạn mức ngày
+        Repo->>DB: Tăng count nguyên tử nếu vẫn dưới giới hạn
+        DB-->>Repo: Được cấp lượt hoặc đã hết hạn mức
+        Repo-->>Service: Kết quả nhận hạn mức
+        break Đã hết hạn mức
+            Service-->>Router: 429 với thông tin hạn mức
+        end
+    end
+    Service->>Provider: Gửi nội dung gốc và yêu cầu cải thiện mô tả
+    Provider-->>Service: Gợi ý hoặc lỗi provider
+    alt Có gợi ý hợp lệ
+        Service->>Service: Kiểm tra và chuẩn hóa kết quả trả về
+        Service-->>Router: 200 với gợi ý để người dùng xem và chọn
+    else Provider lỗi hoặc timeout
+        opt Có provider dự phòng phù hợp
+            Service->>Provider: Thử provider dự phòng theo cấu hình
+            Provider-->>Service: Kết quả dự phòng hoặc lỗi
+        end
+        Service-->>Router: Trả gợi ý nếu thành công hoặc lỗi rõ ràng
+    end

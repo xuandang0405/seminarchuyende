@@ -1,0 +1,79 @@
+@startuml 01_khach_va_thuyet_minh
+' Mô hình đề xuất. H: dựa trên HTML; G: yêu cầu ban đầu; P: cần chốt phạm vi.
+top to bottom direction
+skinparam shadowing false
+skinparam packageStyle rectangle
+skinparam backgroundColor white
+skinparam defaultFontName DejaVu Sans
+skinparam defaultFontSize 12
+skinparam usecaseBackgroundColor #FFFFFF
+skinparam usecaseBorderColor #334155
+skinparam ArrowColor #475569
+skinparam actorBorderColor #334155
+title Khách du lịch, tour và thuyết minh
+
+actor "Dịch vụ định vị thiết bị" as GPS <<external>>
+actor "Dịch vụ bản đồ cloud" as Maps <<external>>
+actor "Dịch vụ TTS" as TTS <<external>>
+actor "Khách du lịch" as Tourist
+actor "Dịch vụ dịch thuật" as Translator <<external>>
+
+rectangle "Hệ thống thuyết minh du lịch đa ngôn ngữ" as System {
+  package "Quản trị nội dung và dịch vụ" as ContentAdmin #FFF1DD {
+    usecase "C09 Dịch nội dung tự động" as C09
+    usecase "C11 Tạo audio bằng TTS" as C11
+  }
+  package "Khách du lịch và thuyết minh" as Public #E8F1FF {
+    usecase "T01 Xem bản đồ du lịch" as T01
+    usecase "T02 Xác định vị trí hiện tại" as T02
+    usecase "T03 Tìm kiếm địa điểm" as T03
+    usecase "T04 Xem địa điểm gần nhất" as T04
+    usecase "T05 Xem chi tiết địa điểm" as T05
+    usecase "T06 Xem món ăn của địa điểm" as T06
+    usecase "T07 Chọn ngôn ngữ nội dung và giao\ndiện" as T07
+    usecase "T08 Nghe thuyết minh theo yêu cầu" as T08
+    usecase "T09 Nghe tự động khi đến gần POI" as T09
+    usecase "T10 Điều khiển phát thuyết minh [G]" as T10
+    usecase "T11 Quét QR để nghe [G]" as T11
+    usecase "T12 Xem và chọn tour [G]" as T12
+    usecase "T13 Bắt đầu hoặc kết thúc tour [G]" as T13
+    usecase "N01 Phát nội dung thuyết minh" as N01
+    usecase "N02 Chuẩn bị thuyết minh theo yêu cầu" as N02
+  }
+}
+
+Tourist -- T01
+Maps -- T01
+Tourist -- T02
+GPS -- T02
+Tourist -- T03
+Tourist -- T04
+Tourist -- T05
+Tourist -- T06
+Tourist -- T07
+Tourist -- T08
+Tourist -- T09
+Tourist -- T10
+Tourist -- T11
+Tourist -- T12
+Tourist -- T13
+Translator -- C09
+TTS -- C11
+
+T04 ..> T02 : <<include>>
+T09 ..> T02 : <<include>>
+T08 ..> N01 : <<include>>
+T09 ..> N01 : <<include>>
+T11 ..> N01 : <<include>>
+T06 ..> T05 : <<extend>>\n[có menu và người dùng chọn xem]
+T10 ..> N01 : <<extend>>\n[đang phát hoặc tạm dừng]
+N02 ..> N01 : <<extend>>\n[thiếu audio phù hợp và có mạng]
+N02 ..> C11 : <<include>>
+C09 ..> N02 : <<extend>>\n[chưa có bản dịch ngôn ngữ đích]
+
+legend bottom
+Không nhãn: mô hình hóa từ HTML
+[G]: chức năng từ mô tả ban đầu của nhóm
+[P]: chỉ được gợi ra từ quyền; cần chốt phạm vi
+endlegend
+@enduml

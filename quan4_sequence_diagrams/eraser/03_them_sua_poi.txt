@@ -1,0 +1,61 @@
+// Admin thêm hoặc sửa POI và tạo yêu cầu audio
+// H: mô hình hóa từ HTML, có cụ thể hóa thiết kế
+// Use case: C01, C02, C04
+// Đây là mô hình đề xuất, không phải sơ đồ trích xuất từ backend đã chạy.
+// Người thực hiện đã đăng nhập và có quyền tạo hoặc sửa POI.
+// Đề xuất lưu POI, version và yêu cầu audio bền vững trong một transaction; không giả định hàng chờ chỉ nằm trong RAM.
+// Transaction nhiều document cần MongoDB có hỗ trợ transaction. Sơ đồ này mô tả thiết kế cần triển khai, không xác nhận code HTML đã làm đúng toàn bộ.
+// expected version, idempotency key và trạng thái kích hoạt là các cơ chế được cụ thể hóa trong mô hình; đổi nội dung tiếng nói cần chuẩn bị lại audio.
+// Bản ghi idempotency là đề xuất bổ sung; phải cùng transaction với POI và tác vụ. Cùng key nhưng payload khác phải bị từ chối.
+
+autoNumber on
+colorMode pastel
+styleMode plain
+typeface clean
+
+Web [label: "Web Admin", color: blue]
+Router [label: "POI Router", color: orange]
+Service [label: "POI Service", color: purple]
+Repo [label: "Content Repository", color: green]
+DB [label: "MongoDB", color: green]
+
+Web > Router: Gửi POI cùng version và mã yêu cầu
+Router > Router: Xác thực phiên và kiểm tra dữ liệu đầu vào
+Router > Service: Thêm hoặc sửa POI với danh tính người thực hiện
+Service > Service: Kiểm tra quyền và quy tắc nội dung
+break [label: "Không có quyền"] {
+  Service --> Router: Từ chối thao tác
+  Router --> Web: 403 Forbidden
+}
+Service > Repo: Tìm kết quả đã lưu cho cùng mã yêu cầu và payload
+Repo > DB: Đọc bản ghi chống xử lý trùng
+DB --> Repo: Kết quả cũ hoặc chưa có
+Repo --> Service: Trả kết quả kiểm tra
+break [label: "Yêu cầu này đã hoàn tất"] {
+  Service --> Router: Trả kết quả đã lưu trước đó
+  Router --> Web: 200 với cùng POI và trạng thái yêu cầu
+}
+Service > Repo: Đọc POI và version hiện tại nếu đang sửa
+Repo > DB: Tìm POI theo ID
+DB --> Repo: POI và version hiện tại
+Repo --> Service: Kết quả đọc
+break [label: "Version đã thay đổi"] {
+  Service --> Router: Báo xung đột cập nhật
+  Router --> Web: 409 và yêu cầu nạp lại dữ liệu
+}
+Service > Service: Chuẩn bị POI và tạo tác vụ audio nếu nội dung đọc thay đổi
+Service > Repo: Lưu POI, version và các tác vụ audio cần thiết
+Repo > DB: Transaction ghi POI, version, tác vụ và kết quả yêu cầu
+alt [label: "Transaction thành công"] {
+  DB --> Repo: Commit POI và yêu cầu audio
+  Repo --> Service: Trả POI và mã tác vụ nếu có
+  Service --> Router: Trả POI đã lưu cùng trạng thái audio hiện tại
+  Router --> Web: 200 hoặc 201 kèm task ID nếu có
+  Web > Web: Hiển thị POI và tiến độ audio
+}
+else [label: "Lỗi hoặc xung đột lúc ghi"] {
+  DB --> Repo: Rollback hoặc yêu cầu retry transaction
+  Repo --> Service: Báo chưa hoàn tất thao tác
+  Service --> Router: Kết quả lỗi phù hợp
+  Router --> Web: Giữ form và cho phép gửi lại cùng mã yêu cầu
+}

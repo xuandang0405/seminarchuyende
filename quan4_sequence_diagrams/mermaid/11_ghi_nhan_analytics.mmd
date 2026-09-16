@@ -1,0 +1,38 @@
+%% Ghi nhận và đồng bộ thống kê có chống trùng
+%% H: mô hình hóa từ HTML, có cụ thể hóa thiết kế
+sequenceDiagram
+    autonumber
+    participant App as Ứng dụng và Outbox
+    participant Router as Analytics Router
+    participant Service as Analytics Service
+    participant Repo as Analytics Repository
+    participant DB as MongoDB
+    alt Người dùng chưa đồng ý
+        App->>App: Không ghi thêm sự kiện public analytics
+    else Người dùng đã đồng ý
+        App->>App: Ghi sự kiện vào outbox với event ID ổn định
+        alt Chưa có mạng
+            App->>App: Giữ outbox để gửi sau
+        else Có mạng
+            App->>Router: Gửi batch sự kiện cùng ngữ cảnh đồng ý
+            Router->>Service: Chuyển batch đã kiểm tra định dạng
+            Service->>Service: Kiểm tra đồng ý, rate limit và payload
+            alt Bị giới hạn tần suất
+                Service-->>Router: Từ chối tạm thời với Retry-After
+                Router-->>App: 429 và thời gian chờ
+                App->>App: Giữ nguyên ID và thử lại sau
+            else Batch đủ điều kiện xử lý
+                Service->>Repo: Ghi các event hợp lệ và đánh dấu kỳ cần tổng hợp
+                Repo->>DB: Transaction upsert theo event ID và cập nhật job tổng hợp
+                alt Commit thành công
+                    DB-->>Repo: Các ID đã lưu hoặc đã tồn tại
+                    Repo-->>Service: Danh sách kết quả cho từng sự kiện
+                    Service-->>Router: ID đã nhận, đã có và bị từ chối
+                    Router-->>App: 200 với kết quả chi tiết
+                    App->>App: Bỏ mục đã nhận hoặc bị từ chối vĩnh viễn, giữ mục cần thử lại
+                else Mất kết nối hoặc chưa nhận được xác nhận
+                    App->>App: Giữ outbox và gửi lại cùng event ID
+                end
+            end
+        end
+    end

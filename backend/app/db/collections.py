@@ -1,0 +1,96 @@
+"""Centralized collection names for MongoDB.
+
+CRITICAL INVARIANT:
+Exact casing and naming from Section 25 ERD Baseline and Section 9 Extensions.
+NEVER create or use lowercase 'pois' or 'menu_items'.
+Always import and use these constants.
+"""
+
+# ==============================================================================
+# BASELINE 22 COLLECTIONS (Section 25 ERD Baseline)
+# ==============================================================================
+
+# Content & Localizations
+COLLECTION_POI = "POI"
+COLLECTION_POI_LOCALIZATIONS = "poi_localizations"
+COLLECTION_MENU_ITEM = "MenuItem"
+COLLECTION_CONTENT_DATASET_VERSIONS = "content_dataset_versions"
+
+# Accounts & Access Control
+COLLECTION_ROLES = "roles"
+COLLECTION_ADMIN_USERS = "admin_users"
+COLLECTION_POI_OWNER_REGISTRATIONS = "poi_owner_registrations"
+COLLECTION_POI_SUBMISSIONS = "poi_submissions"
+COLLECTION_OWNER_NOTIFICATIONS = "owner_notifications"
+COLLECTION_AUDIT_LOGS = "audit_logs"
+
+# Audio, Tasks & AI
+COLLECTION_AUDIO_TASKS = "audio_tasks"
+COLLECTION_AI_USAGE_LIMITS = "ai_usage_limits"
+COLLECTION_LOCALIZATION_RATE_LIMITS = "localization_rate_limits"
+COLLECTION_UI_TRANSLATION_BUNDLES = "ui_translation_bundles"
+
+# Analytics & Metrics (7 Collections)
+COLLECTION_ANALYTICS_DEVICES = "analytics_devices"
+COLLECTION_ANALYTICS_SESSIONS = "analytics_sessions"
+COLLECTION_ANALYTICS_EVENTS = "analytics_events"
+COLLECTION_ANALYTICS_POI_DAILY_METRICS = "analytics_poi_daily_metrics"
+COLLECTION_ANALYTICS_DAILY_METRICS = "analytics_daily_metrics"
+COLLECTION_ANALYTICS_HOURLY_METRICS = "analytics_hourly_metrics"
+COLLECTION_ANALYTICS_AGGREGATION_JOBS = "analytics_aggregation_jobs"
+
+# Runtime Observability
+COLLECTION_RUNTIME_LOCATION_HOURLY = "runtime_location_hourly"
+
+
+# ==============================================================================
+# PERMITTED EXTENSIONS (Section 9.2 Extensions)
+# ==============================================================================
+
+COLLECTION_TOURS = "tours"
+COLLECTION_QR_CODES = "qr_codes"
+COLLECTION_AUTH_SESSIONS = "auth_sessions"
+COLLECTION_IDEMPOTENCY_KEYS = "idempotency_keys"
+COLLECTION_OFFLINE_PACK_MANIFESTS = "offline_pack_manifests"
+COLLECTION_SCHEMA_MIGRATIONS = "schema_migrations"
+COLLECTION_AUTH_IDENTITIES = "auth_identities"
+COLLECTION_AUTH_ACTION_TOKENS = "auth_action_tokens"
+COLLECTION_OAUTH_TRANSACTIONS = "oauth_transactions"
+
+
+ALL_COLLECTIONS = [
+    # Baseline 22
+    COLLECTION_POI,
+    COLLECTION_POI_LOCALIZATIONS,
+    COLLECTION_MENU_ITEM,
+    COLLECTION_CONTENT_DATASET_VERSIONS,
+    COLLECTION_ROLES,
+    COLLECTION_ADMIN_USERS,
+    COLLECTION_POI_OWNER_REGISTRATIONS,
+    COLLECTION_POI_SUBMISSIONS,
+    COLLECTION_OWNER_NOTIFICATIONS,
+    COLLECTION_AUDIT_LOGS,
+    COLLECTION_AUDIO_TASKS,
+    COLLECTION_AI_USAGE_LIMITS,
+    COLLECTION_LOCALIZATION_RATE_LIMITS,
+    COLLECTION_UI_TRANSLATION_BUNDLES,
+    COLLECTION_ANALYTICS_DEVICES,
+    COLLECTION_ANALYTICS_SESSIONS,
+    COLLECTION_ANALYTICS_EVENTS,
+    COLLECTION_ANALYTICS_POI_DAILY_METRICS,
+    COLLECTION_ANALYTICS_DAILY_METRICS,
+    COLLECTION_ANALYTICS_HOURLY_METRICS,
+    COLLECTION_ANALYTICS_AGGREGATION_JOBS,
+    COLLECTION_RUNTIME_LOCATION_HOURLY,
+    # Extensions & Auth
+    COLLECTION_TOURS,
+    COLLECTION_QR_CODES,
+    COLLECTION_AUTH_SESSIONS,
+    COLLECTION_IDEMPOTENCY_KEYS,
+    COLLECTION_OFFLINE_PACK_MANIFESTS,
+    COLLECTION_SCHEMA_MIGRATIONS,
+    COLLECTION_AUTH_IDENTITIES,
+    COLLECTION_AUTH_ACTION_TOKENS,
+    COLLECTION_OAUTH_TRANSACTIONS,
+]
+

@@ -1,49 +1,33 @@
+"""Pydantic v2 schemas for POI.
+
+Strictly adheres to Section 25 ERD Baseline and Section 9 Extensions.
+"""
+
 from datetime import datetime
-from typing import Dict, List, Literal, Optional, Any
-from pydantic import BaseModel, Field, model_validator
-from app.schemas.common import GeoPoint
+from typing import List, Optional, Any, Dict, Literal
+from pydantic import BaseModel, Field
 
-PoiCategory = Literal["attraction", "food", "bus_stop", "other"]
-PoiStatus = Literal["draft", "active", "archived"]
-
-
-class MenuItem(BaseModel):
-    id: Optional[str] = None
-    name: str
-    price: Optional[float] = None
-    currency: str = "VND"
-    description: Optional[str] = None
-    image_url: Optional[str] = None
-    is_available: bool = True
-    is_specialty: bool = False
+from app.schemas.menu import MenuItemCreate, MenuItemUpdate, MenuItemResponse
+MenuItem = MenuItemResponse
 
 
-class PublicationContent(BaseModel):
-    content_id: str
-    audio_asset_id: str
-    published_at: datetime
-    published_by: str
+class GeoLocation(BaseModel):
+    type: str = "Point"
+    coordinates: List[float] = Field(..., min_length=2, max_length=2, description="[longitude, latitude]")
 
 
 class POIBase(BaseModel):
-    code: str = Field(..., description="Unique POI code, e.g., 'Q4-BEN-NHA-RONG'")
-    category: PoiCategory = "attraction"
-    address: str = ""
-    location: GeoPoint
-    radius_enter_m: int = Field(default=25, ge=1)
-    radius_exit_m: int = Field(default=50, ge=1)
-    cooldown_seconds: int = Field(default=120, ge=0)
-    priority: int = Field(default=1, ge=0)
-    status: PoiStatus = "draft"
-    image_key: Optional[str] = None
+    name: str = Field(..., min_length=2, max_length=200)
+    description: str = Field(..., min_length=5)
+    category: str = Field(default="sightseeing")
+    address: str = Field(default="")
+    location: GeoLocation
+    images: List[str] = Field(default_factory=list)
+    trigger_radius: float = Field(default=30.0, ge=5.0, le=500.0)
+    audio_priority: int = Field(default=1, ge=1, le=100)
     owner_id: Optional[str] = None
-    menu_items: List[MenuItem] = Field(default_factory=list)
-
-    @model_validator(mode="after")
-    def validate_radii(self):
-        if self.radius_exit_m <= self.radius_enter_m:
-            raise ValueError("radius_exit_m must be strictly greater than radius_enter_m")
-        return self
+    source_lang: str = Field(default="vi")
+    activation_requested: bool = Field(default=False)
 
 
 class POICreate(POIBase):
@@ -51,35 +35,65 @@ class POICreate(POIBase):
 
 
 class POIUpdate(BaseModel):
-    code: Optional[str] = None
-    category: Optional[PoiCategory] = None
+    name: Optional[str] = None
+    description: Optional[str] = None
+    category: Optional[str] = None
     address: Optional[str] = None
-    location: Optional[GeoPoint] = None
-    radius_enter_m: Optional[int] = Field(None, ge=1)
-    radius_exit_m: Optional[int] = Field(None, ge=1)
-    cooldown_seconds: Optional[int] = Field(None, ge=0)
-    priority: Optional[int] = Field(None, ge=0)
-    status: Optional[PoiStatus] = None
-    image_key: Optional[str] = None
+    location: Optional[GeoLocation] = None
+    images: Optional[List[str]] = None
+    trigger_radius: Optional[float] = Field(None, ge=5.0, le=500.0)
+    audio_priority: Optional[int] = Field(None, ge=1, le=100)
     owner_id: Optional[str] = None
-    menu_items: Optional[List[MenuItem]] = None
+    expected_version: Optional[int] = Field(1, description="Optimistic concurrency control version")
 
 
-class POIResponse(POIBase):
+class POIPublicResponse(BaseModel):
+    id: str
+    name: str
+    description: str
+    category: Optional[str] = None
+    address: Optional[str] = None
+    location: GeoLocation
+    images: List[str] = Field(default_factory=list)
+    trigger_radius: float = 30.0
+    audio_priority: int = 1
+    audio_url: Optional[str] = None
+    audio_duration_ms: int = 0
+    requested_lang: str = "vi"
+    resolved_lang: str = "vi"
+    is_fallback: bool = False
+    version: int = 1
+    available_languages: Optional[List[str]] = None
+
+
+class POIAdminResponse(BaseModel):
     id: str = Field(..., alias="_id")
-    revision: int = 1
-    published_contents: Dict[str, Any] = Field(default_factory=dict)
-    created_by: Optional[str] = None
+    owner_id: Optional[str] = None
+    name: str
+    description: str
+    category: str
+    address: str
+    location: GeoLocation
+    images: List[str] = Field(default_factory=list)
+    trigger_radius: float
+    audio_priority: int
+    audio_status: str
+    is_active: bool
+    activation_requested: bool
+    source_lang: str
+    version: int
+    content_version: int
     created_at: datetime
     updated_at: datetime
 
-    model_config = {
-        "populate_by_name": True
-    }
+    model_config = {"populate_by_name": True}
+
+
+POIResponse = POIAdminResponse
 
 
 class POINearbyQuery(BaseModel):
     longitude: float
     latitude: float
-    max_distance_meters: float = 1000
-    category: Optional[PoiCategory] = None
+    max_distance_meters: float = 1000.0
+    category: Optional[str] = None

@@ -1,0 +1,37 @@
+// AD04 — GPS t? d?ng nh?n di?n d?a di?m
+// Eraser: Flow Chart
+// Geofence ch?y t?i ?ng d?ng.
+// G?i yêu c?u sang AD16 không ch?n vi?c theo dõi GPS.
+
+direction down
+
+Start [shape: oval, label: "B?t d?u"]
+Enable [label: "B?t thuy?t minh t? d?ng"]
+Active [shape: diamond, label: "Ch? d? t? d?ng còn b?t?"]
+Location [label: "Nh?n v? trí và d? chính xác GPS"]
+Usable [shape: diamond, label: "GPS s? d?ng du?c?"]
+Fallback [label: "Hi?n th? l?a ch?n quét QR ho?c b?m nghe"]
+Distance [label: "Tính kho?ng cách d?n các POI"]
+Nearby [shape: diamond, label: "Có POI trong bán kính?"]
+Choose [label: "Ch?n POI theo kho?ng cách và uu tiên"]
+Eligible [shape: diamond, label: "Ğ?t debounce và h?t cooldown?"]
+Request [label: "G?i yêu c?u phát sang AD16"]
+StopTracking [label: "D?ng theo dõi cho ch? d? t? d?ng"]
+End [shape: oval, label: "K?t thúc"]
+
+Start > Enable
+Enable > Active
+Active > Location: Có
+Active > StopTracking: Không
+Location > Usable
+Usable > Fallback: Không
+Fallback > Active
+Usable > Distance: Có
+Distance > Nearby
+Nearby > Active: Không
+Nearby > Choose: Có
+Choose > Eligible
+Eligible > Active: Không
+Eligible > Request: Có
+Request > Active
+StopTracking > End

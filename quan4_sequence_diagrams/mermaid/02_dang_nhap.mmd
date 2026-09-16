@@ -1,0 +1,30 @@
+%% Đăng nhập qua ba lớp FastAPI
+%% H: mô hình hóa từ HTML, có cụ thể hóa thiết kế
+sequenceDiagram
+    autonumber
+    participant Web as Web Admin hoặc Owner
+    participant Router as Auth Router
+    participant Service as Auth Service
+    participant Repo as User Repository
+    participant DB as MongoDB
+    Web->>Router: Gửi email và mật khẩu
+    Router->>Router: Kiểm tra định dạng bằng Pydantic
+    Router->>Service: Yêu cầu xác thực tài khoản
+    Service->>Repo: Tìm tài khoản theo email đã chuẩn hóa
+    Repo->>DB: Đọc admin_users
+    DB-->>Repo: Thông tin tài khoản hoặc không tìm thấy
+    Repo-->>Service: Trả kết quả tìm kiếm
+    Service->>Service: Kiểm tra password hash và trạng thái tài khoản
+    alt Thông tin không hợp lệ hoặc tài khoản bị khóa
+        Service-->>Router: Kết quả xác thực thất bại
+        Router-->>Web: 401 với thông báo đăng nhập không thành công
+    else Thông tin hợp lệ
+        Service->>Repo: Đọc vai trò và quyền hiệu lực
+        Repo->>DB: Đọc roles và quyền bổ sung
+        DB-->>Repo: Danh sách quyền
+        Repo-->>Service: Danh sách quyền hiệu lực
+        Service->>Service: Tạo access token và refresh token có hạn
+        Service-->>Router: Token và thông tin tài khoản an toàn
+        Router-->>Web: 200 và cookie HttpOnly cùng thuộc tính bảo vệ
+        Web->>Web: Điều hướng theo quyền và trạng thái xác minh
+    end

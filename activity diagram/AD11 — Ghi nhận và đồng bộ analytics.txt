@@ -1,0 +1,38 @@
+// AD11 — Ghi nh?n và d?ng b? analytics
+// Eraser: Flow Chart
+// M?i l?n retry gi? nguyên event ID.
+// Backend ch?ng trùng và dánh d?u k? c?n t?ng h?p.
+// Ğây là m?t d?t d?ng b?; l?ch m?ng ho?c backoff kích ho?t d?t sau.
+
+direction down
+
+Start [shape: oval, label: "Nh?n s? ki?n nghe ho?c tham quan"]
+Consent [shape: diamond, label: "Khách dã d?ng ı analytics?"]
+Create [label: "T?o event ID và luu outbox c?c b?"]
+Ready [shape: diamond, label: "Có m?ng và d?n lu?t d?ng b??"]
+Keep [label: "Gi? s? ki?n cho d?t sau"]
+StillConsented [shape: diamond, label: "S? d?ng ı còn hi?u l?c?"]
+Discard [label: "D?ng g?i và b? s? ki?n chua g?i"]
+Send [label: "G?i batch d?n API x? lı ch?ng trùng"]
+Acknowledged [shape: diamond, label: "Nh?n du?c ACK h?p l??"]
+ProcessACK [label: "Xóa m?c dã luu, dã có ho?c b? t? ch?i vinh vi?n"]
+KeepRemaining [label: "Gi? m?c l?i t?m th?i ho?c chua xác nh?n"]
+Backoff [label: "Gi? event ID và th? l?i theo backoff"]
+End [shape: oval, label: "K?t thúc"]
+
+Start > Consent
+Consent > End: Không
+Consent > Create: Có
+Create > Ready
+Ready > Keep: Không
+Keep > End
+Ready > StillConsented: Có
+StillConsented > Discard: Không
+Discard > End
+StillConsented > Send: Có
+Send > Acknowledged
+Acknowledged > ProcessACK: Có
+ProcessACK > KeepRemaining
+KeepRemaining > End
+Acknowledged > Backoff: Không
+Backoff > End

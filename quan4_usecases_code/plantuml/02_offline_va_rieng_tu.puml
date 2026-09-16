@@ -1,0 +1,47 @@
+@startuml 02_offline_va_rieng_tu
+' Mô hình đề xuất. H: dựa trên HTML; G: yêu cầu ban đầu; P: cần chốt phạm vi.
+top to bottom direction
+skinparam shadowing false
+skinparam packageStyle rectangle
+skinparam backgroundColor white
+skinparam defaultFontName DejaVu Sans
+skinparam defaultFontSize 12
+skinparam usecaseBackgroundColor #FFFFFF
+skinparam usecaseBorderColor #334155
+skinparam ArrowColor #475569
+skinparam actorBorderColor #334155
+title Offline và lựa chọn thu thập thống kê
+
+actor "Khách du lịch" as Tourist
+
+rectangle "Hệ thống thuyết minh du lịch đa ngôn ngữ" as System {
+  package "Offline và lựa chọn riêng tư" as Offline #E6F5EC {
+    usecase "F01 Chọn chế độ bản đồ" as F01
+    usecase "F02 Tải gói sử dụng offline" as F02
+    usecase "F03 Cập nhật gói offline" as F03
+    usecase "F04 Sửa gói offline thiếu hoặc lỗi" as F04
+    usecase "F05 Xóa gói offline" as F05
+    usecase "F06 Sử dụng nội dung đã tải offline" as F06
+    usecase "F07 Đồng bộ nội dung khi có mạng" as F07
+    usecase "F08 Cho phép hoặc từ chối thống kê" as F08
+  }
+}
+
+Tourist -- F01
+Tourist -- F02
+Tourist -- F03
+Tourist -- F04
+Tourist -- F05
+Tourist -- F06
+Tourist -- F07
+Tourist -- F08
+
+F03 ..> F02 : <<extend>>\n[có phiên bản gói mới]
+F04 ..> F02 : <<extend>>\n[phát hiện dữ liệu thiếu hoặc lỗi]
+F06 ..> F02 : <<extend>>\n[đã tải gói và ở chế độ offline]
+legend bottom
+Không nhãn: mô hình hóa từ HTML
+[G]: chức năng từ mô tả ban đầu của nhóm
+[P]: chỉ được gợi ra từ quyền; cần chốt phạm vi
+endlegend
+@enduml

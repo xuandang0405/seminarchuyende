@@ -1,78 +1,140 @@
+"""TTS & Audio Generation Service using Edge-TTS.
+
+C11 / C12 / C13 / SD07 / AD07 / N02.
+Supports Vietnamese, English, French voices.
+"""
+
 import os
 import hashlib
-import uuid
 import logging
-from typing import Optional, Tuple
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
 import edge_tts
+
 from app.core.config import settings
+from app.repositories.audio_repo import audio_repo
+from app.repositories.poi_repo import poi_repo
 
 logger = logging.getLogger("uvicorn")
 
-VOICE_MAP = {
+VOICE_MAPPING = {
     "vi": "vi-VN-HoaiMyNeural",
-    "en": "en-US-GuyNeural",
+    "en": "en-US-JennyNeural",
+    "fr": "fr-FR-DeniseNeural",
     "zh": "zh-CN-XiaoxiaoNeural",
     "ja": "ja-JP-NanamiNeural",
-    "ko": "ko-KR-SunHiNeural",
-    "fr": "fr-FR-DeniseNeural"
 }
 
 
 class TTSService:
     @staticmethod
-    def get_voice_for_language(language_code: str) -> str:
-        code = language_code.lower().split("-")[0]
-        return VOICE_MAP.get(code, "vi-VN-HoaiMyNeural")
+    def calculate_content_hash(text: str, lang: str, voice: str) -> str:
+        """Calculates stable SHA-256 hash of text + lang + voice config."""
+        raw = f"{text.strip()}_{lang.lower()}_{voice}"
+        return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
-    @classmethod
-    async def synthesize_speech(
-        cls,
+    async def generate_audio_for_text(
+        self,
         text: str,
-        language_code: str = "vi",
-        voice_id: Optional[str] = None
-    ) -> Tuple[str, int, int, str]:
-        """
-        Synthesizes text to MP3 file.
-        Returns (relative_file_path, duration_ms, file_size_bytes, sha256_hash)
-        """
-        voice = voice_id or cls.get_voice_for_language(language_code)
+        lang: str = "vi",
+        output_filename: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Generates MP3 audio using Edge-TTS."""
+        voice = VOICE_MAPPING.get(lang, "vi-VN-HoaiMyNeural")
+        content_hash = self.calculate_content_hash(text, lang, voice)
+
+        if not output_filename:
+            output_filename = f"{content_hash[:16]}.mp3"
+
         audio_dir = os.path.join(settings.MEDIA_STORAGE_DIR, "audio")
         os.makedirs(audio_dir, exist_ok=True)
-
-        filename = f"{uuid.uuid4().hex}.mp3"
-        filepath = os.path.join(audio_dir, filename)
+        file_path = os.path.join(audio_dir, output_filename)
+        storage_key = f"audio/{output_filename}"
+        audio_url = f"/storage/{storage_key}"
 
         try:
             communicate = edge_tts.Communicate(text, voice)
-            await communicate.save(filepath)
+            await communicate.save(file_path)
 
-            # Read file to calculate size and SHA256
-            hasher = hashlib.sha256()
-            file_size = 0
-            with open(filepath, "rb") as f:
-                while chunk := f.read(65536):
-                    hasher.update(chunk)
-                    file_size += len(chunk)
+            file_size = os.path.getsize(file_path)
+            # Estimate duration in ms (assuming ~128kbps = 16000 bytes/sec)
+            estimated_duration_ms = max(int((file_size / 16000.0) * 1000), 3000)
 
-            sha256_hash = hasher.hexdigest()
-
-            # Estimate duration in milliseconds (approx 16kbps / 128kbps standard for edge-tts MP3 ~ 16000 bytes/sec)
-            # 128 kbps = 16,000 bytes/sec -> duration_sec = file_size / 16000
-            duration_ms = max(1000, int((file_size / 16000) * 1000))
-
-            logger.info(f"TTS generated successfully: {filepath} ({file_size} bytes, ~{duration_ms}ms)")
-            return filename, duration_ms, file_size, sha256_hash
-
+            return {
+                "success": True,
+                "audio_url": audio_url,
+                "audio_storage_key": storage_key,
+                "audio_content_hash": content_hash,
+                "audio_duration_ms": estimated_duration_ms,
+                "file_size": file_size,
+            }
         except Exception as e:
-            logger.error(f"TTS synthesis failed: {e}")
-            # Fallback: create mock silent MP3 if network error so system doesn't crash
-            if not os.path.exists(filepath):
-                with open(filepath, "wb") as f:
-                    # Minimal mock MP3 header bytes
-                    f.write(b"\xff\xfb\x90\x44" + b"\x00" * 1024)
-            file_size = os.path.getsize(filepath)
-            sha256_hash = hashlib.sha256(open(filepath, "rb").read()).hexdigest()
-            return filename, 3000, file_size, sha256_hash
+            logger.error(f"Edge-TTS generation error: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def schedule_poi_tts_task(
+        self,
+        poi_id: str,
+        lang: str,
+        requested_by: str
+    ) -> Dict[str, Any]:
+        """Schedules a durable audio_tasks document and executes generation."""
+        poi = await poi_repo.get_by_id(poi_id)
+        if not poi:
+            return {"success": False, "error": "POI không tồn tại."}
+
+        loc = await poi_repo.get_localization_by_lang(poi_id, lang)
+        text_to_speak = ""
+        if loc and loc.get("description"):
+            text_to_speak = f"{loc.get('name', '')}. {loc.get('description', '')}"
+        else:
+            text_to_speak = f"{poi.get('name', '')}. {poi.get('description', '')}"
+
+        voice = VOICE_MAPPING.get(lang, "vi-VN-HoaiMyNeural")
+        input_hash = self.calculate_content_hash(text_to_speak, lang, voice)
+
+        item = {
+            "poi_id": poi_id,
+            "lang": lang,
+            "input_hash": input_hash,
+            "status": "queued",
+            "input_version": poi.get("content_version", 1),
+            "error": None,
+        }
+
+        task = await audio_repo.create_task(
+            requested_by=requested_by,
+            items=[item]
+        )
+
+        # Execute generation
+        filename = f"{poi_id}_{lang}.mp3"
+        res = await self.generate_audio_for_text(text_to_speak, lang, output_filename=filename)
+
+        if res["success"]:
+            await audio_repo.update_audio_metadata(
+                poi_id=poi_id,
+                lang=lang,
+                audio_url=res["audio_url"],
+                audio_storage_key=res["audio_storage_key"],
+                audio_content_hash=res["audio_content_hash"],
+                audio_duration_ms=res["audio_duration_ms"],
+                audio_source="tts_generated"
+            )
+            await audio_repo.finish_task(task["_id"], status="succeeded")
+            return {
+                "success": True,
+                "task_id": task["_id"],
+                "audio_url": res["audio_url"],
+                "duration_ms": res["audio_duration_ms"]
+            }
+        else:
+            await audio_repo.finish_task(task["_id"], status="failed", error_message=res.get("error"))
+            return {
+                "success": False,
+                "task_id": task["_id"],
+                "error": res.get("error")
+            }
 
 
 tts_service = TTSService()

@@ -1,0 +1,45 @@
+// Chọn tour và bắt đầu hoặc kết thúc chuyến đi
+// G: từ mô tả ban đầu, cần bổ sung ngoài schema HTML
+// Use case: T12, T13, C15, S08
+// Đây là mô hình đề xuất, không phải sơ đồ trích xuất từ backend đã chạy.
+// Tour thuộc yêu cầu ban đầu, chưa có schema đầy đủ trong ERD bám HTML trước đó; cần bổ sung khi triển khai.
+// Chức năng tham quan vẫn hoạt động khi không đồng ý analytics; phiên thao tác có thể giữ cục bộ.
+// App và outbox được gộp trong cột Ứng dụng. Sự kiện tour được đồng bộ theo sơ đồ 11.
+// Phát theo POI sử dụng sơ đồ GPS hoặc nghe chủ động; không bắt buộc phát liên tục cả tour khi bắt đầu.
+
+autoNumber on
+colorMode pastel
+styleMode plain
+typeface clean
+
+User [label: "Du khách", color: blue]
+App [label: "Ứng dụng", color: blue]
+Cache [label: "Bộ nhớ offline", color: green]
+API [label: "FastAPI", color: orange]
+
+User > App: Mở danh sách tour
+alt [label: "Có mạng"] {
+  App > API: Lấy tour công khai và thứ tự POI
+  API --> App: Tour cùng phiên bản nội dung
+  App > Cache: Lưu snapshot tour phù hợp
+}
+else [label: "Không có mạng"] {
+  App > Cache: Đọc tour đã tải
+  Cache --> App: Snapshot hoặc chưa có dữ liệu
+}
+break [label: "Không có tour khả dụng"] {
+  App --> User: Thông báo cần tải tour khi có mạng
+}
+App --> User: Hiển thị tour và các điểm dừng
+User > App: Chọn tour và bắt đầu
+App > Cache: Lưu phiên tham quan cục bộ và điểm bắt đầu
+opt [label: "Đã đồng ý thống kê"] {
+  App > App: Thêm sự kiện bắt đầu tour vào outbox
+}
+App --> User: Hiển thị hành trình và điều khiển thuyết minh
+User > App: Kết thúc chuyến đi
+App > Cache: Đóng phiên tham quan cục bộ
+opt [label: "Đã đồng ý thống kê"] {
+  App > App: Thêm sự kiện kết thúc tour vào outbox
+}
+App --> User: Thông báo kết thúc tour

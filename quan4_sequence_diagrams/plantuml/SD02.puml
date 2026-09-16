@@ -1,0 +1,53 @@
+@startuml
+title SD02 - Đăng nhập email và mật khẩu (Backend + React Web)
+autonumber
+skinparam shadowing false
+skinparam defaultFontName "Arial"
+
+actor "Người dùng" as U
+participant "React Web" as W
+participant "Auth Router" as R
+participant "Auth / Session Service" as S
+participant "Repositories\n(MongoDB & Sessions)" as D
+
+U -> W: Nhập email và mật khẩu
+W -> R: POST /api/v1/auth/login + CSRF header
+R -> R: Validate DTO và nguồn request
+alt Dữ liệu hoặc CSRF không hợp lệ
+  R --> W: 400/403 Lỗi tương ứng, không tạo phiên
+else Request hợp lệ
+  R -> S: login(email, password, ip, ua)
+  S -> D: Đọc user theo email (admin_users)
+  D --> S: User document hoặc None
+  alt User không tồn tại
+    S --> R: 401 Thông báo sai thông tin chung
+    R --> W: 401 Unauthorized
+  else User tồn tại nhưng inactive/blocked
+    S --> R: 401 Tài khoản đã bị khóa
+    R --> W: 401 Unauthorized
+  else Tài khoản Google-only (không có password_hash)
+    S --> R: 401 Yêu cầu đăng nhập bằng Google
+    R --> W: 401 Unauthorized
+  else Có password_hash
+    S -> S: verify_password(password, user.password_hash)
+    alt Mật khẩu sai
+      S --> R: 401 Thông báo sai thông tin chung
+      R --> W: 401 Unauthorized
+    else Mật khẩu đúng
+      S -> D: Đọc role permissions & tạo auth_sessions
+      D --> S: Session document đã lưu (refresh_token_hash)
+      S -> S: create_access_token(user_id, role, auth_version)
+      S --> R: Access token, session_id, refresh_token, user profile
+      R --> W: JSON response (access_token, user)\n+ Set-Cookie: tourvoice_refresh_token (HttpOnly)
+      W -> W: Lưu access_token trong memory
+      W -> W: Điều hướng theo quyền (user -> /account, admin -> /)
+      W --> U: Hiển thị giao diện tương ứng
+    end
+  end
+end
+
+note over R,D
+  Router gọi Service, Service gọi Repository.
+  Access token nằm trong memory; Refresh token nằm trong HttpOnly cookie.
+end note
+@enduml

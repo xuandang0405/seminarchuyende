@@ -1,0 +1,37 @@
+// AD09 — Ch? quán g?i n?i dung ch? duy?t
+// Eraser: Flow Chart
+// Submission chua thay tr?c ti?p n?i dung công khai.
+
+direction down
+
+Start [shape: oval, label: "B?t d?u"]
+OpenForm [label: "M? form thêm ho?c s?a n?i dung"]
+CheckPermission [label: "Ki?m tra phiên, xác minh và quy?n v?i POI"]
+Allowed [shape: diamond, label: "Ğu?c phép thao tác?"]
+Denied [label: "Thông báo không d? quy?n"]
+Edit [label: "Nh?p n?i dung và ch?n g?i duy?t"]
+Validate [label: "API ki?m tra d? li?u"]
+Valid [shape: diamond, label: "N?i dung h?p l??"]
+InputError [label: "Tr? l?i d? s?a b?n nháp"]
+Save [label: "Luu submission pending theo mã ch?ng trùng"]
+Saved [shape: diamond, label: "Xác nh?n g?i thành công?"]
+Pending [label: "Hi?n th? h? so dang ch? duy?t"]
+Retry [label: "Gi? b?n nháp và th? l?i cùng mã yêu c?u"]
+End [shape: oval, label: "K?t thúc"]
+
+Start > OpenForm
+OpenForm > CheckPermission
+CheckPermission > Allowed
+Allowed > Denied: Không
+Denied > End
+Allowed > Edit: Có
+Edit > Validate
+Validate > Valid
+Valid > InputError: Không
+InputError > Edit
+Valid > Save: Có
+Save > Saved
+Saved > Pending: Có
+Saved > Retry: Không
+Pending > End
+Retry > End

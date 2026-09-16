@@ -1,0 +1,47 @@
+// AD15 — AI g?i ı mô t? POI
+// Eraser: Flow Chart
+// K?t qu? ch? là b?n g?i ı, không t? công b? POI.
+
+direction down
+
+Start [shape: oval, label: "B?t d?u"]
+Request [label: "Yêu c?u AI g?i ı mô t?"]
+CheckPermission [label: "Service ki?m tra quy?n v?i tài nguyên"]
+Allowed [shape: diamond, label: "Yêu c?u du?c phép?"]
+Denied [label: "T? ch?i yêu c?u"]
+AcquireQuota [label: "Nh?n h?n m?c nguyên t? theo vai trò"]
+Quota [shape: diamond, label: "Còn h?n m?c?"]
+QuotaError [label: "Thông báo dã h?t h?n m?c"]
+CallAI [label: "G?i AI v?i ng? c?nh POI"]
+Fallback [shape: diamond, label: "G?i l?i và có provider d? phòng?"]
+CallFallback [label: "G?i provider d? phòng"]
+Valid [shape: diamond, label: "Có g?i ı h?p l??"]
+Show [label: "Hi?n th? b?n g?i ı"]
+Accept [shape: diamond, label: "Ngu?i dùng ch?p nh?n?"]
+Apply [label: "Chép vào b?n nháp d? ch?nh s?a"]
+Discard [label: "B? g?i ı và gi? n?i dung dang nh?p"]
+Error [label: "Báo l?i và x? lı h?n m?c theo chính sách"]
+End [shape: oval, label: "K?t thúc"]
+
+Start > Request
+Request > CheckPermission
+CheckPermission > Allowed
+Allowed > Denied: Không
+Denied > End
+Allowed > AcquireQuota: Có
+AcquireQuota > Quota
+Quota > QuotaError: Không
+QuotaError > End
+Quota > CallAI: Có
+CallAI > Fallback
+Fallback > CallFallback: Có
+CallFallback > Valid
+Fallback > Valid: Không
+Valid > Show: Có
+Valid > Error: Không
+Error > End
+Show > Accept
+Accept > Apply: Có
+Accept > Discard: Không
+Apply > End
+Discard > End

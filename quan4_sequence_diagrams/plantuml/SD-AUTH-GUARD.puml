@@ -1,0 +1,54 @@
+@startuml
+title SD-AUTH-GUARD - Kiểm tra phiên và phân quyền tại API
+autonumber
+skinparam shadowing false
+skinparam defaultFontName "Arial"
+
+participant "Web Client" as C
+participant "Protected Router" as R
+participant "Auth / Domain Services" as S
+participant "Repositories" as P
+database "MongoDB" as D
+
+C -> R: Request tới endpoint bảo vệ (Bearer access_token)
+R -> S: get_current_user(token)
+S -> S: Verify JWT signature, issuer, audience, expiry
+alt Chữ ký sai hoặc token hết hạn
+  S --> R: 401 Unauthorized
+  R --> C: 401 Unauthorized
+else Token hợp lệ về mật mã
+  S -> P: get_user_by_id(user_id)
+  P -> D: Query admin_users
+  D --> P: User document
+  alt User không tồn tại hoặc is_active == False
+    S --> R: 401 Tài khoản không hợp lệ hoặc đã bị khóa
+    R --> C: 401 Unauthorized
+  else auth_version trong token != user.auth_version
+    S --> R: 401 Phiên đăng nhập đã bị vô hiệu hóa
+    R --> C: 401 Unauthorized
+  else Auth version khớp & account active
+    S -> P: get_role_by_name(user.role)
+    P -> D: Query roles
+    D --> P: Role document (permissions)
+    P --> S: User profile + resolved permissions
+    S --> R: Authenticated user context
+
+    R -> R: Kiểm tra quyền hạn / role yêu cầu (e.g. get_current_admin)
+    alt Không đủ quyền hạn (vd: user thường gọi endpoint admin)
+      R --> C: 403 Forbidden
+    else Đủ quyền hạn
+      R -> S: Xử lý nghiệp vụ với user context
+      S -> P: Truy vấn dữ liệu có lọc ownership (owner_id)
+      P -> D: Query scoped resource
+      D --> P: Resource document
+      alt Không tìm thấy hoặc không thuộc quyền sở hữu
+        S --> R: 404 Not Found (hoặc 403)
+        R --> C: 404 / 403
+      else Dữ liệu hợp lệ
+        S --> R: Data DTO
+        R --> C: 200 OK
+      end
+    end
+  end
+end
+@enduml

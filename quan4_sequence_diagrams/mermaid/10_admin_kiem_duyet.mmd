@@ -1,0 +1,42 @@
+%% Admin xét duyệt hồ sơ hoặc nội dung chủ quán
+%% H: mô hình hóa từ HTML, có cụ thể hóa thiết kế
+sequenceDiagram
+    autonumber
+    participant Web as Web Admin
+    participant Router as Review Router
+    participant Service as Review Service
+    participant Repo as Review Repository
+    participant DB as MongoDB
+    Web->>Router: Gửi quyết định duyệt hoặc từ chối và admin note
+    Router->>Router: Xác thực phiên và kiểm tra dữ liệu
+    Router->>Service: Yêu cầu xét duyệt với danh tính reviewer
+    Service->>Service: Kiểm tra quyền duyệt đúng loại hồ sơ
+    break Không có quyền
+        Service-->>Router: Từ chối
+        Router-->>Web: 403 Forbidden
+    end
+    Service->>Repo: Đọc hồ sơ và trạng thái hiện tại
+    Repo->>DB: Tìm hồ sơ hoặc submission
+    DB-->>Repo: Dữ liệu hiện hành
+    Repo-->>Service: Trả trạng thái cùng version
+    break Hồ sơ không còn chờ duyệt
+        Service-->>Router: Báo xung đột xét duyệt
+        Router-->>Web: 409 và trạng thái mới nhất
+    end
+    alt Duyệt đăng ký chủ quán
+        Service->>Repo: Lưu quyết định và cập nhật xác minh khi được chấp nhận
+    else Duyệt submission nội dung
+        Service->>Repo: Lưu quyết định và áp dụng POI nếu được chấp nhận
+    end
+    Repo->>DB: Transaction có điều kiện pending và version còn khớp
+    alt Ghi thành công
+        DB-->>Repo: Commit quyết định, dữ liệu liên quan và thông báo
+        Repo-->>Service: Trả kết quả đã duyệt
+        Service-->>Router: Kết quả xử lý
+        Router-->>Web: 200 với trạng thái mới
+    else Reviewer khác đã xử lý hoặc lỗi ghi
+        DB-->>Repo: Rollback hoặc xung đột
+        Repo-->>Service: Báo thao tác chưa được áp dụng
+        Service-->>Router: Kết quả lỗi phù hợp
+        Router-->>Web: Yêu cầu nạp lại trạng thái hồ sơ
+    end

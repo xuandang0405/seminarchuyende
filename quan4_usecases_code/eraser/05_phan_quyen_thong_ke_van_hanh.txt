@@ -1,0 +1,46 @@
+// USE CASE - FASTAPI + MONGODB - DÁN VÀO ERASER FLOW CHART
+// Mô hình phân tích đề xuất từ HTML và mô tả ban đầu, không phải sơ đồ trích xuất từ code.
+// Không có nhãn: dựa trên mô tả HTML; [G]: từ yêu cầu ban đầu; [P]: cần chốt phạm vi.
+// Các trường hợp đăng nhập, quyền truy cập, xác minh và quyền sở hữu là tiền điều kiện.
+// Khách du lịch không bắt buộc đăng nhập để dùng chức năng công khai.
+// Đường liền: tham gia. include: hành vi dùng chung. extend: bổ sung theo điều kiện.
+// Super Admin được nối đến các chức năng của Admin; bản PlantUML thể hiện bằng kế thừa.
+// Đây là hình thức biểu diễn use case bằng Eraser Flow Chart, không phải DSL UML riêng.
+// Sơ đồ: Phân quyền, thống kê và vận hành
+
+direction down
+colorMode pastel
+styleMode plain
+typeface clean
+
+Admin [label: "Quản trị viên", icon: user, shape: rectangle, color: orange]
+SuperAdmin [label: "Super Admin", icon: user, shape: rectangle, color: red]
+
+System [label: "Hệ thống thuyết minh du lịch đa ngôn ngữ", color: blue] {
+  Operations [label: "Phân quyền, thống kê và vận hành", color: red] {
+    S01 [label: "S01 Quản lý tài khoản", shape: ellipse]
+    S02 [label: "S02 Quản lý vai trò và bộ quyền", shape: ellipse]
+    S03 [label: "S03 Gán vai trò và quyền tài khoản", shape: ellipse]
+    S04 [label: "S04 Xem nhật ký thao tác", shape: ellipse]
+    S05 [label: "S05 Xem dashboard thống kê", shape: ellipse]
+    S06 [label: "S06 Xem địa điểm được nghe nhiều", shape: ellipse]
+    S07 [label: "S07 Xem thời gian nghe trung bình [G]", shape: ellipse]
+    S08 [label: "S08 Xem thống kê tuyến đã đi [G]", shape: ellipse]
+    S09 [label: "S09 Xem bản đồ nhiệt du khách [G]", shape: ellipse]
+    S10 [label: "S10 Xuất báo cáo thống kê [P]", shape: ellipse]
+    S11 [label: "S11 Xem giám sát vị trí runtime", shape: ellipse]
+    S12 [label: "S12 Cấu hình hệ thống [P]", shape: ellipse]
+    S13 [label: "S13 Sao lưu dữ liệu [P]", shape: ellipse]
+  }
+  OwnerPortal [label: "Tài khoản và chủ quán", color: purple] {
+    U01 [label: "U01 Đăng nhập cổng quản trị hoặc chủ quán", shape: ellipse]
+    U02 [label: "U02 Đăng xuất", shape: ellipse]
+    U03 [label: "U03 Đổi mật khẩu", shape: ellipse]
+  }
+}
+
+// TÁC NHÂN THAM GIA
+Admin - U01, U02, U03, S01, S04, S05, S06, S07, S08, S09, S10, S11
+SuperAdmin - U01, U02, U03, S01, S02, S03, S04, S05, S06, S07, S08, S09, S10, S11, S12, S13
+
+// INCLUDE / EXTEND - không biểu diễn thứ tự thời gian

@@ -1,0 +1,73 @@
+@startuml 03_chu_quan_va_tai_khoan
+' Mô hình đề xuất. H: dựa trên HTML; G: yêu cầu ban đầu; P: cần chốt phạm vi.
+top to bottom direction
+skinparam shadowing false
+skinparam packageStyle rectangle
+skinparam backgroundColor white
+skinparam defaultFontName DejaVu Sans
+skinparam defaultFontSize 12
+skinparam usecaseBackgroundColor #FFFFFF
+skinparam usecaseBorderColor #334155
+skinparam ArrowColor #475569
+skinparam actorBorderColor #334155
+title Chủ quán, đăng ký và nội dung chờ duyệt
+
+actor "Dịch vụ AI" as AI <<external>>
+actor "Quản trị viên" as Admin
+actor "Chủ quán / người đăng ký" as Owner
+actor "Dịch vụ thời tiết" as Weather <<external>>
+
+rectangle "Hệ thống thuyết minh du lịch đa ngôn ngữ" as System {
+  package "Quản trị nội dung và dịch vụ" as ContentAdmin #FFF1DD {
+    usecase "C06 Duyệt đăng ký chủ quán" as C06
+    usecase "C07 Duyệt nội dung chủ quán gửi" as C07
+    usecase "C14 Dùng AI gợi ý mô tả" as C14
+  }
+  package "Tài khoản và chủ quán" as OwnerPortal #F1EAFB {
+    usecase "U01 Đăng nhập cổng quản trị hoặc chủ\nquán" as U01
+    usecase "U02 Đăng xuất" as U02
+    usecase "U03 Đổi mật khẩu" as U03
+    usecase "O01 Đăng ký làm chủ quán" as O01
+    usecase "O02 Xem trạng thái đăng ký chủ quán" as O02
+    usecase "O03 Xem các địa điểm của mình" as O03
+    usecase "O04 Soạn hoặc sửa nội dung quán" as O04
+    usecase "O05 Gửi nội dung chờ duyệt" as O05
+    usecase "O06 Xem kết quả duyệt nội dung" as O06
+    usecase "O07 Xem thông báo xét duyệt" as O07
+    usecase "O08 Đánh dấu thông báo đã đọc" as O08
+    usecase "O09 Quản lý món ăn của quán" as O09
+    usecase "O10 Xem thống kê quán của mình" as O10
+  }
+}
+
+Owner -- U01
+Admin -- U01
+Owner -- U02
+Admin -- U02
+Owner -- U03
+Admin -- U03
+Owner -- O01
+Owner -- O02
+Owner -- O03
+Owner -- O04
+Owner -- O05
+Owner -- O06
+Owner -- O07
+Owner -- O08
+Owner -- O09
+Owner -- O10
+Admin -- C06
+Admin -- C07
+Admin -- C14
+Owner -- C14
+AI -- C14
+Weather -- C14 : khi bật ngữ cảnh thời tiết
+
+C14 ..> O04 : <<extend>>\n[chủ quán yêu cầu và còn hạn mức]
+
+legend bottom
+Không nhãn: mô hình hóa từ HTML
+[G]: chức năng từ mô tả ban đầu của nhóm
+[P]: chỉ được gợi ra từ quyền; cần chốt phạm vi
+endlegend
+@enduml

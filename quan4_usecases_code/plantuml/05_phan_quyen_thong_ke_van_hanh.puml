@@ -1,0 +1,66 @@
+@startuml 05_phan_quyen_thong_ke_van_hanh
+' Mô hình đề xuất. H: dựa trên HTML; G: yêu cầu ban đầu; P: cần chốt phạm vi.
+top to bottom direction
+skinparam shadowing false
+skinparam packageStyle rectangle
+skinparam backgroundColor white
+skinparam defaultFontName DejaVu Sans
+skinparam defaultFontSize 12
+skinparam usecaseBackgroundColor #FFFFFF
+skinparam usecaseBorderColor #334155
+skinparam ArrowColor #475569
+skinparam actorBorderColor #334155
+title Phân quyền, thống kê và vận hành
+
+actor "Quản trị viên" as Admin
+actor "Super Admin" as SuperAdmin
+
+rectangle "Hệ thống thuyết minh du lịch đa ngôn ngữ" as System {
+  package "Phân quyền, thống kê và vận hành" as Operations #FCE7E7 {
+    usecase "S01 Quản lý tài khoản" as S01
+    usecase "S02 Quản lý vai trò và bộ quyền" as S02
+    usecase "S03 Gán vai trò và quyền tài khoản" as S03
+    usecase "S04 Xem nhật ký thao tác" as S04
+    usecase "S05 Xem dashboard thống kê" as S05
+    usecase "S06 Xem địa điểm được nghe nhiều" as S06
+    usecase "S07 Xem thời gian nghe trung bình [G]" as S07
+    usecase "S08 Xem thống kê tuyến đã đi [G]" as S08
+    usecase "S09 Xem bản đồ nhiệt du khách [G]" as S09
+    usecase "S10 Xuất báo cáo thống kê [P]" as S10
+    usecase "S11 Xem giám sát vị trí runtime" as S11
+    usecase "S12 Cấu hình hệ thống [P]" as S12
+    usecase "S13 Sao lưu dữ liệu [P]" as S13
+  }
+  package "Tài khoản và chủ quán" as OwnerPortal #F1EAFB {
+    usecase "U01 Đăng nhập cổng quản trị hoặc chủ\nquán" as U01
+    usecase "U02 Đăng xuất" as U02
+    usecase "U03 Đổi mật khẩu" as U03
+  }
+}
+
+SuperAdmin --|> Admin
+
+Admin -- U01
+Admin -- U02
+Admin -- U03
+Admin -- S01
+SuperAdmin -- S02
+SuperAdmin -- S03
+Admin -- S04
+Admin -- S05
+Admin -- S06
+Admin -- S07
+Admin -- S08
+Admin -- S09
+Admin -- S10
+Admin -- S11
+SuperAdmin -- S12
+SuperAdmin -- S13
+
+
+legend bottom
+Không nhãn: mô hình hóa từ HTML
+[G]: chức năng từ mô tả ban đầu của nhóm
+[P]: chỉ được gợi ra từ quyền; cần chốt phạm vi
+endlegend
+@enduml

@@ -1,0 +1,33 @@
+%% Chọn tour và bắt đầu hoặc kết thúc chuyến đi
+%% G: từ mô tả ban đầu, cần bổ sung ngoài schema HTML
+sequenceDiagram
+    autonumber
+    actor User as Du khách
+    participant App as Ứng dụng
+    participant Cache as Bộ nhớ offline
+    participant API as FastAPI
+    User->>App: Mở danh sách tour
+    alt Có mạng
+        App->>API: Lấy tour công khai và thứ tự POI
+        API-->>App: Tour cùng phiên bản nội dung
+        App->>Cache: Lưu snapshot tour phù hợp
+    else Không có mạng
+        App->>Cache: Đọc tour đã tải
+        Cache-->>App: Snapshot hoặc chưa có dữ liệu
+    end
+    break Không có tour khả dụng
+        App-->>User: Thông báo cần tải tour khi có mạng
+    end
+    App-->>User: Hiển thị tour và các điểm dừng
+    User->>App: Chọn tour và bắt đầu
+    App->>Cache: Lưu phiên tham quan cục bộ và điểm bắt đầu
+    opt Đã đồng ý thống kê
+        App->>App: Thêm sự kiện bắt đầu tour vào outbox
+    end
+    App-->>User: Hiển thị hành trình và điều khiển thuyết minh
+    User->>App: Kết thúc chuyến đi
+    App->>Cache: Đóng phiên tham quan cục bộ
+    opt Đã đồng ý thống kê
+        App->>App: Thêm sự kiện kết thúc tour vào outbox
+    end
+    App-->>User: Thông báo kết thúc tour

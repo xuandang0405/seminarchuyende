@@ -1,5 +1,11 @@
+"""Base Repository for MongoDB Async access.
+
+Provides clean CRUD methods, projection, and pagination.
+Uses PyMongo AsyncMongoClient.
+"""
+
 from typing import Any, Dict, List, Optional
-from motor.motor_asyncio import AsyncIOMotorDatabase
+from pymongo.asynchronous.database import AsyncDatabase
 from app.core.database import get_database
 
 
@@ -8,10 +14,10 @@ class BaseRepository:
         self.collection_name = collection_name
 
     @property
-    def db(self) -> AsyncIOMotorDatabase:
+    def db(self) -> AsyncDatabase:
         db = get_database()
         if db is None:
-            raise RuntimeError("Database connection is not initialized")
+            raise RuntimeError("MongoDB connection is not initialized. Please check network/Atlas status.")
         return db
 
     @property

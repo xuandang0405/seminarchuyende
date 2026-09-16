@@ -1,82 +1,76 @@
-import uuid
-from datetime import datetime, timezone
-from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+"""Router for QR Code endpoints (Public Resolution & Admin Management).
+
+T11 / C16 / SD05 / AD05.
+"""
+
+from typing import Any, Dict, Optional
+from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, HTTPException, status
+
 from app.api.v1.endpoints.auth import get_current_admin
-from app.repositories.base import BaseRepository
-from app.repositories.poi_repo import poi_repo
-from app.repositories.content_repo import content_repo
-from app.repositories.audio_repo import audio_repo
-from app.schemas.qr_code import QRCodeCreate, QRCodeResponse, QRResolveResponse
+from app.services.qr_service import qr_service
 
 router = APIRouter(prefix="/qr", tags=["QR Codes"])
-qr_repo = BaseRepository("qr_codes")
 
 
-@router.post("", response_model=QRCodeResponse, status_code=status.HTTP_201_CREATED)
-async def create_qr_code(
-    qr_in: QRCodeCreate,
-    current_user: dict = Depends(get_current_admin)
-):
-    poi = await poi_repo.get_by_id(qr_in.poi_id)
-    if not poi:
-        raise HTTPException(status_code=404, detail="POI not found")
-
-    qr_id = str(uuid.uuid4())
-    now = datetime.now(timezone.utc)
-    doc = {
-        "_id": qr_id,
-        "poi_id": qr_in.poi_id,
-        "label": qr_in.label,
-        "is_active": qr_in.is_active,
-        "created_at": now,
-        "updated_at": now
-    }
-    await qr_repo.insert_one(doc)
-    return {**doc, "qr_uri": f"tourguide://qr/{qr_id}"}
+class QRCreateRequest(BaseModel):
+    poi_id: str
+    code: str = Field(..., min_length=3, max_length=50)
+    location_description: Optional[str] = None
 
 
-@router.get("/poi/{poi_id}", response_model=List[QRCodeResponse])
+# =============================================================================
+# PUBLIC RESOLUTION (T11 / SD05 / AD05)
+# =============================================================================
+
+@router.get("/poi/{poi_id}")
 async def list_qr_for_poi(poi_id: str):
-    docs = await qr_repo.list(query={"poi_id": poi_id, "is_active": True})
-    return [{**d, "qr_uri": f"tourguide://qr/{d['_id']}"} for d in docs]
+    """Lists all QR codes generated for a POI."""
+    from app.repositories.qr_repo import qr_repo
+    return await qr_repo.find_by_poi(poi_id)
 
 
-@router.get("/resolve/{qr_id}", response_model=QRResolveResponse)
-async def resolve_qr_code(
-    qr_id: str,
-    language_code: str = Query("vi")
+@router.get("/{code}")
+async def resolve_qr_code(code: str):
+    """
+    Use Case T11: Scan QR code to listen to POI narration directly without GPS.
+    Resolves opaque QR code to public POI info and audio stream.
+    """
+    res = await qr_service.resolve_qr_code(code)
+    if not res.get("success"):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=res.get("error"))
+    return res
+
+
+# =============================================================================
+# ADMIN MANAGEMENT (C16)
+# =============================================================================
+
+@router.post("", status_code=status.HTTP_201_CREATED)
+@router.post("/generate", status_code=status.HTTP_201_CREATED)
+async def create_qr_code(
+    req: QRCreateRequest,
+    current_admin: dict = Depends(get_current_admin)
 ):
-    """
-    Sequence Diagram 05: Tourist scans QR code.
-    Resolves QR ID to POI, active localized content, and matching audio stream.
-    """
-    qr_doc = await qr_repo.get_by_id(qr_id)
-    if not qr_doc or not qr_doc.get("is_active", True):
-        raise HTTPException(status_code=404, detail="QR Code is inactive or invalid")
+    """Use Case C16: Admin generates a new QR code for a POI."""
+    res = await qr_service.create_qr_code(
+        poi_id=req.poi_id,
+        code=req.code,
+        created_by=current_admin["_id"],
+        location_description=req.location_description
+    )
+    if not res.get("success"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=res.get("error"))
+    return res["qr"]
 
-    poi = await poi_repo.get_by_id(qr_doc["poi_id"])
-    if not poi:
-        raise HTTPException(status_code=404, detail="Associated POI not found")
 
-    contents = await content_repo.find_by_poi_and_lang(poi["_id"], language_code, status="approved")
-    content_doc = contents[0] if contents else None
-    if not content_doc:
-        # Fallback to Vietnamese
-        fb = await content_repo.find_by_poi_and_lang(poi["_id"], "vi", status="approved")
-        content_doc = fb[0] if fb else None
-
-    audio_doc = None
-    if content_doc:
-        audios = await audio_repo.find_by_content_id(content_doc["_id"])
-        if audios:
-            audio_doc = audios[0]
-            audio_doc["stream_url"] = f"/api/v1/audio/{audio_doc['storage_key']}/stream"
-
-    return {
-        "qr_id": qr_id,
-        "poi_id": poi["_id"],
-        "poi": poi,
-        "content": content_doc,
-        "audio": audio_doc
-    }
+@router.post("/{qr_id}/deactivate")
+async def deactivate_qr_code(
+    qr_id: str,
+    current_admin: dict = Depends(get_current_admin)
+):
+    """Use Case C16: Admin deactivates a QR code."""
+    success = await qr_service.deactivate_qr_code(qr_id)
+    if not success:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Mã QR không tồn tại.")
+    return {"success": True, "message": "Mã QR đã được vô hiệu hóa."}

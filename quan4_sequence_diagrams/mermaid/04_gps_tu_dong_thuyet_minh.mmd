@@ -1,0 +1,44 @@
+%% Tự động thuyết minh khi đến gần POI
+%% H: mô hình hóa từ HTML, có cụ thể hóa thiết kế
+sequenceDiagram
+    autonumber
+    participant GPS as Dịch vụ vị trí
+    participant Geo as Geofence trên ứng dụng
+    participant Audio as Narration trên ứng dụng
+    participant Cache as Bộ nhớ offline
+    participant API as API nội dung và audio
+    GPS->>Geo: Cập nhật tọa độ và độ chính xác
+    Geo->>Geo: Kiểm tra bán kính, debounce, cooldown và ưu tiên
+    alt Chưa đủ điều kiện
+        Geo->>Geo: Tiếp tục theo dõi vị trí
+    else POI đủ điều kiện
+        Geo->>Audio: Gửi sự kiện POI và ngôn ngữ hiện tại
+        Audio->>Audio: Loại sự kiện trùng và sắp xếp hàng chờ
+        opt Mục được chọn đã đến lượt phát
+            Audio->>Cache: Tìm audio phù hợp với POI và ngôn ngữ
+            Cache-->>Audio: Có file hoặc chưa có
+            alt Có audio đã tải
+                Audio->>Audio: Chọn file offline
+            else Trường hợp còn lại
+                alt Chưa có audio nhưng có mạng
+                    Audio->>API: Yêu cầu nội dung và nguồn audio phù hợp
+                    alt Tải hoặc tạo audio thành công
+                        API-->>Audio: Audio hoặc URL cùng phiên bản nội dung
+                        Audio->>Cache: Lưu tài nguyên tải thành công
+                    else API lỗi hoặc quá thời gian
+                        API-->>Audio: Kết quả lỗi
+                        Audio->>Audio: Chọn nguồn dự phòng nếu còn khả dụng
+                    end
+                else Không có mạng và không có file
+                    Audio->>Audio: Dùng text và giọng local đã có nếu phù hợp
+                end
+            end
+            Audio->>Audio: Kiểm tra lại request token và ngôn ngữ
+            alt Yêu cầu còn hiệu lực và có nguồn phát
+                Audio->>Audio: Phát thuyết minh và cập nhật trạng thái phát
+                Audio-->>Geo: Thông báo đã bắt đầu phát POI
+            else Yêu cầu đã cũ hoặc không có nội dung
+                Audio->>Audio: Bỏ kết quả cũ hoặc báo chưa có nội dung
+            end
+        end
+    end
