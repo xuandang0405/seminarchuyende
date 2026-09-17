@@ -24,6 +24,12 @@ class TourBase(BaseModel):
         description="Translations by language code, e.g., {'vi': {'title': '...', 'description': '...'}}"
     )
     stops: List[TourStop] = Field(default_factory=list, max_length=100)
+    price_amount: int = Field(default=0, ge=0, description="Giá tour bằng số nguyên VND")
+    currency: str = Field(default="VND")
+    pricing_version: int = Field(default=1)
+    is_purchasable: bool = Field(default=False, description="Cờ mở bán tour")
+    preview_enabled: bool = Field(default=True, description="Cho phép nghe thử 1 POI")
+    preview_poi_ids: List[str] = Field(default_factory=list, description="Danh sách POI được phép nghe thử")
 
     @model_validator(mode="after")
     def validate_stops(self):
@@ -46,6 +52,19 @@ class TourUpdate(BaseModel):
     status: Optional[TourStatus] = None
     translations: Optional[Dict[str, TourTranslation]] = None
     stops: Optional[List[TourStop]] = None
+    price_amount: Optional[int] = Field(None, ge=0)
+    currency: Optional[str] = None
+    is_purchasable: Optional[bool] = None
+    preview_enabled: Optional[bool] = None
+    preview_poi_ids: Optional[List[str]] = None
+
+
+class TourPricingUpdateRequest(BaseModel):
+    price_amount: int = Field(..., ge=0, description="Giá bán mới của tour (VND)")
+    currency: str = Field(default="VND")
+    is_purchasable: bool = Field(default=True, description="Mở bán hoặc đóng bán")
+    preview_enabled: bool = Field(default=True, description="Cho phép nghe thử")
+    preview_poi_ids: Optional[List[str]] = Field(default=None, description="Danh sách POI nghe thử")
 
 
 class TourResponse(TourBase):
@@ -58,3 +77,4 @@ class TourResponse(TourBase):
     model_config = {
         "populate_by_name": True
     }
+

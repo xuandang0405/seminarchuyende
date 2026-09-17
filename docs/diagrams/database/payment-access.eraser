@@ -1,0 +1,137 @@
+// ERD - FASTAPI + MONGODB: QUẢN LÝ TRUY CẬP, NGHE THỬ VÀ THANH TOÁN TOUR
+// Hỗ trợ công cụ Eraser.io (Database diagram)
+
+// Entity: guest_sessions
+guest_sessions [icon: database, color: blue] {
+  _id string pk
+  credential_hash string unique
+  created_at timestamp
+  expires_at timestamp
+  is_revoked boolean
+  claimed_user_id string
+  claimed_at timestamp
+}
+
+// Entity: trial_usage
+trial_usage [icon: database, color: green] {
+  _id string pk
+  subject_type string
+  subject_id string
+  policy_version int
+  state string
+  reservation_id string
+  reservation_expires_at timestamp
+  consumed_at timestamp
+  playback_id string
+}
+
+// Entity: playback_grants
+playback_grants [icon: database, color: purple] {
+  _id string pk
+  playback_id string
+  grant_hash string unique
+  subject_type string
+  subject_id string
+  tour_id string
+  poi_id string
+  language string
+  asset_revision int
+  scope string
+  delivery_state string
+  expires_at timestamp
+  created_at timestamp
+}
+
+// Entity: orders
+orders [icon: database, color: orange] {
+  _id string pk
+  user_id string
+  tour_id string
+  tour_name string
+  price_amount int
+  currency string
+  pricing_version int
+  status string
+  idempotency_key string
+  created_at timestamp
+  expires_at timestamp
+  paid_at timestamp
+}
+
+// Entity: payment_attempts
+payment_attempts [icon: database, color: orange] {
+  _id string pk
+  order_id string
+  provider string
+  provider_reference string unique
+  provider_transaction_id string
+  method string
+  expected_amount int
+  received_amount int
+  status string
+  checkout_url string
+  qr_code string
+  created_at timestamp
+  updated_at timestamp
+}
+
+// Entity: payment_events
+payment_events [icon: database, color: red] {
+  _id string pk
+  provider string
+  event_key string
+  provider_reference string
+  verified boolean
+  payload_hash string
+  processing_state string
+  error_message string
+  received_at timestamp
+  processed_at timestamp
+}
+
+// Entity: tour_entitlements
+tour_entitlements [icon: database, color: yellow] {
+  _id string pk
+  user_id string
+  tour_id string
+  source_order_id string
+  status string
+  granted_at timestamp
+  revoked_at timestamp
+  revoked_reason string
+}
+
+// Entity: tours
+tours [icon: database, color: blue] {
+  _id string pk
+  name string
+  description string
+  is_purchasable boolean
+  price_amount int
+  currency string
+  pricing_version int
+  preview_enabled boolean
+  status string
+}
+
+// Entity: admin_users (Lưu trữ cả Du khách và Quản trị viên)
+admin_users [icon: database, color: gray] {
+  _id string pk
+  email string unique
+  hashed_password string
+  full_name string
+  role string
+  auth_version int
+  created_at timestamp
+}
+
+// Logical Relationships & Foreign References (MongoDB Reference Integrity)
+admin_users._id < orders.user_id: "1 - N (Một người dùng có nhiều đơn hàng)"
+orders._id < payment_attempts.order_id: "1 - N (Một đơn hàng có thể có nhiều lần thử thanh toán)"
+tours._id < orders.tour_id: "1 - N (Một tour có nhiều đơn đặt mua)"
+admin_users._id < tour_entitlements.user_id: "1 - N (Một người dùng sở hữu nhiều quyền tour)"
+tours._id < tour_entitlements.tour_id: "1 - N (Một tour được cấp quyền cho nhiều người dùng)"
+orders._id - tour_entitlements.source_order_id: "1 - 1 (Đơn hàng thành công sinh ra quyền sở hữu)"
+admin_users._id < guest_sessions.claimed_user_id: "0..1 - N (Tài khoản claim phiên khách ẩn danh)"
+orders._id < payment_events.provider_reference: "1 - N (Giao dịch nhận webhook sự kiện)"
+tours._id < playback_grants.tour_id: "1 - N (Tour được cấp grant phát âm thanh)"

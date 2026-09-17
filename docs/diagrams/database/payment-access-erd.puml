@@ -1,0 +1,151 @@
+@startuml ERD_Payment_Access
+title Sơ đồ Thực thể Quan hệ (ERD) - Quản lý Phiên khách, Nghe thử, Đơn hàng & Thanh toán
+skinparam linetype ortho
+skinparam packageStyle rectangle
+
+entity "admin_users" as users {
+  * **_id** : string <<PK>>
+  --
+  * email : string <<UNIQUE>>
+  * hashed_password : string
+  * full_name : string
+  * role : string (user | admin | owner)
+  * auth_version : int
+  * created_at : datetime
+}
+
+entity "guest_sessions" as guest_sessions {
+  * **_id** : string <<PK>>
+  --
+  * credential_hash : string <<UNIQUE>>
+  * created_at : datetime
+  * expires_at : datetime <<INDEX>>
+  * is_revoked : bool
+  claimed_user_id : string <<FK, nullable>>
+  claimed_at : datetime <<nullable>>
+}
+
+entity "trial_usage" as trial_usage {
+  * **_id** : string <<PK>>
+  --
+  * subject_type : string ("guest" | "user")
+  * subject_id : string
+  * policy_version : int
+  * state : string ("available" | "reserved" | "consumed")
+  reservation_id : string <<nullable>>
+  reservation_expires_at : datetime <<nullable>>
+  consumed_at : datetime <<nullable>>
+  playback_id : string <<nullable>>
+  --
+  <<UNIQUE(subject_type, subject_id, policy_version)>>
+}
+
+entity "tours" as tours {
+  * **_id** : string <<PK>>
+  --
+  * name : string
+  description : string
+  * is_purchasable : bool
+  * price_amount : int (VND)
+  * currency : string ("VND")
+  * pricing_version : int
+  * preview_enabled : bool
+  status : string
+}
+
+entity "orders" as orders {
+  * **_id** : string <<PK>>
+  --
+  * user_id : string <<FK>>
+  * tour_id : string <<FK>>
+  * tour_name : string
+  * price_amount : int
+  * currency : string ("VND")
+  * pricing_version : int
+  * status : string (pending_payment | paid | cancelled | expired | requires_review)
+  * idempotency_key : string
+  * created_at : datetime
+  * expires_at : datetime
+  paid_at : datetime <<nullable>>
+  --
+  <<UNIQUE(user_id, idempotency_key)>>
+}
+
+entity "payment_attempts" as attempts {
+  * **_id** : string <<PK>>
+  --
+  * order_id : string <<FK>>
+  * provider : string ("vnpay" | "payos" | "mock")
+  * provider_reference : string <<UNIQUE>>
+  provider_transaction_id : string <<nullable>>
+  * method : string ("visa" | "vietqr" | "mock")
+  * expected_amount : int
+  received_amount : int <<nullable>>
+  * status : string (created | pending | unknown | succeeded | failed | cancelled | expired)
+  checkout_url : string <<nullable>>
+  qr_code : string <<nullable>>
+  * created_at : datetime
+  * updated_at : datetime
+}
+
+entity "payment_events" as events {
+  * **_id** : string <<PK>>
+  --
+  * provider : string
+  * event_key : string
+  * provider_reference : string
+  * verified : bool
+  * payload_hash : string
+  * processing_state : string (pending | processed | ignored | failed)
+  error_message : string <<nullable>>
+  * received_at : datetime
+  processed_at : datetime <<nullable>>
+  --
+  <<UNIQUE(provider, event_key)>>
+}
+
+entity "tour_entitlements" as entitlements {
+  * **_id** : string <<PK>>
+  --
+  * user_id : string <<FK>>
+  * tour_id : string <<FK>>
+  * source_order_id : string <<FK>>
+  * status : string ("active" | "revoked")
+  * granted_at : datetime
+  revoked_at : datetime <<nullable>>
+  revoked_reason : string <<nullable>>
+  --
+  <<UNIQUE(user_id, tour_id)>>
+}
+
+entity "playback_grants" as grants {
+  * **_id** : string <<PK>>
+  --
+  * playback_id : string <<INDEX>>
+  * grant_hash : string <<UNIQUE>>
+  * subject_type : string ("guest" | "user")
+  * subject_id : string
+  * tour_id : string <<FK>>
+  * poi_id : string
+  * language : string
+  * asset_revision : int
+  * scope : string ("trial" | "paid")
+  * delivery_state : string ("issued" | "delivered" | "completed")
+  * expires_at : datetime <<TTL>>
+  * created_at : datetime
+}
+
+' Quan hệ thực thể logic (MongoDB reference)
+users ||--o{ orders : "1 user đặt N orders"
+users ||--o{ tour_entitlements : "1 user sở hữu N entitlements"
+users ||--o{ guest_sessions : "0..1 user claim N guest sessions"
+
+tours ||--o{ orders : "1 tour xuất hiện trong N orders"
+tours ||--o{ tour_entitlements : "1 tour được cấp cho N entitlements"
+tours ||--o{ grants : "1 tour có N playback grants"
+
+orders ||--o{ attempts : "1 order có N payment attempts"
+orders ||--|| entitlements : "1 order thành công sinh ra 1 entitlement"
+attempts ||--o{ events : "1 provider attempt nhận N webhook events"
+
+@enduml

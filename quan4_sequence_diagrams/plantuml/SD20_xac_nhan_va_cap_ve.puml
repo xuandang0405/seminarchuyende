@@ -1,0 +1,32 @@
+@startuml
+title SD20 - Xử Lý Xác Nhận Thanh Toán & Cấp Vé Điện Tử (E-Ticket)
+autonumber
+skinparam shadowing false
+skinparam defaultFontName "Arial"
+
+actor "Du khách / Ngân hàng" as Sender
+participant "Ứng dụng / Web Client" as App
+participant "FastAPI\nPayment Router" as API
+participant "PaymentService" as Service
+participant "MongoDB\n(orders, payments)" as DB
+participant "QR Generator\nService" as QRGen
+
+Sender -> App: Bấm "Tôi Đã Chuyển Khoản (Xác Nhận Tức Thì - Demo)"\nhoặc Ngân hàng gửi Webhook IPN
+App -> API: POST /api/v1/payments/orders/{order_id}/simulate-success
+API -> Service: simulate_payment_success(order_id)
+Service -> DB: find_one({"_id": order_id})
+DB --> Service: Thông tin đơn hàng (status="pending")
+
+Service -> Service: Sinh mã vé điện tử: ticket_code = "TICKET-Q4-XXXXXX"
+Service -> Service: Tạo bản ghi thanh toán: payment_id = "PAY-XXXXXX"
+Service -> DB: update_one(orders, status="paid", ticket_code, paid_at=now)
+Service -> DB: insert_one(payments, payment_doc)
+DB --> Service: Cập nhật thành công
+
+Service --> API: Paid Order Data kèm ticket_code
+API --> App: 200 OK { status: "success", data: paid_order }
+
+App -> QRGen: Tạo ảnh mã QR Check-in dựa trên ticket_code
+QRGen --> App: Image QR Code Check-in
+App --> Sender: Hiển thị màn hình Vé Điện Tử (E-Ticket):\n- Mã vé TICKET-Q4-XXXXXX\n- Huy hiệu ĐÃ THANH TOÁN\n- Mã QR Check-in tại điểm tham quan\n- Cho phép tải về hoặc xem lại trong "Vé của tôi"
+@enduml

@@ -2,6 +2,7 @@ import { Audio } from "expo-av";
 import { geofenceEngine } from "./GeofenceEngine";
 import { audioSourceResolver } from "./AudioSourceResolver";
 import { analyticsOutbox } from "./AnalyticsOutbox";
+import { api } from "./api";
 
 export const NarrationState = {
   IDLE: "idle",
@@ -27,6 +28,16 @@ class NarrationController {
     this.listenedMs = 0;
     this.listeners = new Set();
     this.configuredAudioMode = false;
+    this.activeTourId = "tour_district_4_culinary_history";
+    this.userToken = null;
+    this.guestToken = null;
+    this.lastErrorCode = null;
+  }
+
+  setSession(userToken, guestToken, tourId = null) {
+    this.userToken = userToken;
+    this.guestToken = guestToken;
+    if (tourId) this.activeTourId = tourId;
   }
 
   subscribe(listener) {
@@ -52,6 +63,8 @@ class NarrationController {
       subtitle: this.audioSubtitle,
       isPlaying: this.state === NarrationState.PLAYING,
       isLoading: this.state === NarrationState.LOADING || this.state === NarrationState.QUEUED,
+      lastErrorCode: this.lastErrorCode,
+      activeTourId: this.activeTourId
     };
   }
 
@@ -74,8 +87,9 @@ class NarrationController {
    * Main request method to play narration.
    * Enforces priority: "manual" or "qr" preempts "gps".
    * Active "manual" playback cannot be interrupted by "gps".
+   * Gated by backend AccessService via playback grant.
    */
-  async requestNarration(poi, triggerType = "manual", lang = "vi") {
+  async requestNarration(poi, triggerType = "manual", lang = "vi", userConsentTrial = false) {
     if (!poi) return;
 
     // Invariant: GPS cannot interrupt active manual playback
@@ -104,6 +118,7 @@ class NarrationController {
     this.audioTitle = poi.name || "Điểm Thuyết Minh";
     this.audioSubtitle = poi.description || poi.address || "";
     this.state = NarrationState.LOADING;
+    this.lastErrorCode = null;
     this.playbackId = `pb_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
     this.listenedMs = 0;
     this.notify();
@@ -117,8 +132,42 @@ class NarrationController {
         throw new Error("Không tìm thấy tệp thuyết minh âm thanh cho địa điểm này");
       }
 
+      let playbackUri = source.uri;
+
+      // If source is remote HTTP, check backend playback grant
+      if (source.sourceType === "remote" && playbackUri.startsWith("http")) {
+        const tourId = this.activeTourId || poi.tour_id || "tour_district_4_culinary_history";
+        const grantRes = await api.requestPlaybackGrant({
+          tourId,
+          poiId: poi._id,
+          language: lang,
+          triggerType,
+          userConsentTrial
+        }, this.guestToken, this.userToken);
+
+        if (!grantRes.ok || !grantRes.data.granted) {
+          const errorCode = grantRes.data.error_code || "TOUR_PURCHASE_REQUIRED";
+          this.lastErrorCode = errorCode;
+          this.state = NarrationState.ERROR;
+
+          if (errorCode === "TRIAL_CONSENT_REQUIRED") {
+            this.audioSubtitle = "💡 Bạn còn 1 lượt nghe thử miễn phí. Bấm Xác Nhận để nghe thuyết minh.";
+          } else {
+            this.audioSubtitle = "🔒 Đã hết lượt nghe thử. Vui lòng mua tour để mở khóa toàn bộ nội dung thuyết minh.";
+          }
+          this.notify();
+          return;
+        }
+
+        const grantToken = grantRes.data.grant_token;
+        if (grantToken) {
+          const delim = playbackUri.includes("?") ? "&" : "?";
+          playbackUri = `${playbackUri}${delim}grant_token=${grantToken}`;
+        }
+      }
+
       const { sound } = await Audio.Sound.createAsync(
-        { uri: source.uri },
+        { uri: playbackUri },
         { shouldPlay: true },
         this.onPlaybackStatusUpdate.bind(this)
       );

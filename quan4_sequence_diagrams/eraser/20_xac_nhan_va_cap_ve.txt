@@ -1,0 +1,13 @@
+// SD20 - Xác nhận thanh toán và cấp vé điện tử
+Du khách > Web Client: Bấm "Tôi Đã Chuyển Khoản" (Demo) hoặc Ngân hàng gửi Webhook
+Web Client > FastAPI: POST /api/v1/payments/orders/{order_id}/simulate-success
+FastAPI > PaymentService: simulate_payment_success()
+PaymentService > MongoDB: Kiểm tra đơn hàng theo order_id
+MongoDB > PaymentService: Thông tin đơn hàng
+PaymentService > PaymentService: Sinh mã vé TICKET-Q4-XXXXXX
+PaymentService > MongoDB: Cập nhật status="paid", paid_at, ticket_code
+PaymentService > MongoDB: Lưu bản ghi giao dịch (payments)
+MongoDB > PaymentService: Cập nhật thành công
+PaymentService > FastAPI: Paid order data kèm ticket_code
+FastAPI > Web Client: 200 OK
+Web Client > Du khách: Hiển thị Vé Điện Tử E-Ticket (Mã vé, Huy hiệu ĐÃ THANH TOÁN, Mã QR check-in)

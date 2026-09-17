@@ -1,0 +1,29 @@
+@startuml
+title SD19 - Khách Hàng Đặt Vé Tour & Quét Mã Thanh Toán VietQR
+autonumber
+skinparam shadowing false
+skinparam defaultFontName "Arial"
+
+actor "Du khách" as User
+participant "Ứng dụng / Web Client" as App
+participant "FastAPI\nPayment Router" as API
+participant "PaymentService" as Service
+participant "VietQR API\n(Napas 247)" as VietQR
+participant "MongoDB\n(orders)" as DB
+
+User -> App: Chọn Tour / Món ăn & bấm "Đặt vé / Đặt món"
+App --> User: Hiển thị form nhập thông tin (Họ tên, SĐT, Email, Số lượng)
+User -> App: Nhập thông tin & bấm "Tạo mã thanh toán VietQR"
+
+App -> API: POST /api/v1/payments/orders\nBody: { order_type, item_id, item_title, customer_name, customer_phone, customer_email, quantity, unit_price }
+API -> Service: create_order(params)
+Service -> Service: Sinh mã đơn hàng ngẫu nhiên: order_id = "TV-ORD-XXXXXX"\nTính tổng tiền = quantity * unit_price
+Service -> VietQR: Tạo URL mã QR động theo chuẩn Napas 247:\nhttps://api.vietqr.io/image/970422-0909123456-compact2.png?amount=...&addInfo=...
+Service -> DB: insert_one(order_document) với status="pending"
+DB --> Service: Document đã lưu
+Service --> API: Order data kèm vietqr_url & bank_info
+API --> App: 201 Created { status: "success", data: order }
+
+App --> User: Hiển thị mã VietQR động, Số tài khoản MB Bank,\nSố tiền chính xác & Nội dung chuyển khoản TV-ORD-XXXXXX
+User -> User: Mở App Ngân hàng (Mobile Banking) quét mã QR chuyển khoản
+@enduml

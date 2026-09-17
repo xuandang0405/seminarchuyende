@@ -1,0 +1,52 @@
+@startuml
+title 06_tai_goi_offline
+autonumber
+skinparam shadowing false
+skinparam defaultFontName "Arial"
+
+actor "User" as Du khách
+participant "App" as Trình tải gói
+participant "API" as API manifest
+participant "Assets" as Nguồn tài nguyên
+participant "Cache" as Bộ nhớ offline
+User -> App: Chọn tải hoặc cập nhật gói và ngôn ngữ
+App -> API: Yêu cầu manifest và phiên bản gói
+API- -> App: Danh sách tài nguyên cùng kích thước và checksum
+App -> App: Kiểm tra mạng và dung lượng dự kiến
+break Thiếu dung lượng hoặc không tải được manifest
+App- -> User: Thông báo lý do và giữ gói hiện tại
+end
+App -> Cache: Tạo vùng staging cho phiên bản mới
+loop Mỗi tài nguyên còn thiếu, khi chưa có lỗi
+App -> Assets: Tải tài nguyên theo manifest đã chọn
+alt Tải thành công
+Assets- -> App: Dữ liệu tài nguyên
+App -> App: Kiểm tra checksum
+alt Checksum đúng
+App -> Cache: Lưu tài nguyên vào vùng staging
+Cache- -> App: Đã lưu hoặc lỗi hết dung lượng
+opt Không lưu được
+App -> App: Đánh dấu lỗi để dừng vòng tải
+end
+else Checksum sai
+App -> App: Đánh dấu lỗi để dừng vòng tải
+end
+else Mạng lỗi
+Assets- -> App: Yêu cầu tải không hoàn tất
+App -> App: Đánh dấu lỗi để dừng vòng tải
+end
+end
+alt Tất cả tài nguyên và metadata đã hợp lệ
+App -> Cache: Ghi metadata hoàn chỉnh và đổi active pointer
+Cache- -> App: Gói mới sẵn sàng
+App- -> User: Thông báo có thể dùng offline
+else Gói vẫn thiếu hoặc lỗi
+App -> Cache: Giữ active pointer cũ và lưu tiến độ phù hợp
+App- -> User: Cho phép thử lại hoặc giải phóng dung lượng
+end
+opt Người dùng yêu cầu xóa gói
+User -> App: Chọn gói cần xóa
+App -> Cache: Gỡ active pointer của gói rồi xóa tài nguyên thuộc gói
+App- -> User: Cập nhật danh sách gói còn có thể sử dụng
+end
+@enduml

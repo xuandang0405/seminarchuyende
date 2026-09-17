@@ -179,4 +179,212 @@ export const api = {
       return { success: false, error: err.message };
     }
   },
+
+  /* =========================================================================
+   * GUEST & AUTHENTICATION (Section 4)
+   * ========================================================================= */
+
+  async createGuestSession() {
+    try {
+      const res = await fetch(`${API_BASE_URL}/guest-sessions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" }
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return await res.json();
+    } catch (err) {
+      console.warn("[API] createGuestSession error:", err.message);
+      return null;
+    }
+  },
+
+  async claimGuestSession(guestToken, userToken) {
+    try {
+      const res = await fetch(`${API_BASE_URL}/guest-sessions/claim`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${userToken}`
+        },
+        body: JSON.stringify({ guest_token: guestToken })
+      });
+      return await res.json();
+    } catch (err) {
+      console.warn("[API] claimGuestSession error:", err.message);
+      return null;
+    }
+  },
+
+  async login(email, password) {
+    try {
+      const res = await fetch(`${API_BASE_URL}/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.detail || data.message || "Đăng nhập thất bại");
+      }
+      return data;
+    } catch (err) {
+      throw err;
+    }
+  },
+
+  async registerTourist(fullName, email, password, guestToken = null) {
+    try {
+      const res = await fetch(`${API_BASE_URL}/auth/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          full_name: fullName,
+          email,
+          password,
+          guest_token: guestToken
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.detail || data.message || "Đăng ký thất bại");
+      }
+      return data;
+    } catch (err) {
+      throw err;
+    }
+  },
+
+  /* =========================================================================
+   * ACCESS & PLAYBACK GRANTS (Section 5 & 8)
+   * ========================================================================= */
+
+  async checkTourAccess(tourId, guestToken = null, userToken = null) {
+    try {
+      const headers = {};
+      if (userToken) {
+        headers["Authorization"] = `Bearer ${userToken}`;
+      } else if (guestToken) {
+        headers["X-Guest-Token"] = guestToken;
+      }
+      const res = await fetch(`${API_BASE_URL}/tours/${tourId}/access`, { headers });
+      if (!res.ok) return null;
+      return await res.json();
+    } catch (err) {
+      console.warn("[API] checkTourAccess error:", err.message);
+      return null;
+    }
+  },
+
+  async requestPlaybackGrant({ tourId, poiId, language = "vi", triggerType = "manual", userConsentTrial = false }, guestToken = null, userToken = null) {
+    try {
+      const headers = { "Content-Type": "application/json" };
+      if (userToken) {
+        headers["Authorization"] = `Bearer ${userToken}`;
+      } else if (guestToken) {
+        headers["X-Guest-Token"] = guestToken;
+      }
+      const res = await fetch(`${API_BASE_URL}/playback-grants`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          tour_id: tourId,
+          poi_id: poiId,
+          language,
+          trigger_type: triggerType,
+          user_consent_trial: userConsentTrial
+        })
+      });
+      const data = await res.json();
+      return { ok: res.ok, status: res.status, data };
+    } catch (err) {
+      console.warn("[API] requestPlaybackGrant error:", err.message);
+      return { ok: false, status: 0, data: { detail: err.message } };
+    }
+  },
+
+  /* =========================================================================
+   * ORDERS & ENTITLEMENTS (Section 6, 7 & 10)
+   * ========================================================================= */
+
+  async createOrder({ tourId, paymentMethod = "vietqr", idempotencyKey = null }, userToken) {
+    try {
+      const headers = {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${userToken}`
+      };
+      if (idempotencyKey) {
+        headers["X-Idempotency-Key"] = idempotencyKey;
+      }
+      const res = await fetch(`${API_BASE_URL}/orders`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          tour_id: tourId,
+          payment_method: paymentMethod
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "Không thể tạo đơn hàng");
+      return data;
+    } catch (err) {
+      throw err;
+    }
+  },
+
+  async getMyTours(userToken) {
+    try {
+      const res = await fetch(`${API_BASE_URL}/me/tours`, {
+        headers: { "Authorization": `Bearer ${userToken}` }
+      });
+      if (!res.ok) return [];
+      return await res.json();
+    } catch (err) {
+      console.warn("[API] getMyTours error:", err.message);
+      return [];
+    }
+  },
+
+  async getMyOrders(userToken) {
+    try {
+      const res = await fetch(`${API_BASE_URL}/me/orders`, {
+        headers: { "Authorization": `Bearer ${userToken}` }
+      });
+      if (!res.ok) return [];
+      return await res.json();
+    } catch (err) {
+      console.warn("[API] getMyOrders error:", err.message);
+      return [];
+    }
+  },
+
+  async reconcileOrder(orderId, userToken) {
+    try {
+      const res = await fetch(`${API_BASE_URL}/orders/${orderId}/reconcile`, {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${userToken}` }
+      });
+      return await res.json();
+    } catch (err) {
+      console.warn("[API] reconcileOrder error:", err.message);
+      return null;
+    }
+  },
+
+  async downloadTourOfflinePack(tourId, userToken, deviceId = "mobile_device") {
+    try {
+      const res = await fetch(`${API_BASE_URL}/tours/${tourId}/offline-pack`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${userToken}`
+        },
+        body: JSON.stringify({ device_id: deviceId })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "Không thể tải gói offline");
+      return data;
+    } catch (err) {
+      throw err;
+    }
+  }
 };

@@ -1,0 +1,26 @@
+======================================================================
+     HƯỚNG DẪN CHẠY HỆ THỐNG TOURVOICE QUẬN 4 TRÊN WINDOWS
+======================================================================
+
+1. CÁCH KHỞI ĐỘNG (1 CLICK):
+   - Nhấp đúp chuột vào file: CHAY_HE_THONG.bat (hoặc run.bat)
+   - Hệ thống sẽ tự động:
+     + Kiểm tra môi trường Python
+     + Tự động tạo .env nếu chưa có
+     + Khởi chạy Backend FastAPI (Uvicorn) tại cổng 8000
+     + Tự động mở trình duyệt web:
+       * Cổng Quản Trị CMS:  http://localhost:8000/admin/
+       * Cổng Khách Du Lịch:  http://localhost:8000/client/
+       * Tài liệu Swagger UI: http://localhost:8000/docs
+       * Cổng Vite (nếu có):  http://localhost:5173/
+
+2. CÁCH TẮT HỆ THỐNG:
+   - Cách 1: Trên cửa sổ đang chạy của CHAY_HE_THONG.bat, gõ phím Q
+   - Cách 2: Bấm đúp chuột vào file TAT_HE_THONG.bat (hoặc stop.bat)
+
+3. CÁC TÀI KHOẢN ĐĂNG NHẬP SẴN (DEMO CHẤM ĐIỂM):
+   - Super Admin   : superadmin@tourvoice.vn   | Mật khẩu: Admin@123456
+   - Admin Duyệt   : admin@tourvoice.vn        | Mật khẩu: Admin@123456
+   - Chủ Quán Ăn   : owner.verified@quan4.vn   | Mật khẩu: Owner@123456
+   - Khách Du Lịch : tourist@test.vn          | Mật khẩu: User@123456
+======================================================================

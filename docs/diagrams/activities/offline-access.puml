@@ -1,0 +1,72 @@
+@startuml AD21_OfflineAccess
+title Activity Diagram AD21: Tải và Sử dụng Quyền Thuyết minh Offline (Offline Access & License Verification)
+skinparam activityBackgroundColor #FEFECE
+skinparam activityBorderColor #A80036
+skinparam activityArrowColor #A80036
+
+start
+:Người dùng chọn "Tải Tour Offline" trên Ứng dụng Di động;
+
+if (Thiết bị có kết nối Internet?) then (Không)
+  :Thông báo: "Cần kết nối mạng để tải gói dữ liệu lần đầu";
+  stop
+else (Có kết nối)
+endif
+
+:Client gửi yêu cầu POST /api/v1/tours/{id}/offline-pack;
+:Backend kiểm tra quyền sở hữu của Tài khoản;
+
+if (Tài khoản có TourEntitlement đang Active?) then (Không / Guest [BR-ACCESS-05])
+  :Backend trả về HTTP 403 Forbidden;
+  :Hiển thị Paywall: "Bạn cần mua tour này để tải dữ liệu offline";
+  stop
+else (Có Entitlement Active)
+endif
+
+:Backend tạo Offline License:
+- subject = user_id
+- tour_id = target_tour
+- expires_at = NOW() + 7 ngày
+- license_signature (Ký bằng Khóa bí mật máy chủ);
+:Backend trả về Gói Manifest (danh sách POI, file audio, checksum SHA256) và License;
+
+:Client tải các file âm thanh và dữ liệu POI về bộ nhớ bảo mật cục bộ;
+:Client xác thực Checksum từng file và lưu License vào Secure Storage;
+:Thông báo: "Tải gói offline thành công (Hạn xác minh: 7 ngày)";
+
+---
+== Giai đoạn Sử dụng Offline khi Không có Mạng ==
+
+:Người dùng mở Tour khi thiết bị mất kết nối Internet;
+:Người dùng chọn phát một POI hoặc kích hoạt GPS Offline;
+
+:Ứng dụng kiểm tra Offline License trong thiết bị [BR-ACCESS-06];
+if (Người dùng hiện tại khớp với user_id trong License?) then (Không khớp / Đã đăng xuất [BR-ACCESS-07])
+  :Khóa truy cập hoặc xóa cache dữ liệu của tài khoản cũ;
+  :Yêu cầu đăng nhập tài khoản sở hữu tour;
+  stop
+else (Khớp tài khoản)
+endif
+
+if (Thời gian hiện tại < license.expires_at?) then (Còn hạn (<= 7 ngày))
+  :Xác thực Chữ ký điện tử License thành công;
+  :Giải mã / Truy xuất file audio cục bộ;
+  :Phát thuyết minh POI bình thường không cần mạng;
+  stop
+else (Đã quá hạn 7 ngày)
+  :Thông báo: "Giấy phép offline đã hết hạn 7 ngày";
+  :Yêu cầu: "Vui lòng kết nối Internet để tự động gia hạn quyền";
+  
+  if (Sau đó người dùng kết nối mạng?) then (Có kết nối lại)
+    :Ứng dụng tự động gửi License lên Server;
+    :Backend xác thực Entitlement còn Active -> Gia hạn thêm 7 ngày;
+    :Cập nhật License mới vào thiết bị;
+    :Tiếp tục sử dụng offline;
+    stop
+  else (Vẫn không có mạng)
+    :Tạm dừng phát thuyết minh offline;
+    stop
+  endif
+endif
+
+@enduml

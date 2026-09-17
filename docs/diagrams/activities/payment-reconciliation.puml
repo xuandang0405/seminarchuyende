@@ -1,0 +1,74 @@
+@startuml AD20_PaymentReconciliation
+title Activity Diagram AD20: Xác minh Giao dịch và Đối soát Thanh toán (Payment Reconciliation & Settlement)
+skinparam activityBackgroundColor #FEFECE
+skinparam activityBorderColor #A80036
+skinparam activityArrowColor #A80036
+
+start
+:Sự kiện đối soát kích hoạt;
+fork
+  :Nhận Webhook / IPN từ Cổng thanh toán (VNPAY / payOS);
+fork again
+  :Người dùng bấm "Tôi đã chuyển khoản / Kiểm tra trạng thái";
+  :Client gọi POST /api/v1/orders/{id}/reconcile;
+fork again
+  :Admin bấm "Đối soát giao dịch" từ Dashboard;
+  :Gọi POST /api/v1/orders/{id}/reconcile (có quyền payment:reconcile);
+end fork
+
+if (Nguồn là Webhook / IPN?) then (Đúng)
+  :Xác minh Chữ ký điện tử (HMAC-SHA512 / HMAC-SHA256) [BR-PAY-03];
+  if (Chữ ký hợp lệ?) then (Không)
+    :Ghi log cảnh báo bảo mật;
+    :Trả về mã lỗi xác thực chữ ký cho Provider;
+    stop
+  else (Hợp lệ)
+  endif
+else (Là Reconcile Request)
+  :Backend gọi query_payment() trực tiếp tới API Gateway của Provider;
+endif
+
+:Tra cứu Order và PaymentAttempt tương ứng theo provider_reference;
+if (Tìm thấy Order tương ứng?) then (Không)
+  :Ghi nhận Event thất lạc (Orphan Transaction);
+  :Đưa vào danh sách "requires_review";
+  stop
+else (Tìm thấy)
+endif
+
+if (Order đã ở trạng thái "paid"?) then (Đã thanh toán trước đó [BR-PAY-05])
+  :Ghi log Idempotent / Duplicate Event;
+  :Giữ nguyên Entitlement hiện tại;
+  :Trả lời thành công cho Provider (ACK);
+  stop
+else (Chưa thanh toán)
+endif
+
+if (Số tiền thực nhận == Số tiền đơn hàng AND Tiền tệ == "VND"?) then (Không khớp [BR-PAY-07])
+  :Ghi nhận bất thường tài chính (Thiếu/Thừa tiền hoặc Sai ngoại tệ);
+  :Cập nhật Order sang "requires_review";
+  :Tạo cảnh báo kiểm toán cho Admin (Audit Log);
+  :KHÔNG tự động cấp quyền Tour Entitlement;
+  stop
+else (Khớp chính xác số tiền)
+endif
+
+if (Giao dịch được Provider xác nhận thành công?) then (Thành công [BR-PAY-06])
+  :Bắt đầu MongoDB Transaction;
+  :1. Cập nhật PaymentAttempt status = "succeeded";
+  :2. Cập nhật Order status = "paid", paid_at = NOW();
+  :3. Upsert TourEntitlement (user_id, tour_id, status="active");
+  :4. Ghi PaymentEvent (status="processed");
+  :Commit MongoDB Transaction;
+  
+  :Trả phản hồi thành công (HTTP 200 / RspCode="00");
+  :Client nhận trạng thái "paid" và mở khóa Tour ngay lập tức;
+  stop
+else (Thất bại / Hết hạn / Người dùng hủy)
+  :Cập nhật PaymentAttempt = "failed" hoặc "cancelled";
+  :Nếu hết thời gian chờ, Order chuyển sang "expired";
+  :Client hiển thị tùy chọn tạo phiên thanh toán mới;
+  stop
+endif
+
+@enduml

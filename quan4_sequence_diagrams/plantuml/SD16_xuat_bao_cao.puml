@@ -1,0 +1,40 @@
+@startuml
+title SD16 - S10: Xuất Báo Cáo Thống Kê (Export Analytics Report)
+autonumber
+skinparam shadowing false
+skinparam defaultFontName "Arial"
+
+actor "Quản trị viên / SuperAdmin" as Admin
+participant "Web Admin CMS" as Web
+participant "FastAPI\nAnalytics Router" as API
+participant "AnalyticsService" as Service
+participant "AnalyticsRepository" as Repo
+participant "MongoDB\n(analytics_events,\npoi_daily_metrics)" as DB
+
+Admin -> Web: Chọn khoảng ngày & định dạng xuất (CSV/Excel/JSON)
+Web -> API: POST /api/v1/analytics/export\nHeaders: Authorization Bearer / HttpOnly Cookie\nBody: { format, date_from, date_to, poi_id }
+API -> API: Kiểm tra phân quyền (yêu cầu "analytics:export")
+
+alt Không có quyền (Role User hoặc Chưa duyệt)
+    API --> Web: 403 Forbidden ("Thiếu quyền analytics:export")
+    Web --> Admin: Hiển thị thông báo từ chối truy cập
+else Có quyền hợp lệ
+    API -> Service: generate_export_report(format, date_from, date_to, poi_id)
+    Service -> Repo: get_poi_metrics_range(date_from, date_to, poi_id)
+    Repo -> DB: aggregate([$match date range, $group by poi, date])
+    DB --> Repo: Danh sách metrics tổng hợp
+    Repo --> Service: Raw records
+
+    alt Không có dữ liệu trong khoảng thời gian
+        Service --> API: Empty dataset warning
+        API --> Web: 200 OK { count: 0, file_url: null, message: "Không có dữ liệu" }
+        Web --> Admin: Hiển thị "Không có số liệu trong khoảng ngày đã chọn"
+    else Có dữ liệu hợp lệ
+        Service -> Service: Format dữ liệu theo format yêu cầu:\n- CSV: UTF-8 BOM, phân cách dấu phẩy\n- Excel/JSON: cấu trúc bảng chuẩn hóa
+        Service -> Service: Lưu file tạm tại storage/exports/analytics_*.csv
+        Service --> API: File path & Metadata (records_count, file_size)
+        API --> Web: 200 OK + Content-Disposition: attachment; filename="report.csv"\n(StreamingResponse)
+        Web --> Admin: Tự động tải file báo cáo về máy tính
+    end
+end
+@enduml

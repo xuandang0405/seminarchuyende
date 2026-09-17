@@ -10,7 +10,40 @@ let allTours = [];
 let tourRouteLine = null;
 
 document.addEventListener("DOMContentLoaded", async () => {
-  await autoLoginAdmin();
+  await checkSession();
+});
+
+async function checkSession() {
+  const savedToken = localStorage.getItem("tourvoice_token");
+  const savedUserStr = localStorage.getItem("tourvoice_user");
+
+  if (savedToken && savedUserStr) {
+    try {
+      const user = JSON.parse(savedUserStr);
+      adminToken = savedToken;
+      setLoggedInUser(user);
+      const overlay = document.getElementById("login-overlay");
+      if (overlay) overlay.style.display = "none";
+      await loadAllAdminData();
+      return;
+    } catch (e) {
+      console.warn("Lỗi đọc session cũ:", e);
+    }
+  }
+
+  // Nếu chưa đăng nhập: Bắt buộc mở màn hình Login
+  const overlay = document.getElementById("login-overlay");
+  if (overlay) overlay.style.display = "flex";
+}
+
+function setLoggedInUser(user) {
+  const nameElem = document.getElementById("logged-user-name");
+  if (nameElem) nameElem.innerText = user.full_name || user.email;
+  const roleElem = document.getElementById("logged-user-role");
+  if (roleElem) roleElem.innerText = user.role || "user";
+}
+
+async function loadAllAdminData() {
   await loadDashboardStats();
   initAdminMap();
   await loadPOIs();
@@ -20,30 +53,235 @@ document.addEventListener("DOMContentLoaded", async () => {
   await loadContentJobs();
   await loadOfflinePackages();
   await loadUsers();
-});
+  await loadPaymentsData();
+}
 
-async function autoLoginAdmin() {
+function switchAuthMode(mode) {
+  const btnLogin = document.getElementById("tab-btn-login");
+  const btnReg = document.getElementById("tab-btn-register");
+  const formLogin = document.getElementById("form-login");
+  const formReg = document.getElementById("form-register");
+  const quickBox = document.getElementById("quick-roles-box");
+  const alertBox = document.getElementById("auth-alert");
+  if (alertBox) alertBox.style.display = "none";
+
+  if (mode === "login") {
+    btnLogin.classList.add("active");
+    btnReg.classList.remove("active");
+    formLogin.style.display = "block";
+    formReg.style.display = "none";
+    if (quickBox) quickBox.style.display = "block";
+  } else {
+    btnReg.classList.add("active");
+    btnLogin.classList.remove("active");
+    formLogin.style.display = "none";
+    formReg.style.display = "block";
+    if (quickBox) quickBox.style.display = "none";
+  }
+}
+
+function quickFillLogin(email, password) {
+  document.getElementById("login-email").value = email;
+  document.getElementById("login-password").value = password;
+  const submitBtn = document.getElementById("btn-login-submit");
+  if (submitBtn) submitBtn.click();
+}
+
+async function handleLoginForm(event) {
+  event.preventDefault();
+  const alertBox = document.getElementById("auth-alert");
+  alertBox.className = "auth-alert";
+  alertBox.style.display = "none";
+
+  const email = document.getElementById("login-email").value.trim();
+  const password = document.getElementById("login-password").value;
+  const submitBtn = document.getElementById("btn-login-submit");
+  submitBtn.disabled = true;
+  submitBtn.innerText = "Đang xác thực...";
+
   try {
     const res = await fetch(`${API_BASE}/auth/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        email: "admin@tourvoice.vn",
-        password: "Admin@123456"
-      })
+      body: JSON.stringify({ email, password })
     });
-    if (res.ok) {
-      const data = await res.json();
-      adminToken = data.access_token;
-      document.getElementById("logged-user-name").innerText = data.user.full_name;
-      const roleElem = document.getElementById("logged-user-role");
-      if (roleElem) roleElem.innerText = data.user.role || "super_admin";
-      console.log("Admin logged in successfully");
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      throw new Error(data.detail || data.error || "Email hoặc mật khẩu không chính xác.");
     }
+
+    adminToken = data.access_token;
+    localStorage.setItem("tourvoice_token", data.access_token);
+    localStorage.setItem("tourvoice_user", JSON.stringify(data.user));
+
+    setLoggedInUser(data.user);
+    const overlay = document.getElementById("login-overlay");
+    if (overlay) overlay.style.display = "none";
+    await loadAllAdminData();
   } catch (err) {
-    console.warn("Backend auto-login failed:", err);
+    alertBox.className = "auth-alert error";
+    alertBox.innerText = err.message;
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.innerText = "Đăng Nhập Vào Hệ Thống";
   }
 }
+
+async function handleRegisterForm(event) {
+  event.preventDefault();
+  const alertBox = document.getElementById("auth-alert");
+  const fullName = document.getElementById("reg-fullname").value.trim();
+  const businessName = document.getElementById("reg-business-name").value.trim();
+  const email = document.getElementById("reg-email").value.trim();
+  const phone = document.getElementById("reg-phone").value.trim();
+  const password = document.getElementById("reg-password").value;
+
+  try {
+    const res = await fetch(`${API_BASE}/auth/register-owner`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        full_name: fullName,
+        business_name: businessName,
+        email: email,
+        phone: phone,
+        password: password
+      })
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      throw new Error(data.detail || data.error || "Đăng ký không thành công.");
+    }
+
+    alertBox.className = "auth-alert success";
+    alertBox.innerText = "Đăng ký thành công! Hồ sơ đã được gửi đến Ban quản trị Quận 4. Vui lòng đăng nhập.";
+    switchAuthMode("login");
+    document.getElementById("login-email").value = email;
+    document.getElementById("login-password").value = password;
+  } catch (err) {
+    alertBox.className = "auth-alert error";
+    alertBox.innerText = err.message;
+  }
+}
+
+function loginWithGoogleDemo() {
+  quickFillLogin("superadmin@tourvoice.vn", "Admin@123456");
+}
+
+function logoutAdmin() {
+  if (confirm("Bạn có chắc chắn muốn đăng xuất khỏi TourVoice CMS?")) {
+    localStorage.removeItem("tourvoice_token");
+    localStorage.removeItem("tourvoice_user");
+    adminToken = null;
+    const nameElem = document.getElementById("logged-user-name");
+    if (nameElem) nameElem.innerText = "Chưa đăng nhập";
+    const roleElem = document.getElementById("logged-user-role");
+    if (roleElem) roleElem.innerText = "guest";
+    const overlay = document.getElementById("login-overlay");
+    if (overlay) overlay.style.display = "flex";
+  }
+}
+
+async function loadPaymentsData() {
+  await loadAdminOrders();
+}
+
+async function loadAdminOrders() {
+  if (!adminToken) return;
+  try {
+    const res = await fetch(`${API_BASE}/payments/admin/orders`, {
+      headers: { "Authorization": `Bearer ${adminToken}` }
+    });
+    if (res.ok) {
+      const orders = await res.json();
+      const tbody = document.getElementById("admin-orders-table");
+      
+      let totalRevenue = 0;
+      let paidOrdersCount = 0;
+
+      if (Array.isArray(orders)) {
+        orders.forEach(o => {
+          if (o.status === "paid") {
+            totalRevenue += (o.snapshot_price_amount || 0);
+            paidOrdersCount++;
+          }
+        });
+      }
+
+      const revElem = document.getElementById("admin-total-revenue");
+      if (revElem) revElem.innerText = Number(totalRevenue).toLocaleString("vi-VN") + " ₫";
+      const paidElem = document.getElementById("admin-paid-orders");
+      if (paidElem) paidElem.innerText = paidOrdersCount;
+
+      if (!tbody) return;
+      if (!orders || orders.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: #94a3b8;">Chưa có đơn hàng nào trong hệ thống.</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = orders.map(o => {
+        let statusBadge = '<span class="badge badge-warning">PENDING</span>';
+        if (o.status === "paid") {
+          statusBadge = '<span class="badge badge-success" style="background:#10b981; color:white;">ĐÃ THANH TOÁN</span>';
+        } else if (o.status === "cancelled") {
+          statusBadge = '<span class="badge badge-danger">ĐÃ HỦY</span>';
+        } else if (o.status === "expired") {
+          statusBadge = '<span class="badge" style="background:#64748b; color:white;">HẾT HẠN</span>';
+        } else if (o.status === "requires_review") {
+          statusBadge = '<span class="badge badge-danger" style="background:#dc2626; color:white;">CẦN ĐỐI SOÁT</span>';
+        }
+
+        const dateStr = o.created_at ? new Date(o.created_at).toLocaleString("vi-VN") : "N/A";
+        const tourTitle = o.snapshot_tour_name || o.tour_id;
+        const amountStr = Number(o.snapshot_price_amount || 0).toLocaleString("vi-VN") + " ₫";
+        const shortUser = o.user_id ? o.user_id.slice(-8) : "N/A";
+
+        return `
+          <tr>
+            <td><strong>${o._id}</strong></td>
+            <td><strong>${tourTitle}</strong></td>
+            <td><span style="font-family: monospace; color:#94a3b8;">...${shortUser}</span></td>
+            <td><strong style="color: #10b981;">${amountStr}</strong></td>
+            <td>${statusBadge}</td>
+            <td style="font-size: 0.75rem; color: #94a3b8;">${dateStr}</td>
+            <td>
+              <button class="btn btn-primary" style="padding: 4px 8px; font-size: 0.75rem; background: #0284c7;" onclick="adminReconcileOrder('${o._id}')">
+                🔄 Đối soát
+              </button>
+            </td>
+          </tr>
+        `;
+      }).join("");
+    }
+  } catch (err) {
+    console.warn("Lỗi nạp danh sách đơn admin:", err);
+  }
+}
+
+window.loadAdminOrders = loadAdminOrders;
+
+window.adminReconcileOrder = async function(orderId) {
+  if (!adminToken) {
+    alert("Vui lòng đăng nhập với quyền Admin.");
+    return;
+  }
+  try {
+    const res = await fetch(`${API_BASE}/payments/admin/orders/${orderId}/reconcile`, {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${adminToken}` }
+    });
+    const data = await res.json();
+    if (res.ok) {
+      alert(`✅ Kết quả đối soát đơn ${orderId}:\nTrạng thái: ${data.status || 'Hoàn tất'}\nChi tiết: ${data.message || 'Đã đồng bộ thành công với cổng thanh toán'}`);
+      await loadAdminOrders();
+    } else {
+      alert(`⚠️ Lỗi đối soát: ${data.detail || 'Không thể đối soát đơn hàng'}`);
+    }
+  } catch (err) {
+    alert(`Lỗi kết nối: ${err.message}`);
+  }
+};
+
 
 function switchTab(tabName, element) {
   document.querySelectorAll(".tab-section").forEach(sec => sec.classList.remove("active"));
@@ -73,6 +311,9 @@ function switchTab(tabName, element) {
   if (tabName === "users") {
     loadUsers();
     loadAuditLogs();
+  }
+  if (tabName === "payments") {
+    loadPaymentsData();
   }
 }
 
@@ -496,21 +737,92 @@ async function loadTours() {
               <td>${tTitle}</td>
               <td>${t.estimated_duration_minutes || 90} phút</td>
               <td><span class="badge badge-info">${stopCount} điểm</span></td>
-              <td><span class="badge badge-success">${t.status || (t.is_active ? "active" : "inactive")}</span></td>
               <td>
+                <div style="font-weight: 600; color: #10b981;">${Number(t.price_amount || 0).toLocaleString('vi-VN')} ₫</div>
+                <div style="font-size: 0.75rem; margin-top: 2px;">
+                  <span class="badge ${t.is_purchasable ? 'badge-success' : 'badge-warning'}">${t.is_purchasable ? 'Đang mở bán' : 'Chưa mở bán'}</span>
+                  ${t.preview_enabled ? '<span class="badge badge-info" style="margin-left: 2px;">Nghe thử 1 POI</span>' : ''}
+                </div>
+              </td>
+              <td><span class="badge badge-success">${t.status || (t.is_active ? "active" : "inactive")}</span></td>
+              <td style="white-space: nowrap;">
                 <button class="btn btn-primary" onclick="alert('Lộ trình gồm: ' + JSON.stringify(${stopCount} + ' điểm dừng'))" style="padding: 4px 8px; font-size: 0.75rem;">🗺️ Chi tiết</button>
+                <button class="btn btn-primary" onclick="openTourPricingModal('${t._id}')" style="padding: 4px 8px; font-size: 0.75rem; background: #f59e0b; margin-left: 4px;">💰 Giá & Bán</button>
               </td>
             </tr>
           `;
         });
       } else {
-        tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:#94a3b8;">Chưa có tour nào. Bấm nút Tạo Tour Mới bên trên để thêm.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:#94a3b8;">Chưa có tour nào. Bấm nút Tạo Tour Mới bên trên để thêm.</td></tr>`;
       }
     }
   } catch (err) {
     console.error("Failed to load tours:", err);
   }
 }
+
+window.openTourPricingModal = function(tourId) {
+  const tour = allTours.find(t => t._id === tourId);
+  if (!tour) return;
+
+  document.getElementById("pricing-modal-tour-id").value = tourId;
+  document.getElementById("pricing-modal-tour-title").innerText = `Tour: ${tour.name || tour.title || tourId}`;
+  document.getElementById("pricing-modal-amount").value = tour.price_amount || 99000;
+  document.getElementById("pricing-modal-purchasable").checked = !!tour.is_purchasable;
+  document.getElementById("pricing-modal-preview").checked = tour.preview_enabled !== false;
+
+  const modal = document.getElementById("tour-pricing-modal");
+  if (modal) modal.style.display = "flex";
+};
+
+window.closeTourPricingModal = function() {
+  const modal = document.getElementById("tour-pricing-modal");
+  if (modal) modal.style.display = "none";
+};
+
+window.saveTourPricing = async function() {
+  const tourId = document.getElementById("pricing-modal-tour-id").value;
+  const amount = parseInt(document.getElementById("pricing-modal-amount").value, 10);
+  const isPurchasable = document.getElementById("pricing-modal-purchasable").checked;
+  const previewEnabled = document.getElementById("pricing-modal-preview").checked;
+
+  if (isNaN(amount) || amount < 0) {
+    alert("Vui lòng nhập giá hợp lệ (>= 0 VND).");
+    return;
+  }
+
+  if (!adminToken) {
+    alert("Vui lòng đăng nhập với quyền Admin.");
+    return;
+  }
+
+  try {
+    const res = await fetch(`${API_BASE}/tours/${tourId}/pricing`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${adminToken}`
+      },
+      body: JSON.stringify({
+        price_amount: amount,
+        currency: "VND",
+        is_purchasable: isPurchasable,
+        preview_enabled: previewEnabled
+      })
+    });
+
+    const data = await res.json();
+    if (res.ok) {
+      alert("✅ Cập nhật giá và mở bán tour thành công!");
+      closeTourPricingModal();
+      await loadTours();
+    } else {
+      alert("Lỗi: " + (data.detail || "Không thể cập nhật cấu hình giá."));
+    }
+  } catch (err) {
+    alert("Lỗi kết nối: " + err.message);
+  }
+};
 
 window.toggleAddTourForm = function() {
   const card = document.getElementById("add-tour-card");

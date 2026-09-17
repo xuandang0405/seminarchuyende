@@ -1,0 +1,26 @@
+@startuml
+title 16_xuat_bao_cao
+autonumber
+skinparam shadowing false
+skinparam defaultFontName "Arial"
+
+actor "Admin" as Quản trị viên
+participant "Web" as Web Admin CMS
+participant "API" as FastAPI
+participant "Service" as AnalyticsService
+participant "DB" as MongoDB
+Admin -> Web: Chọn khoảng ngày & định dạng xuất (CSV/Excel)
+Web -> API: POST /api/v1/analytics/export {format, date_from, date_to}
+API -> API: Kiểm tra quyền "analytics:export"
+alt Không có quyền
+API- -> Web: 403 Forbidden
+else Quyền hợp lệ
+API -> Service: generate_export_report()
+Service -> DB: Truy vấn dữ liệu metrics theo khoảng ngày
+DB- -> Service: Danh sách số liệu tổng hợp
+Service -> Service: Định dạng sang CSV/Excel & lưu file tạm
+Service- -> API: File path & metadata
+API- -> Web: 200 OK (File stream attachment)
+Web- -> Admin: Tự động tải file báo cáo về máy
+end
+@enduml

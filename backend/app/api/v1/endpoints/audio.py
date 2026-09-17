@@ -126,8 +126,45 @@ from fastapi import Request
 
 
 @router.get("/{storage_key:path}/stream")
-async def stream_audio_endpoint(storage_key: str, request: Request):
-    """Streams audio file with HTTP 206 Partial Content range support."""
+async def stream_audio_endpoint(
+    storage_key: str,
+    request: Request,
+    grant_token: Optional[str] = Query(None)
+):
+    """Streams audio file with HTTP 206 Partial Content range support.
+
+    BR-ACCESS-01 / Section 8: Strictly gates audio streaming behind verified playback grant token.
+    """
     from app.services.audio_service import audio_service
+    from app.services.access_service import access_service
+
+    # Verify grant token
+    is_authorized = False
+    if grant_token:
+        is_authorized = await access_service.verify_grant_token(grant_token, storage_key)
+
+    if not is_authorized:
+        # Check if caller has Bearer token with admin role
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header.split(" ")[1]
+            try:
+                import jwt
+                from app.core.config import settings
+                from app.repositories.auth_repo import auth_repo
+                payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+                user = await auth_repo.get_user_by_id(payload.get("sub"))
+                if user and user.get("role") in ("admin", "super_admin"):
+                    is_authorized = True
+            except Exception:
+                pass
+
+    if not is_authorized:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Yêu cầu Playback Grant hợp lệ hoặc quyền sở hữu tour để phát âm thanh."
+        )
+
     range_header = request.headers.get("range")
     return audio_service.stream_audio_file(storage_key, range_header=range_header)
+

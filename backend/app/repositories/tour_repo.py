@@ -72,7 +72,35 @@ class TourRepository(BaseRepository):
                 "updated_at": now,
             }}
         )
-        return res.modified_count > 0
+    async def update_tour_pricing(
+        self,
+        tour_id: str,
+        price_amount: int,
+        currency: str = "VND",
+        is_purchasable: bool = True,
+        preview_enabled: bool = True,
+        preview_poi_ids: Optional[List[str]] = None
+    ) -> Optional[Dict[str, Any]]:
+        now = datetime.now(timezone.utc)
+        update_fields: Dict[str, Any] = {
+            "price_amount": price_amount,
+            "currency": currency,
+            "is_purchasable": is_purchasable,
+            "preview_enabled": preview_enabled,
+            "updated_at": now
+        }
+        if preview_poi_ids is not None:
+            update_fields["preview_poi_ids"] = preview_poi_ids
+
+        return await self.collection.find_one_and_update(
+            {"_id": tour_id, "deleted_at": None},
+            {
+                "$set": update_fields,
+                "$inc": {"pricing_version": 1, "version": 1}
+            },
+            return_document=True
+        )
 
 
 tour_repo = TourRepository()
+

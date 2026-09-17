@@ -1,0 +1,21 @@
+%% SD20 - Xác nhận thanh toán và cấp vé điện tử
+sequenceDiagram
+    autonumber
+    actor User as Du khách
+    participant App as Web / Mobile App
+    participant API as FastAPI
+    participant Service as PaymentService
+    participant DB as MongoDB
+
+    User->>App: Bấm "Tôi Đã Chuyển Khoản" (Demo) hoặc Ngân hàng gửi IPN
+    App->>API: POST /api/v1/payments/orders/{order_id}/simulate-success
+    API->>Service: simulate_payment_success()
+    Service->>DB: Kiểm tra đơn hàng theo order_id
+    DB-->>Service: Thông tin đơn hàng
+    Service->>Service: Sinh mã vé điện tử: TICKET-Q4-XXXXXX
+    Service->>DB: Cập nhật status="paid", paid_at, ticket_code
+    Service->>DB: Thêm bản ghi giao dịch thanh toán
+    DB-->>Service: Cập nhật thành công
+    Service-->>API: Order đã thanh toán kèm ticket_code
+    API-->>App: 200 OK
+    App-->>User: Hiển thị Vé Điện Tử E-Ticket (Mã vé, Huy hiệu ĐÃ THANH TOÁN, Mã QR check-in)

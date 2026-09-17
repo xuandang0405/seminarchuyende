@@ -1,0 +1,61 @@
+@startuml guest-claim
+!theme plain
+autonumber
+skinparam defaultFontName "Segoe UI"
+skinparam roundCorner 8
+skinparam shadowing false
+skinparam BoxPadding 10
+skinparam ParticipantPadding 10
+
+title SD21: Khởi Tạo Phiên Khách & Hợp Nhất Quota Khi Đăng Nhập (Guest Claim)
+
+box "Client (Web / Mobile)" #f8fafc
+  participant "Ứng Dụng Khách\n(Tourist App)" as App
+end box
+
+box "TourVoice Backend (FastAPI)" #f0fdf4
+  participant "Guest Router" as Router
+  participant "GuestService" as GuestSvc
+  participant "AuthService" as AuthSvc
+  participant "TrialService" as TrialSvc
+end box
+
+box "Cơ Sở Dữ Liệu (MongoDB)" #eff6ff
+  database "guest_sessions" as DB_Guest
+  database "trial_usage" as DB_Trial
+  database "admin_users" as DB_User
+end box
+
+== 1. Khởi Tạo Phiên Khách Ngẫu Nhiên ==
+App -> Router: POST /api/v1/guest-sessions\n(Header: User-Agent, Client IP)
+Router -> GuestSvc: create_guest_session(ip, ua)
+GuestSvc -> GuestSvc: Sinh token ngẫu nhiên 32-bytes\n(entropy cao: secrets.token_urlsafe)
+GuestSvc -> GuestSvc: Hash SHA-256 lưu trữ an toàn
+GuestSvc -> DB_Guest: insert_one({_id, credential_hash, expires_at, created_at})
+GuestSvc --> Router: {guest_session_id, guest_token, expires_at}
+Router --> App: 201 Created\n(HttpOnly Cookie / Local Storage)
+
+== 2. Khách Sử Dụng Thử 1 Lượt & Sau Đó Đăng Ký Tài Khoản ==
+App -> Router: POST /api/v1/auth/register\n{full_name, email, password, guest_token}
+Router -> AuthSvc: register_tourist(data, guest_token)
+AuthSvc -> DB_User: insert_one({_id, email, password_hash, role: "user", auth_version: 1})
+AuthSvc -> AuthSvc: Tạo Bearer access_token
+
+opt Nếu có guest_token đi kèm
+  AuthSvc -> GuestSvc: claim_guest_session(guest_token, user_id)
+  GuestSvc -> GuestSvc: Hash SHA-256(guest_token)
+  GuestSvc -> DB_Guest: find_one_and_update(\n  {credential_hash, claimed_user_id: null},\n  {$set: {claimed_user_id: user_id, claimed_at: now}}\n)
+  
+  GuestSvc -> TrialSvc: merge_guest_quota_into_user(guest_id, user_id)
+  TrialSvc -> DB_Trial: find_one({subject_type: "guest", subject_id: guest_id})
+  alt Guest đã tiêu quota ('consumed')
+    TrialSvc -> DB_Trial: update_one(\n  {subject_type: "user", subject_id: user_id},\n  {$set: {state: "consumed", merged_from_guest_id: guest_id}},\n  upsert=True\n)
+  else Guest chưa dùng hoặc available
+    TrialSvc -> DB_Trial: Giữ nguyên quota 1 lượt duy nhất (Không cộng dồn)
+  end
+  GuestSvc --> AuthSvc: Quota merged successfully
+end
+
+AuthSvc --> Router: {access_token, token_type: "bearer", user}
+Router --> App: 201 Created (Phiên đã hợp nhất, lưu Bearer token an toàn)
+@enduml

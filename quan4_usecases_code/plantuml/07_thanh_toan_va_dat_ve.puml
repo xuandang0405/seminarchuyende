@@ -1,0 +1,42 @@
+@startuml 07_thanh_toan_va_dat_ve
+title Sơ đồ Use Case - Phân Hệ Đặt Vé & Thanh Toán VietQR Quận 4
+top to bottom direction
+skinparam shadowing false
+skinparam packageStyle rectangle
+skinparam backgroundColor white
+skinparam defaultFontName "Arial"
+skinparam defaultFontSize 12
+skinparam usecaseBackgroundColor #FFFFFF
+skinparam usecaseBorderColor #334155
+skinparam ArrowColor #475569
+skinparam actorBorderColor #334155
+
+actor "Khách du lịch" as Tourist
+actor "Ngân hàng / VietQR (Napas 247)" as Bank
+actor "Quản trị viên" as Admin
+actor "Chủ quán ăn" as Owner
+
+rectangle "Hệ thống thuyết minh & Du lịch Quận 4" as System {
+  package "Thanh toán & Vé điện tử" as PaymentPkg #EBF5FB {
+    usecase "T14 Đặt vé tour & món ăn" as T14
+    usecase "T15 Thanh toán qua mã VietQR" as T15
+    usecase "T16 Nhận & tra cứu vé điện tử E-Ticket" as T16
+    usecase "T17 Check-in mã QR tại điểm đến" as T17
+    usecase "S14 Quản lý đơn hàng & doanh thu" as S14
+    usecase "O11 Xem doanh thu đặt món của quán" as O11
+  }
+}
+
+Tourist -- T14
+Tourist -- T15
+Tourist -- T16
+Tourist -- T17
+
+T14 ..> T15 : <<include>>
+T15 ..> T16 : <<include>>
+T17 ..> T16 : <<extend>> : quét tại cổng
+
+T15 -- Bank
+Admin -- S14
+Owner -- O11
+@enduml

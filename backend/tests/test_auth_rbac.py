@@ -11,7 +11,7 @@ async def test_login_success(client: AsyncClient):
     assert resp.status_code == 200
     data = resp.json()
     assert data["success"] is True
-    assert "access_token" is True or len(data["access_token"]) > 20
+    assert "access_token" in data and len(data["access_token"]) > 20
     assert data["user"]["role"] == "super_admin"
     assert "session_id" in data
     assert "refresh_token" in data

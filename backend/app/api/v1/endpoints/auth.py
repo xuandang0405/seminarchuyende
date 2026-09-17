@@ -53,6 +53,15 @@ class RegisterOwnerRequest(BaseModel):
     business_name: str
 
 
+class RegisterTouristRequest(BaseModel):
+    email: EmailStr
+    password: str = Field(..., min_length=6)
+    confirm_password: Optional[str] = None
+    full_name: str
+    guest_credential: Optional[str] = None
+
+
+
 class ChangePasswordRequest(BaseModel):
     current_password: str
     new_password: str = Field(..., min_length=6)
@@ -488,8 +497,36 @@ async def revoke_session_endpoint(
 
 
 # =============================================================================
-# OWNER REGISTRATION
+# TOURIST & OWNER REGISTRATION
 # =============================================================================
+
+@router.post("/register", status_code=status.HTTP_201_CREATED)
+async def register_tourist_endpoint(
+    req: RegisterTouristRequest,
+    request: Request,
+    response: Response
+):
+    """Section 4: Tourist user registration (name, email, password, confirm_password, default role 'user')."""
+    client_ip = request.client.host if request.client else None
+    ua = request.headers.get("User-Agent")
+    guest_cred = req.guest_credential or request.cookies.get("guest_session_credential")
+
+    res = await auth_service.register_tourist(
+        email=req.email,
+        password=req.password,
+        confirm_password=req.confirm_password,
+        full_name=req.full_name,
+        guest_credential=guest_cred,
+        ip_address=client_ip,
+        user_agent=ua,
+    )
+    if not res.get("success"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=res.get("error"))
+
+    if "session_id" in res and "refresh_token" in res:
+        set_refresh_cookie(response, res["session_id"], res["refresh_token"])
+    return res
+
 
 @router.post("/register-owner", status_code=status.HTTP_201_CREATED)
 async def register_owner(req: RegisterOwnerRequest):
@@ -503,3 +540,4 @@ async def register_owner(req: RegisterOwnerRequest):
     if not res.get("success"):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=res.get("error"))
     return res
+

@@ -1,0 +1,41 @@
+@startuml
+title SD17 - S12: Cấu Hình Hệ Thống Runtime (System Configuration)
+autonumber
+skinparam shadowing false
+skinparam defaultFontName "Arial"
+
+actor "Super Admin" as Admin
+participant "Web Admin CMS" as Web
+participant "FastAPI\nSystem Router" as API
+participant "SystemService" as Service
+participant "MongoDB\n(system_configs)" as DB
+participant "AuditRepo\n(audit_logs)" as Audit
+
+Admin -> Web: Mở trang "Cấu hình hệ thống"
+Web -> API: GET /api/v1/system/config
+API -> API: Kiểm tra quyền "system:config"
+API -> Service: get_system_config()
+Service -> DB: find_one({"_id": "runtime_config"})
+DB --> Service: Document cấu hình (geofence_radius, debounce_s, cooldown_s, default_tts_voice)
+Service --> API: JSON SystemConfigResponse
+API --> Web: 200 OK { configs }
+Web --> Admin: Hiển thị form cấu hình tham số hiện tại
+
+Admin -> Web: Điều chỉnh tham số (VD: GPS debounce = 2s, trigger radius = 25m) & nhấn "Lưu cấu hình"
+Web -> API: PUT /api/v1/system/config\nBody: { debounce_seconds: 2, trigger_radius_meters: 25, ... }
+API -> API: Xác thực quyền SuperAdmin & Validate giá trị min/max
+
+alt Giá trị tham số không hợp lệ (VD: bán kính < 5m hoặc debounce < 0)
+    API --> Web: 422 Unprocessable Entity ("Tham số ngoài phạm vi an toàn")
+    Web --> Admin: Báo lỗi validation
+else Tham số hợp lệ
+    API -> Service: update_system_config(new_configs, actor_id)
+    Service -> DB: update_one({"_id": "runtime_config"}, {"$set": new_configs}, upsert=True)
+    DB --> Service: Cập nhật thành công
+    Service -> Audit: record_audit_log(actor_id, "UPDATE_SYSTEM_CONFIG", diff)
+    Audit -> DB: insert_one(audit_log)
+    Service --> API: JSON { success: True, updated_config }
+    API --> Web: 200 OK
+    Web --> Admin: Thông báo "Cập nhật cấu hình thành công, áp dụng tức thì!"
+end
+@enduml

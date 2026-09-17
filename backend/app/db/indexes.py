@@ -36,6 +36,13 @@ from app.db.collections import (
     COLLECTION_AUTH_IDENTITIES,
     COLLECTION_AUTH_ACTION_TOKENS,
     COLLECTION_OAUTH_TRANSACTIONS,
+    COLLECTION_GUEST_SESSIONS,
+    COLLECTION_TRIAL_USAGE,
+    COLLECTION_PLAYBACK_GRANTS,
+    COLLECTION_ORDERS,
+    COLLECTION_PAYMENT_ATTEMPTS,
+    COLLECTION_PAYMENT_EVENTS,
+    COLLECTION_TOUR_ENTITLEMENTS,
 )
 
 logger = logging.getLogger("uvicorn")
@@ -328,7 +335,105 @@ async def create_all_indexes(db: AsyncDatabase):
             name="ttl_oauth_transactions_expires_at"
         )
 
+        # 30. guest_sessions: unique credential hash, claimed user, TTL expiry
+        await db[COLLECTION_GUEST_SESSIONS].create_index(
+            [("credential_hash", 1)],
+            unique=True,
+            name="uq_guest_credential_hash"
+        )
+        await db[COLLECTION_GUEST_SESSIONS].create_index(
+            [("claimed_user_id", 1)],
+            name="idx_guest_claimed_user"
+        )
+        await db[COLLECTION_GUEST_SESSIONS].create_index(
+            [("expires_at", 1)],
+            expireAfterSeconds=0,
+            name="ttl_guest_sessions_expires_at"
+        )
+
+        # 31. trial_usage: unique compound (subject_type, subject_id, policy_version)
+        await db[COLLECTION_TRIAL_USAGE].create_index(
+            [("subject_type", 1), ("subject_id", 1), ("policy_version", 1)],
+            unique=True,
+            name="uq_trial_subject_policy"
+        )
+        await db[COLLECTION_TRIAL_USAGE].create_index(
+            [("state", 1), ("reservation_expires_at", 1)],
+            name="idx_trial_reservation"
+        )
+
+        # 32. playback_grants: unique grant token, subject lookup, TTL expiry
+        await db[COLLECTION_PLAYBACK_GRANTS].create_index(
+            [("grant_token", 1)],
+            unique=True,
+            name="uq_playback_grant_token"
+        )
+        await db[COLLECTION_PLAYBACK_GRANTS].create_index(
+            [("subject_id", 1), ("poi_id", 1)],
+            name="idx_playback_subject_poi"
+        )
+        await db[COLLECTION_PLAYBACK_GRANTS].create_index(
+            [("expires_at", 1)],
+            expireAfterSeconds=0,
+            name="ttl_playback_grants_expires_at"
+        )
+
+        # 33. orders: unique user+idempotency, user orders, status+expires
+        await db[COLLECTION_ORDERS].create_index(
+            [("user_id", 1), ("idempotency_key", 1)],
+            unique=True,
+            sparse=True,
+            name="uq_orders_user_idempotency"
+        )
+        await db[COLLECTION_ORDERS].create_index(
+            [("user_id", 1), ("created_at", -1)],
+            name="idx_orders_user_created"
+        )
+        await db[COLLECTION_ORDERS].create_index(
+            [("status", 1), ("expires_at", 1)],
+            name="idx_orders_status_expires"
+        )
+
+        # 34. payment_attempts: unique provider reference, order lookup, tx id
+        await db[COLLECTION_PAYMENT_ATTEMPTS].create_index(
+            [("provider", 1), ("provider_reference", 1)],
+            unique=True,
+            name="uq_payment_provider_ref"
+        )
+        await db[COLLECTION_PAYMENT_ATTEMPTS].create_index(
+            [("order_id", 1), ("created_at", -1)],
+            name="idx_payment_attempts_order"
+        )
+        await db[COLLECTION_PAYMENT_ATTEMPTS].create_index(
+            [("provider", 1), ("provider_transaction_id", 1)],
+            sparse=True,
+            name="idx_payment_provider_tx"
+        )
+
+        # 35. payment_events: idempotent webhook events ledger
+        await db[COLLECTION_PAYMENT_EVENTS].create_index(
+            [("provider", 1), ("event_key", 1)],
+            unique=True,
+            name="uq_payment_events_key"
+        )
+        await db[COLLECTION_PAYMENT_EVENTS].create_index(
+            [("processing_state", 1), ("received_at", -1)],
+            name="idx_payment_events_state"
+        )
+
+        # 36. tour_entitlements: unique user+tour ownership, user lookup
+        await db[COLLECTION_TOUR_ENTITLEMENTS].create_index(
+            [("user_id", 1), ("tour_id", 1)],
+            unique=True,
+            name="uq_user_tour_entitlement"
+        )
+        await db[COLLECTION_TOUR_ENTITLEMENTS].create_index(
+            [("user_id", 1), ("status", 1)],
+            name="idx_entitlements_user_status"
+        )
+
         logger.info("All collection indexes created successfully!")
     except Exception as e:
         logger.error(f"Error creating indexes: {e}")
         raise e
+

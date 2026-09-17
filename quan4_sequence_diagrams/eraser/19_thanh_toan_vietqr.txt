@@ -1,0 +1,14 @@
+// SD19 - Khách hàng đặt vé và quét mã VietQR
+Du khách > Web Client: Chọn Tour / Món ăn & bấm "Đặt mua"
+Web Client > Du khách: Form nhập thông tin (Họ tên, SĐT, Email, Số lượng)
+Du khách > Web Client: Nhập thông tin & bấm "Tạo mã VietQR"
+Web Client > FastAPI: POST /api/v1/payments/orders
+FastAPI > PaymentService: create_order()
+PaymentService > PaymentService: Sinh mã TV-ORD-XXXXXX & tính tổng tiền
+PaymentService > VietQR API: Tạo URL mã QR động Napas 247
+PaymentService > MongoDB: Lưu đơn hàng mới (status="pending")
+MongoDB > PaymentService: Đã lưu
+PaymentService > FastAPI: Order data kèm vietqr_url
+FastAPI > Web Client: 201 Created
+Web Client > Du khách: Hiển thị mã VietQR động, Số TK MB Bank, Số tiền & Nội dung chuyển khoản
+Du khách > Du khách: Mở App Ngân hàng quét mã QR chuyển tiền

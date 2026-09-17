@@ -1,0 +1,53 @@
+@startuml entry-auth
+!theme plain
+skinparam defaultFontName "Segoe UI"
+skinparam roundCorner 8
+skinparam shadowing false
+
+title AD17: Hoạt Động Khởi Tạo Phiên, Đăng Nhập & Chọn Khách Du Lịch
+
+start
+
+:Người dùng mở Ứng dụng Web / Mobile;
+
+if (Kiểm tra phiên đã lưu trên thiết bị?) then (Có phiên hợp lệ)
+  :Tự động khôi phục phiên (Restore Session);
+  :Giữ nguyên Deep Link & Chuyển thẳng đến màn hình khám phá;
+  stop
+else (Chưa có phiên)
+  :Hiển thị Màn hình Chào (Welcome Screen);
+  note right: Gồm 3 lựa chọn:\n1. Tiếp tục với tư cách Khách\n2. Đăng Nhập\n3. Đăng Ký Mới
+  
+  if (Người dùng chọn?) then (Tiếp tục Khách)
+    :Gọi API POST /api/v1/guest-sessions;
+    :Tạo định danh khách ngẫu nhiên 32-byte;
+    :Lưu hash SHA-256 trên MongoDB;
+    :Lưu token vào Cookie HttpOnly / Secure Storage;
+    :Cấp hạn ngạch dùng thử 1 lượt (Trial Quota = 1);
+  elseif (Đăng Ký Tài Khoản)
+    :Người dùng nhập Họ Tên, Email, Mật Khẩu, Xác Nhận;
+    :Validate dữ liệu cả Client và Server;
+    :Tạo tài khoản trong 'admin_users' với role='user';
+    if (Trước đó đang dùng phiên khách?) then (Có)
+      :Gọi API Claim phiên khách;
+      :Hợp nhất quota dùng thử nguyên tử;
+      :Vô hiệu hóa phiên khách cũ;
+    endif
+  else (Đăng Nhập / Google)
+    if (Chọn Đăng nhập Email?) then (Email / Password)
+      :Nhập Email và Mật khẩu;
+      :Xác thực mật khẩu bCrypt an toàn;
+    else (Chọn Google)
+      :Xác thực token Google OAuth 2.0 / OIDC;
+    endif
+    :Cấp Access Token JWT & Refresh Token Rotation;
+    if (Trước đó đang dùng phiên khách?) then (Có)
+      :Hợp nhất quota và lịch sử phiên khách vào tài khoản;
+    endif
+  endif
+  
+  :Chuyển vào Bản đồ Du lịch & Danh sách Tour;
+  stop
+endif
+
+@enduml

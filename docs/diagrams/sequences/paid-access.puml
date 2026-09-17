@@ -1,0 +1,53 @@
+@startuml paid-access
+!theme plain
+autonumber
+skinparam defaultFontName "Segoe UI"
+skinparam roundCorner 8
+skinparam shadowing false
+skinparam BoxPadding 10
+skinparam ParticipantPadding 10
+
+title SD25: Nghe Thuyết Minh Toàn Bộ Tour Đã Mua Trên Mọi Thiết Bị (Paid Access)
+
+box "Client (Web / Mobile)" #f8fafc
+  participant "Ứng Dụng Khách\n(Web / Mobile App)" as Client
+end box
+
+box "TourVoice Backend (FastAPI)" #f0fdf4
+  participant "Me / Access Router" as Router
+  participant "AccessService" as AccessSvc
+  participant "EntitlementService" as EntSvc
+  participant "Audio Endpoint" as AudioEP
+  participant "AudioService" as AudioSvc
+end box
+
+box "Cơ Sở Dữ Liệu (MongoDB)" #eff6ff
+  database "tour_entitlements" as DB_Entitlements
+  database "playback_grants" as DB_Grants
+end box
+
+== 1. Đồng Bộ & Xem Danh Sách Tour Đã Mua (Tour Của Tôi) ==
+Client -> Router: GET /api/v1/me/tours\n[Header: Authorization: Bearer {user_token}]
+Router -> EntSvc: get_user_entitled_tours(user_id)
+EntSvc -> DB_Entitlements: find({user_id, status: "active"})
+EntSvc --> Router: Danh sách tour đã sở hữu: [{tour_id, tour_title, can_download_offline: true, ...}]
+Router --> Client: 200 OK: Hiển thị giao diện "Đã Mở Khóa Trọn Đời"
+
+== 2. Phát Âm Thanh Không Giới Hạn (GPS / QR / Manual) ==
+Client -> Router: POST /api/v1/playback-grants\n{tour_id, poi_id, lang: "vi", trigger_source: "gps"}\n[Header: Authorization: Bearer {user_token}]
+Router -> AccessSvc: request_playback_grant(...)
+
+AccessSvc -> EntSvc: has_tour_entitlement(user_id, tour_id)
+EntSvc -> DB_Entitlements: find_one({user_id, tour_id, status: "active"})
+EntSvc --> AccessSvc: True (Đã sở hữu)
+
+AccessSvc -> AccessSvc: Tạo grant_token (scope: "entitled")\n(KHÔNG tiêu lượt nghe thử trial quota!)
+AccessSvc -> DB_Grants: insert_one({\n  grant_token, scope: "entitled", tour_id, poi_id,\n  expires_at: now + 15m\n})
+
+AccessSvc --> Router: {granted: true, scope: "entitled", grant_token, stream_url}
+Router --> Client: 200 OK
+
+Client -> AudioEP: GET /api/v1/audio/.../stream?grant_token={grant_token}
+AudioEP -> AudioSvc: stream_audio_file(...)
+AudioSvc --> Client: HTTP 206 Partial Content (Phát thuyết minh đầy đủ)
+@enduml

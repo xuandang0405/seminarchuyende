@@ -1,0 +1,54 @@
+@startuml
+title 01_khoi_dong_va_dong_bo
+autonumber
+skinparam shadowing false
+skinparam defaultFontName "Arial"
+
+actor "User" as Du khách
+participant "App" as Ứng dụng
+participant "Cache" as Bộ nhớ offline
+participant "API" as FastAPI
+User -> App: Mở ứng dụng và chọn ngôn ngữ
+App -> App: Ghi nhận ngôn ngữ đích và request token
+App -> Cache: Đọc snapshot POI và UI bundle đã lưu
+Cache- -> App: Trả dữ liệu đã có hoặc rỗng
+opt Có snapshot khả dụng
+App- -> User: Hiển thị dữ liệu đã lưu trong lúc kiểm tra cập nhật
+end
+alt Có mạng
+par Nạp nội dung POI
+App -> API: Yêu cầu POI theo ngôn ngữ và ETag hợp lệ
+alt Dữ liệu không đổi
+API- -> App: 304 Not Modified
+else Trường hợp còn lại
+alt Có dữ liệu mới
+API- -> App: Snapshot hoặc delta và danh sách POI đã gỡ
+App -> Cache: Merge theo chế độ full hoặc delta và lưu version
+else Lỗi hoặc timeout
+API- -> App: Báo không tải được dữ liệu
+App -> App: Giữ snapshot đang có
+end
+end
+and Nạp bản dịch giao diện
+App -> API: Yêu cầu UI bundle cho ngôn ngữ đích
+API- -> App: Bundle ready, English fallback pending hoặc lỗi
+alt Có bundle dùng được
+App -> Cache: Lưu bundle kèm locale và source hash
+else Không tải được
+App -> App: Giữ bundle cục bộ hoặc giao diện mặc định
+end
+end
+App -> App: Bỏ kết quả cũ nếu request token đã thay đổi
+alt Có nội dung và giao diện khả dụng
+App- -> User: Hiển thị cùng ngôn ngữ phù hợp hoặc fallback đã chọn
+else Chưa có đủ nội dung sử dụng
+App- -> User: Thông báo lỗi tải và cho phép thử lại
+end
+else Không có mạng
+alt Có dữ liệu đã tải
+App- -> User: Mở chế độ offline với ngôn ngữ khả dụng
+else Chưa tải nội dung
+App- -> User: Thông báo cần mạng để tải dữ liệu lần đầu
+end
+end
+@enduml

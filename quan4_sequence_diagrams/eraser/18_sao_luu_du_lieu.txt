@@ -1,0 +1,13 @@
+// SD18 - S13: Sao Lưu Dữ Liệu Dự Án
+Super Admin > Web Admin CMS: Bấm "Tạo bản sao lưu dữ liệu (Backup)"
+Web Admin CMS > FastAPI: POST /api/v1/system/backup
+FastAPI > FastAPI: Kiểm tra quyền "system:backup"
+FastAPI > BackupService: execute_backup()
+BackupService > MongoDB: Trích xuất JSON các collections (POI, Tour, User)
+MongoDB > BackupService: Documents
+BackupService > File Storage: Nén zip và tính hash SHA-256
+File Storage > BackupService: Zip file path
+BackupService > MongoDB: Lưu lịch sử sao lưu (system_backups)
+BackupService > FastAPI: Backup metadata & download link
+FastAPI > Web Admin CMS: 200 OK
+Web Admin CMS > Super Admin: Cho phép tải file backup về máy

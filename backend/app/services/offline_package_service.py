@@ -140,6 +140,54 @@ class OfflinePackageService:
         await self.package_repo.insert_one(package_doc)
         return package_doc
 
+    async def generate_tour_offline_pack_with_license(
+        self,
+        user_id: str,
+        tour_id: str,
+        language_code: str = "vi"
+    ) -> Dict[str, Any]:
+        """Builds offline pack and issues a signed offline license for entitled users (BR-PAY-08)."""
+        from app.services.entitlement_service import entitlement_service
+        from app.core.config import settings
+        from datetime import timedelta
+        import hmac
+
+        if not await entitlement_service.has_tour_entitlement(user_id, tour_id):
+            raise HTTPException(
+                status_code=403,
+                detail="Yêu cầu sở hữu tour hợp lệ để tải gói ngoại tuyến."
+            )
+
+        pack = await self.generate_tour_package(tour_id, language_code)
+        now = datetime.now(timezone.utc)
+        valid_days = settings.OFFLINE_LICENSE_VALID_DAYS
+        expires_at = now + timedelta(days=valid_days)
+
+        # Generate cryptographic offline license signature
+        license_payload = f"{user_id}:{tour_id}:{expires_at.isoformat()}"
+        license_signature = hmac.new(
+            settings.SECRET_KEY.encode("utf-8"),
+            license_payload.encode("utf-8"),
+            hashlib.sha256
+        ).hexdigest()
+
+        license_doc = {
+            "user_id": user_id,
+            "tour_id": tour_id,
+            "issued_at": now.isoformat(),
+            "expires_at": expires_at.isoformat(),
+            "valid_days": valid_days,
+            "scope": "offline_7days",
+            "license_signature": license_signature,
+            "status": "valid"
+        }
+
+        pack_with_license = dict(pack)
+        pack_with_license["offline_license"] = license_doc
+        pack_with_license["license"] = license_doc
+        return pack_with_license
+
+
     async def build_full_package(self, language_code: str = "vi", package_name: Optional[str] = None) -> Dict[str, Any]:
         """Builds offline package containing all public POIs in District 4."""
         now = datetime.now(timezone.utc)

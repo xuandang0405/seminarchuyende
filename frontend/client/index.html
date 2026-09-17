@@ -39,6 +39,17 @@
         </div>
       </div>
 
+      <!-- User Identity & Trial Quota Banner -->
+      <div id="user-identity-card" style="padding: 0.75rem 1rem; background: #0f172a; border-bottom: 1px solid rgba(255,255,255,0.08); display: flex; justify-content: space-between; align-items: center;">
+        <div>
+          <div id="user-display-name" style="font-size: 0.8rem; font-weight: 700; color: #f8fafc;">👤 Đang khởi tạo...</div>
+          <div id="user-trial-badge" style="font-size: 0.7rem; color: #10b981;">🎙️ Kiểm tra hạn mức...</div>
+        </div>
+        <div id="user-action-buttons">
+          <button class="btn-sim" id="btn-auth-action" style="padding: 4px 8px; font-size: 0.7rem; background: #334155; margin: 0;" onclick="openAuthModal('login')">Đăng Nhập</button>
+        </div>
+      </div>
+
       <!-- GPS Geofence Simulator -->
       <div class="sim-controls">
         <div class="sim-title">
@@ -80,6 +91,15 @@
 
       <!-- Floating Map Tools -->
       <div class="map-overlay-tools">
+        <button class="tool-btn" id="btn-open-my-tours" onclick="openMyToursModal()">
+          <span>🌟</span> Tour Của Tôi
+        </button>
+        <button class="tool-btn" id="btn-open-tour-booking" onclick="openTourBookingModal()">
+          <span>🎟️</span> Mua Tour
+        </button>
+        <button class="tool-btn" id="btn-open-my-orders" onclick="openMyOrdersModal()">
+          <span>🎫</span> Đơn Hàng Của Tôi
+        </button>
         <button class="tool-btn" id="btn-open-qr">
           <span>📷</span> Quét Mã QR
         </button>
@@ -116,6 +136,131 @@
     </main>
   </div>
 
+  <!-- WELCOME MODAL (ENTRY FLOW - SECTION 2) -->
+  <div class="modal" id="welcome-modal">
+    <div class="modal-content" style="max-width: 440px; text-align: center; padding: 2rem 1.5rem;">
+      <div style="font-size: 3rem; margin-bottom: 0.5rem;">🎙️</div>
+      <h2 style="color: #f8fafc; font-size: 1.4rem; font-weight: 800; margin-bottom: 0.25rem;">Chào Mừng Đến TourVoice</h2>
+      <p style="font-size: 0.85rem; color: #94a3b8; margin-bottom: 1.5rem;">
+        Hệ thống thuyết minh du lịch và ẩm thực tự động đa ngôn ngữ Quận 4. Khám phá di sản và hương vị đường phố Sài Gòn.
+      </p>
+
+      <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+        <button class="btn-primary" style="background: linear-gradient(135deg, #ff6b35, #d84a1b); font-weight: 700; padding: 0.85rem;" onclick="continueAsGuest()">
+          🚶 Tiếp Tục Với Tư Cách Khách
+          <span style="display: block; font-size: 0.7rem; font-weight: 400; opacity: 0.9;">Khám phá tự do & tặng 1 lượt nghe thử</span>
+        </button>
+
+        <button class="btn-primary" style="background: #334155; font-weight: 600; padding: 0.8rem;" onclick="openAuthModal('login')">
+          🔑 Đăng Nhập Tài Khoản
+        </button>
+
+        <button class="btn-primary" style="background: transparent; border: 1px solid #475569; color: #cbd5e1; font-weight: 600; padding: 0.75rem;" onclick="openAuthModal('register')">
+          📝 Đăng Ký Tài Khoản Du Khách
+        </button>
+      </div>
+      <p style="font-size: 0.7rem; color: #64748b; margin-top: 1rem;">
+        Phiên của bạn được tự động ghi nhớ cho các lần truy cập sau.
+      </p>
+    </div>
+  </div>
+
+  <!-- AUTH MODAL (LOGIN / REGISTER) -->
+  <div class="modal" id="auth-modal">
+    <div class="modal-content" style="max-width: 420px;">
+      <div class="modal-header">
+        <h3 id="auth-modal-title">🔑 Đăng Nhập</h3>
+        <button class="modal-close" onclick="closeModal('auth-modal')">&times;</button>
+      </div>
+
+      <!-- Auth Tabs -->
+      <div style="display: flex; gap: 8px; margin-bottom: 1rem; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 8px;">
+        <button id="tab-btn-login" style="flex: 1; padding: 6px; background: #ff6b35; color: white; border: none; border-radius: 6px; font-weight: 700; cursor: pointer;" onclick="switchAuthTab('login')">Đăng Nhập</button>
+        <button id="tab-btn-register" style="flex: 1; padding: 6px; background: transparent; color: #94a3b8; border: none; border-radius: 6px; font-weight: 600; cursor: pointer;" onclick="switchAuthTab('register')">Đăng Ký</button>
+      </div>
+
+      <!-- LOGIN FORM -->
+      <div id="auth-login-form">
+        <label style="font-size: 0.75rem; color: #94a3b8;">Email:</label>
+        <input type="email" id="login-email" class="pay-input" placeholder="khach@gmail.com">
+
+        <label style="font-size: 0.75rem; color: #94a3b8;">Mật khẩu:</label>
+        <input type="password" id="login-password" class="pay-input" placeholder="Nhập mật khẩu">
+
+        <button class="btn-primary" style="margin-top: 12px;" onclick="submitLogin()">Đăng Nhập Ngay</button>
+      </div>
+
+      <!-- REGISTER FORM -->
+      <div id="auth-register-form" style="display: none;">
+        <label style="font-size: 0.75rem; color: #94a3b8;">Họ và tên:</label>
+        <input type="text" id="reg-name" class="pay-input" placeholder="Nguyễn Văn A">
+
+        <label style="font-size: 0.75rem; color: #94a3b8;">Email:</label>
+        <input type="email" id="reg-email" class="pay-input" placeholder="khach@gmail.com">
+
+        <label style="font-size: 0.75rem; color: #94a3b8;">Mật khẩu (tối thiểu 6 ký tự):</label>
+        <input type="password" id="reg-password" class="pay-input" placeholder="••••••••">
+
+        <label style="font-size: 0.75rem; color: #94a3b8;">Xác nhận mật khẩu:</label>
+        <input type="password" id="reg-confirm-password" class="pay-input" placeholder="••••••••">
+
+        <button class="btn-primary" style="margin-top: 12px; background: #10b981;" onclick="submitRegister()">Đăng Ký Du Khách</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- PAYWALL MODAL (TRIAL EXHAUSTED) -->
+  <div class="modal" id="paywall-modal">
+    <div class="modal-content" style="max-width: 480px; text-align: center;">
+      <div class="modal-header">
+        <h3>🔒 Mở Khóa Trọn Bộ Tour</h3>
+        <button class="modal-close" onclick="closeModal('paywall-modal')">&times;</button>
+      </div>
+      <div style="font-size: 2.5rem; margin: 0.5rem 0;">🎧✨</div>
+      <h4 id="paywall-tour-title" style="color: #ff6b35; font-size: 1.15rem; font-weight: 800; margin-bottom: 0.5rem;">Hành Trình Di Sản Bến Cảng Quận 4</h4>
+      <p style="font-size: 0.85rem; color: #cbd5e1; margin-bottom: 1rem;">
+        Bạn đã sử dụng hết <strong>1 lượt nghe thử miễn phí</strong>. Mua tour ngay để mở khóa toàn bộ trải nghiệm:
+      </p>
+
+      <div style="background: #0f172a; border-radius: 8px; padding: 1rem; text-align: left; font-size: 0.8rem; color: #94a3b8; margin-bottom: 1rem; display: flex; flex-direction: column; gap: 0.5rem;">
+        <div>✅ <strong>Nghe lại không giới hạn:</strong> Tự do phát thuyết minh mọi điểm đến trong tour.</div>
+        <div>🌐 <strong>Đa ngôn ngữ trọn vẹn:</strong> Tiếng Việt, English, 中文, 日本語.</div>
+        <div>🎯 <strong>GPS tự động thông minh:</strong> Tự phát khi bạn bước vào vùng Geofence.</div>
+        <div>📦 <strong>Tải gói ngoại tuyến (Offline):</strong> Nghe mượt mà không cần 4G/Wifi.</div>
+      </div>
+
+      <div style="display: flex; align-items: baseline; justify-content: center; gap: 8px; margin-bottom: 1rem;">
+        <span style="font-size: 0.9rem; color: #94a3b8;">Giá trọn gói:</span>
+        <span id="paywall-price-display" style="font-size: 1.6rem; font-weight: 900; color: #10b981;">99.000 ₫</span>
+      </div>
+
+      <button class="btn-primary" style="font-size: 1rem; padding: 0.85rem;" onclick="proceedFromPaywallToCheckout()">
+        💳 Mua Tour Ngay
+      </button>
+    </div>
+  </div>
+
+  <!-- TRIAL CONSENT MODAL -->
+  <div class="modal" id="trial-consent-modal">
+    <div class="modal-content" style="max-width: 400px; text-align: center;">
+      <div style="font-size: 2.5rem; margin-bottom: 0.5rem;">🎁</div>
+      <h3 style="color: #f8fafc; margin-bottom: 0.5rem;">Xác Nhận Nghe Thử Miễn Phí</h3>
+      <p style="font-size: 0.85rem; color: #cbd5e1; margin-bottom: 1rem;">
+        Hệ thống dành tặng bạn <strong>1 lượt nghe thử hoàn chỉnh</strong> cho điểm đến:
+      </p>
+      <div id="trial-target-poi-title" style="font-weight: 800; color: #ff6b35; font-size: 1rem; margin-bottom: 1rem;">
+        Bến Nhà Rồng
+      </div>
+      <p style="font-size: 0.75rem; color: #94a3b8; margin-bottom: 1.25rem;">
+        (Mỗi tài khoản/khách có đúng 1 lượt nghe thử. Các lần phát tiếp theo sẽ yêu cầu mua tour).
+      </p>
+      <div style="display: flex; gap: 8px;">
+        <button class="btn-primary" style="flex: 1; background: #475569;" onclick="closeModal('trial-consent-modal')">Để Sau</button>
+        <button class="btn-primary" style="flex: 2; background: #10b981;" onclick="confirmConsumeTrial()">🎧 Bắt Đầu Nghe Thử</button>
+      </div>
+    </div>
+  </div>
+
   <!-- QR Scanner Modal -->
   <div class="modal" id="qr-modal">
     <div class="modal-content">
@@ -140,12 +285,116 @@
         <button class="modal-close" onclick="closeModal('offline-modal')">&times;</button>
       </div>
       <p style="font-size: 0.85rem; color: #cbd5e1; margin-bottom: 0.75rem;">
-        Gói Tour "Khám Phá Di Tích & Ẩm Thực Quận 4" gồm toàn bộ tọa độ Geofence, kịch bản thuyết minh và file âm thanh MP3 để sử dụng khi không có 4G/Wifi.
+        Gói Tour gồm toàn bộ tọa độ Geofence, kịch bản thuyết minh và file âm thanh MP3 kèm giấy phép bản quyền có hạn 7 ngày.
       </p>
       <div id="offline-details" style="background: #0f172a; padding: 0.75rem; border-radius: 8px; font-size: 0.8rem; color: #94a3b8; margin-bottom: 1rem;">
         Đang nạp thông tin gói...
       </div>
-      <button class="btn-primary" id="btn-download-pack">💾 Tải và Lưu Vào Bộ Nhớ Trình Duyệt</button>
+      <button class="btn-primary" id="btn-download-pack" onclick="downloadOfflinePack()">💾 Tải và Lưu Vào Bộ Nhớ Trình Duyệt</button>
+    </div>
+  </div>
+
+  <!-- MY TOURS MODAL (PURCHASED TOURS - P04) -->
+  <div class="modal" id="my-tours-modal">
+    <div class="modal-content" style="max-height: 85vh; overflow-y: auto;">
+      <div class="modal-header">
+        <h3>🌟 Tour Của Tôi (Đã Mua)</h3>
+        <button class="modal-close" onclick="closeModal('my-tours-modal')">&times;</button>
+      </div>
+      <div id="my-tours-list" style="display: flex; flex-direction: column; gap: 8px;">
+        <div style="text-align: center; color: #94a3b8; font-size: 0.8rem; padding: 1.5rem;">Đang tải danh sách tour đã mua...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CHECKOUT & PAYMENT MODAL (P02 / SECTION 6) -->
+  <div class="modal" id="payment-modal">
+    <div class="modal-content" style="max-height: 90vh; overflow-y: auto;">
+      <div class="modal-header">
+        <h3 id="pay-modal-title">💳 Thanh Toán Mua Tour</h3>
+        <button class="modal-close" onclick="closeModal('payment-modal')">&times;</button>
+      </div>
+
+      <!-- STEP 1: FORM INPUT & METHOD SELECTION -->
+      <div id="pay-step-form">
+        <div style="background: #0f172a; padding: 0.75rem; border-radius: 8px; margin-bottom: 1rem;">
+          <div style="font-size: 0.75rem; color: #94a3b8;">Sản phẩm:</div>
+          <div style="font-weight: 700; color: #ff6b35; font-size: 1rem;" id="pay-item-title">Hành Trình Di Sản Bến Cảng Quận 4</div>
+          <div style="display: flex; justify-content: space-between; align-items: baseline; margin-top: 4px;">
+            <span style="font-size: 0.8rem; color: #94a3b8;">Quyền lợi: Nghe không giới hạn</span>
+            <span style="font-weight: 800; font-size: 1.15rem; color: #10b981;" id="pay-total-display">99.000 ₫</span>
+          </div>
+        </div>
+
+        <label style="font-size: 0.75rem; color: #94a3b8; margin-bottom: 4px; display: block;">Chọn phương thức thanh toán:</label>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 1rem;">
+          <button id="method-btn-vietqr" class="btn-sim" style="background: #1e293b; border: 2px solid #ff6b35; text-align: center; padding: 8px;" onclick="selectPaymentMethod('vietqr')">
+            <span style="font-size: 1.2rem; display: block;">📱</span>
+            <strong style="color: #f8fafc; font-size: 0.8rem;">Chuyển Khoản VietQR</strong>
+            <span style="font-size: 0.65rem; color: #94a3b8; display: block;">payOS / Napas 247</span>
+          </button>
+          <button id="method-btn-visa" class="btn-sim" style="background: #1e293b; border: 1px solid #475569; text-align: center; padding: 8px;" onclick="selectPaymentMethod('visa')">
+            <span style="font-size: 1.2rem; display: block;">💳</span>
+            <strong style="color: #f8fafc; font-size: 0.8rem;">Thẻ Visa / Quốc Tế</strong>
+            <span style="font-size: 0.65rem; color: #94a3b8; display: block;">VNPAY Hosted</span>
+          </button>
+        </div>
+
+        <button class="btn-primary" id="btn-submit-checkout" onclick="submitCreatePaymentOrder()">🚀 Tiến Hành Thanh Toán</button>
+      </div>
+
+      <!-- STEP 2: VIETQR / PROVIDER DISPLAY -->
+      <div id="pay-step-qr" style="display: none; text-align: center;">
+        <div id="mock-warning-badge" style="display:none; background: #f59e0b; color: black; font-weight: 800; font-size: 0.75rem; padding: 4px; border-radius: 4px; margin-bottom: 8px;">
+          ⚠️ MÔ PHỎNG — KHÔNG CHUYỂN TIỀN THẬT
+        </div>
+        <div style="font-size: 0.85rem; color: #94a3b8; margin-bottom: 6px;">Quét mã bằng ứng dụng Ngân hàng hoặc Ví điện tử:</div>
+        <div class="vietqr-box" style="margin: 8px auto;">
+          <img id="vietqr-image" class="vietqr-img" src="" alt="Mã VietQR Thanh Toán">
+        </div>
+        <div style="font-size: 0.8rem; background: #0f172a; padding: 8px; border-radius: 6px; text-align: left; margin-bottom: 12px;">
+          <div>Ngân hàng: <strong style="color:#00b4d8;" id="qr-bank-name">MB Bank (Quân Đội)</strong></div>
+          <div>Số tài khoản: <strong style="color:#ff6b35;" id="qr-acc-no">0909123456</strong></div>
+          <div>Số tiền: <strong style="color:#10b981;" id="pay-qr-amount">99.000 ₫</strong></div>
+          <div>Nội dung CK: <strong style="color:#f59e0b;" id="pay-qr-content">ORD-XXXXXX</strong></div>
+        </div>
+
+        <div style="display: flex; gap: 8px; margin-bottom: 8px;">
+          <button class="btn-primary" style="flex: 1; background: #334155; font-size: 0.75rem;" onclick="copyTransferInfo()">📋 Sao Chép Nội Dung</button>
+          <button class="btn-primary" style="flex: 2; background: #10b981; font-size: 0.75rem;" onclick="reconcileActiveOrder()">✅ Kiểm Tra Thanh Toán</button>
+        </div>
+        <button class="btn-primary" style="background: #475569; margin-top: 4px;" onclick="cancelPaymentStep()">Quay Lại</button>
+      </div>
+
+      <!-- STEP 3: E-TICKET RECEIPT -->
+      <div id="pay-step-success" style="display: none;">
+        <div class="ticket-card" style="text-align: center;">
+          <div class="ticket-badge">✨ THANH TOÁN THÀNH CÔNG</div>
+          <h4 id="ticket-item-title" style="color: white; margin-bottom: 4px;">Hành Trình Di Sản Bến Cảng Quận 4</h4>
+          <p style="font-size: 0.8rem; color: #10b981; font-weight: 700;">Đã mở khóa trọn bộ quyền nghe & tải offline!</p>
+          
+          <div style="margin: 12px 0; padding: 12px; background: white; border-radius: 8px; display: inline-block;">
+            <img id="ticket-qr-img" style="width: 140px; height: 140px;" src="" alt="Mã QR Check-in">
+          </div>
+          
+          <div style="font-size: 1.1rem; font-weight: 800; color: #ff6b35; letter-spacing: 1px;" id="ticket-code-display">ORD-PAID-SUCCESS</div>
+          <p style="font-size: 0.75rem; color: #94a3b8; margin-top: 4px;">Quyền sở hữu tour đã được kích hoạt vĩnh viễn trên tài khoản của bạn.</p>
+        </div>
+        <button class="btn-primary" onclick="finishCheckoutAndExplore()">🎉 Bắt Đầu Thưởng Thức Tour</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MY ORDERS MODAL (P05) -->
+  <div class="modal" id="my-orders-modal">
+    <div class="modal-content" style="max-height: 85vh; overflow-y: auto;">
+      <div class="modal-header">
+        <h3>🎫 Đơn Hàng Của Tôi</h3>
+        <button class="modal-close" onclick="closeModal('my-orders-modal')">&times;</button>
+      </div>
+      <div id="my-orders-list" style="display: flex; flex-direction: column; gap: 8px;">
+        <div style="text-align: center; color: #94a3b8; font-size: 0.8rem; padding: 1.5rem;">Đang tải danh sách đơn hàng...</div>
+      </div>
     </div>
   </div>
 
@@ -155,3 +404,4 @@
   <script src="app.js"></script>
 </body>
 </html>
+

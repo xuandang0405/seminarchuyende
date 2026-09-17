@@ -1,0 +1,28 @@
+@startuml
+title 17_cau_hinh_he_thong
+autonumber
+skinparam shadowing false
+skinparam defaultFontName "Arial"
+
+actor "Admin" as Super Admin
+participant "Web" as Web Admin CMS
+participant "API" as FastAPI
+participant "Service" as SystemService
+participant "DB" as MongoDB
+Admin -> Web: Mở trang Cấu hình hệ thống
+Web -> API: GET /api/v1/system/config
+API -> Service: get_system_config()
+Service -> DB: find_one("runtime_config")
+DB- -> Service: Tham số cấu hình
+Service- -> API: Config data
+API- -> Web: 200 OK
+Web- -> Admin: Hiển thị form tham số (bán kính GPS, debounce, cooldown)
+Admin -> Web: Thay đổi tham số & nhấn Lưu
+Web -> API: PUT /api/v1/system/config {params}
+API -> API: Xác thực SuperAdmin & validate giá trị
+API -> Service: update_system_config(params)
+Service -> DB: update_one("runtime_config", params)
+Service- -> API: Success response
+API- -> Web: 200 OK
+Web- -> Admin: Thông báo cập nhật cấu hình thành công
+@enduml

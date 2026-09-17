@@ -1,0 +1,76 @@
+@startuml AD19_PurchaseTour
+title Activity Diagram AD19: Mua và Thanh toán Tour (Purchase Tour Flow)
+skinparam activityBackgroundColor #FEFECE
+skinparam activityBorderColor #A80036
+skinparam activityArrowColor #A80036
+
+start
+:Người dùng chọn "Mua Tour" (từ Tour Detail hoặc Paywall);
+
+if (Người dùng đã đăng nhập tài khoản?) then (Không / Guest)
+  :Hiển thị Auth Modal (Đăng nhập / Đăng ký Du khách);
+  :Xác thực tài khoản thành công;
+  :Giữ nguyên ngữ cảnh Tour và quay lại bước Mua;
+else (Đã đăng nhập)
+endif
+
+:Client gọi GET /api/v1/tours/{tour_id}/access;
+if (Tài khoản đã có Entitlement kích hoạt cho tour này?) then (Có [BR-PAY-01])
+  :Thông báo: "Bạn đã sở hữu tour này!";
+  :Chuyển hướng trực tiếp vào màn hình Nghe Full Tour;
+  stop
+else (Chưa sở hữu)
+endif
+
+:Hiển thị màn hình Tóm tắt Đơn hàng (Checkout);
+note right
+  Bao gồm:
+  - Tên tour & Ảnh đại diện
+  - Giá tiền VND nguyên (BR-PAY-02)
+  - Quyền lợi: Nghe không giới hạn, Tải offline 7 ngày
+  - Lựa chọn phương thức thanh toán
+end note
+
+:Người dùng chọn Phương thức Thanh toán;
+fork
+  :Chọn "Thẻ Visa / Thẻ Quốc tế" (VNPAY hosted);
+fork again
+  :Chọn "QR Chuyển khoản VietQR" (payOS dynamic QR);
+fork again
+  :Chọn "Mô phỏng Sandbox" (MOCK dev/test);
+end fork
+
+:Client gửi POST /api/v1/orders (Idempotency Key);
+:Backend kiểm tra trạng thái mở bán (is_purchasable) và snapshot giá;
+:Tạo Order với trạng thái "pending_payment";
+
+:Client gọi POST /api/v1/orders/{order_id}/payment-attempts;
+:Backend gọi PaymentProvider Adapter ngoài Transaction DB;
+:Lưu PaymentAttempt (status="pending");
+
+if (Phương thức thanh toán là gì?) then (Visa VNPAY)
+  :Backend trả về checkout_url;
+  :Client chuyển hướng người dùng sang VNPAY Hosted Checkout;
+  :Người dùng nhập thông tin thẻ & xác thực OTP tại VNPAY;
+  :VNPAY xử lý thanh toán và chuyển hướng về ReturnURL;
+else (VietQR payOS hoặc MOCK)
+  :Backend trả về QR Code URL, mã đơn và hướng dẫn chuyển khoản;
+  :Client hiển thị VietQR động, số tiền, nội dung CK và nút "Sao chép";
+  :Người dùng mở App Ngân hàng quét QR hoặc chuyển khoản đúng nội dung;
+endif
+
+:Client hiển thị màn hình Chờ Xác nhận (Polling / Reconcile);
+
+if (Giao dịch hoàn tất?) then (Thành công [BR-PAY-06])
+  :Backend nhận Webhook/IPN hợp lệ hoặc Đối soát Succeeded;
+  :Cập nhật Order = "paid" và cấp Tour Entitlement ("active");
+  :Client thông báo thành công và mở Full Tour;
+  :Hiển thị nút "Bắt đầu Nghe" và "Tải Offline";
+  stop
+else (Thất bại / Hết hạn / Huỷ [BR-PAY-08])
+  :Backend ghi nhận trạng thái "failed" hoặc "expired";
+  :Client hiển thị thông báo lỗi và cho phép thử lại với attempt mới;
+  stop
+endif
+
+@enduml

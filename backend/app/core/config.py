@@ -59,6 +59,24 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: Optional[str] = None
     GEMINI_API_KEY: Optional[str] = None
 
+    # Payment & Trial Policy Configuration
+    PAYMENT_MODE: str = "mock"  # "mock" | "live"
+    TRIAL_POLICY_VERSION: int = 1
+    OFFLINE_LICENSE_VALID_DAYS: int = 7
+
+    # VNPAY Configuration
+    VNPAY_TMN_CODE: str = "DEMO"
+    VNPAY_HASH_SECRET: str = "DEMOHASHSECRET1234567890ABCDEF"
+    VNPAY_PAY_URL: str = "https://sandbox.vnpayment.vn/paymentv2/vpcpay.html"
+    VNPAY_RETURN_URL: str = "http://localhost:8000/client/index.html"
+
+    # payOS Configuration
+    PAYOS_CLIENT_ID: Optional[str] = "demo-client-id"
+    PAYOS_API_KEY: Optional[str] = "demo-api-key"
+    PAYOS_CHECKSUM_KEY: Optional[str] = "demo-checksum-key-1234567890"
+    PAYOS_ENDPOINT: str = "https://api-merchant.payos.vn"
+
+
     # CORS
     CORS_ORIGINS: Union[List[str], str] = [
         "http://localhost:3000",

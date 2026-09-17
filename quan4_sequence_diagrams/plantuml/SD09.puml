@@ -1,0 +1,32 @@
+@startuml
+title 09_chu_quan_gui_noi_dung
+autonumber
+skinparam shadowing false
+skinparam defaultFontName "Arial"
+
+participant "Web" as Web chủ quán
+participant "Router" as Owner Router
+participant "Service" as Owner Service
+participant "Repo" as Owner Repository
+participant "DB" as MongoDB
+Web -> Router: Gửi đề nghị POI mới hoặc sửa POI cùng mã yêu cầu
+Router -> Router: Xác thực phiên và kiểm tra dữ liệu
+Router -> Service: Yêu cầu gửi nội dung với owner ID từ phiên
+Service -> Repo: Đọc trạng thái xác minh và POI đích nếu có
+Repo -> DB: Đọc user và dữ liệu sở hữu POI
+DB- -> Repo: Trạng thái tài khoản và POI
+Repo- -> Service: Dữ liệu kiểm tra quyền
+alt Chưa xác minh hoặc không sở hữu POI
+Service- -> Router: Từ chối gửi nội dung
+Router- -> Web: 403 và hướng dẫn phù hợp
+else Đủ điều kiện
+Service -> Service: Kiểm tra nội dung đề nghị và phạm vi thay đổi
+Service -> Repo: Lưu submission pending theo mã yêu cầu
+Repo -> DB: Ghi poi_submissions có chống tạo trùng
+DB- -> Repo: Submission đã lưu hoặc bản ghi cùng yêu cầu
+Repo- -> Service: Trả submission ID và trạng thái
+Service- -> Router: Kết quả gửi nội dung
+Router- -> Web: 201 hoặc kết quả lần gửi trước
+Web -> Web: Hiển thị chờ duyệt và theo dõi kết quả
+end
+@enduml

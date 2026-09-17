@@ -1,0 +1,78 @@
+@startuml trial-playback
+!theme plain
+autonumber
+skinparam defaultFontName "Segoe UI"
+skinparam roundCorner 8
+skinparam shadowing false
+skinparam BoxPadding 10
+skinparam ParticipantPadding 10
+
+title SD22: Kiểm Soát Nghe Thử Nguyên Tử & Cấp Quyền Phát Âm Thanh (Trial Playback)
+
+box "Client (Web / Mobile)" #f8fafc
+  participant "Ứng Dụng\n(Narration Player)" as Player
+end box
+
+box "TourVoice Backend (FastAPI)" #f0fdf4
+  participant "Access Router" as Router
+  participant "AccessService" as AccessSvc
+  participant "TrialService" as TrialSvc
+  participant "Audio Endpoint" as AudioEP
+  participant "AudioService" as AudioSvc
+end box
+
+box "Cơ Sở Dữ Liệu (MongoDB)" #eff6ff
+  database "trial_usage" as DB_Trial
+  database "playback_grants" as DB_Grants
+end box
+
+== 1. Yêu Cầu Cấp Quyền Phát Âm Thanh (Playback Grant) ==
+Player -> Router: POST /api/v1/playback-grants\n{tour_id, poi_id, lang: "vi", trigger_source: "manual", consent_trial: true}\n[Header: X-Guest-Token hoặc Bearer]
+Router -> AccessSvc: request_playback_grant(req)
+
+AccessSvc -> AccessSvc: 1. Kiểm tra quyền sở hữu tour (Entitlement)
+note right: Nếu đã mua tour -> Cấp ngay scope "entitled"\nkhông trừ lượt nghe thử!
+
+alt Chưa sở hữu tour
+  AccessSvc -> AccessSvc: 2. Kiểm tra tour có cho nghe thử (preview_enabled)
+  AccessSvc -> AccessSvc: 3. Kiểm tra sự đồng ý (consent_trial == true)
+  
+  alt GPS tự động kích hoạt nhưng consent_trial == false
+    AccessSvc --> Router: Error 403: TRIAL_CONSENT_REQUIRED
+    Router --> Player: Trả về yêu cầu du khách xác nhận đồng ý nghe thử
+  end
+  
+  AccessSvc -> TrialSvc: reserve_trial_quota(subject, tour_id, poi_id, lang)
+  TrialSvc -> DB_Trial: find_one_and_update(\n  {subject_type, subject_id, state: "available"},\n  {$set: {state: "reserved", reservation_id, expires_at: now + 5m}}\n)
+  
+  alt Quota đã hết (state != "available")
+    TrialSvc --> AccessSvc: Failed (TRIAL_EXHAUSTED)
+    AccessSvc --> Router: Error 403: TOUR_PURCHASE_REQUIRED
+    Router --> Player: Paywall hiển thị yêu cầu mua tour
+  else Đặt trước thành công
+    TrialSvc --> AccessSvc: Reserved OK (reservation_id)
+    AccessSvc -> AccessSvc: Sinh grant_token bí mật (32 bytes ngẫu nhiên)
+    AccessSvc -> DB_Grants: insert_one({\n  grant_token, scope: "trial", tour_id, poi_id,\n  asset_storage_key, expires_at: now + 15m, delivery_state: "issued"\n})
+    
+    AccessSvc -> TrialSvc: consume_trial_quota(subject, reservation_id)
+    TrialSvc -> DB_Trial: update_one(\n  {reservation_id},\n  {$set: {state: "consumed", consumed_at: now}}\n)
+    
+    AccessSvc --> Router: {granted: true, scope: "trial", grant_token, stream_url}
+    Router --> Player: 200 OK: Trả về grant_token & stream_url
+  end
+end
+
+== 2. Phát Luồng Âm Thanh Bảo Vệ (Gated Media Stream) ==
+Player -> AudioEP: GET /api/v1/audio/audio/poi_01_vi.mp3/stream?grant_token={grant_token}\n[Header: Range: bytes=0-...]
+AudioEP -> AccessSvc: verify_grant_token(grant_token, storage_key)
+AccessSvc -> DB_Grants: find_one({grant_token, expires_at: {$gt: now}})
+AccessSvc -> DB_Grants: update_one({_id}, {$set: {delivery_state: "delivered"}})
+AccessSvc --> AudioEP: Authorized OK
+
+AudioEP -> AudioSvc: stream_audio_file(storage_key, range_header)
+AudioSvc --> Player: HTTP 206 Partial Content (Audio Stream Chạy Mượt Mà)
+
+== 3. Tạm Dừng / Tiếp Tục Cùng Bài Nghe (Pause / Resume) ==
+Player -> AudioEP: GET /api/v1/audio/.../stream?grant_token={grant_token} (Cùng token còn hạn)
+AudioEP --> Player: HTTP 206 Partial Content (Không tốn thêm quota)
+@enduml

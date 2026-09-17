@@ -1,0 +1,22 @@
+%% SD18 - S13: Sao lưu dữ liệu hệ thống
+sequenceDiagram
+    autonumber
+    actor Admin as Super Admin
+    participant Web as Web Admin CMS
+    participant API as FastAPI
+    participant Service as BackupService
+    participant DB as MongoDB
+    participant Storage as File Storage
+
+    Admin->>Web: Nhấn "Tạo bản sao lưu dữ liệu"
+    Web->>API: POST /api/v1/system/backup
+    API->>API: Xác thực quyền SuperAdmin
+    API->>Service: execute_backup()
+    Service->>DB: Dump collections (POI, Tours, QR, Users)
+    DB-->>Service: Dữ liệu documents
+    Service->>Storage: Nén thành file zip và tính SHA-256
+    Storage-->>Service: Đường dẫn file zip
+    Service->>DB: Lưu nhật ký sao lưu vào system_backups
+    Service-->>API: Backup metadata & download link
+    API-->>Web: 200 OK
+    Web-->>Admin: Hiển thị file backup & cho phép tải về

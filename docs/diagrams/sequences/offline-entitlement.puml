@@ -1,0 +1,64 @@
+@startuml offline-entitlement
+!theme plain
+autonumber
+skinparam defaultFontName "Segoe UI"
+skinparam roundCorner 8
+skinparam shadowing false
+skinparam BoxPadding 10
+skinparam ParticipantPadding 10
+
+title SD26: Tải Gói Ngoại Tuyến, Cấp Giấy Phép 7 Ngày & Kiểm Tra Hết Hạn (Offline Entitlement)
+
+box "Client (Mobile App)" #f8fafc
+  participant "Mobile App\n(Offline Manager)" as App
+  participant "Bộ Nhớ Máy\n(AsyncStorage / SQLite)" as Storage
+end box
+
+box "TourVoice Backend (FastAPI)" #f0fdf4
+  participant "Tours / Packages Router" as Router
+  participant "EntitlementService" as EntSvc
+  participant "OfflinePackageService" as PkgSvc
+end box
+
+box "Cơ Sở Dữ Liệu (MongoDB)" #eff6ff
+  database "tour_entitlements" as DB_Entitlements
+  database "offline_pack_manifests" as DB_Manifests
+end box
+
+== 1. Yêu Cầu Tải Gói Ngoại Tuyến Kèm Bản Quyền Ký Số ==
+App -> Router: POST /api/v1/tours/{tour_id}/offline-pack\n{device_id: "iphone_15_pro"}\n[Header: Authorization: Bearer {user_token}]
+Router -> PkgSvc: generate_tour_offline_pack_with_license(user_id, tour_id, lang)
+
+PkgSvc -> EntSvc: has_tour_entitlement(user_id, tour_id)
+EntSvc -> DB_Entitlements: find_one({user_id, tour_id, status: "active"})
+
+alt Chưa mua tour
+  EntSvc --> PkgSvc: False
+  PkgSvc --> Router: Error 403: "Chỉ tài khoản đã mua tour mới được tải gói ngoại tuyến"
+  Router --> App: 403 Forbidden
+else Đã mua tour
+  EntSvc --> PkgSvc: True
+  PkgSvc -> PkgSvc: Sinh license_id, hạn dùng 7 ngày (now + 7 days)
+  PkgSvc -> PkgSvc: Ký số giấy phép: HMAC-SHA256(user_id + tour_id + expires_at)
+  PkgSvc -> DB_Manifests: Lưu bản ghi đóng gói & checksum SHA-256
+  PkgSvc --> Router: Gói dữ liệu + Giấy phép ký số (license_doc)
+  Router --> App: 200 OK: {pack_id, pois, tours, offline_license: {expires_at, license_signature}}
+  
+  App -> Storage: Lưu trữ an toàn toàn bộ POI, tuyến đường & offline_license
+end
+
+== 2. Sử Dụng Ngoại Tuyến Không Cần Mạng (Offline Playback) ==
+App -> Storage: Đọc offline_license từ bộ nhớ máy
+App -> App: Kiểm tra: now < license.expires_at?
+
+alt Giấy phép CÒN HẠN (Trong vòng 7 ngày)
+  App -> App: Xác nhận hợp lệ! Tự động kích hoạt thuyết minh khi tới vùng Geofence
+else Giấy phép ĐÃ HẾT HẠN (Quá 7 ngày)
+  App -> App: Khóa tính năng phát offline!
+  App --> App: Hiển thị cảnh báo: "Bản quyền ngoại tuyến đã hết hạn 7 ngày.\nVui lòng kết nối mạng để hệ thống tự động gia hạn."
+end
+
+== 3. Khi Có Mạng Trở Lại (Tự Động Gia Hạn) ==
+App -> Router: POST /api/v1/tours/{tour_id}/offline-pack (Re-verify khi có mạng)
+Router --> App: 200 OK: Cấp giấy phép mới gia hạn thêm 7 ngày
+@enduml

@@ -547,7 +547,7 @@ async def seed_database(db: AsyncDatabase):
             "_id": "tour_quan_4_lich_su",
             "code": "TOUR-Q4-HERITAGE",
             "name": "Hành Trình Di Sản Bến Cảng Quận 4",
-            "description": "Khám phá các di tích lịch sử và văn hóa tiêu biểu gắn liền với sự hình thành của TP.HCM.",
+            "description": "Khám phá các di tích lịch sử và văn hóa tiêu biểu gắn liền với sự hình thành của TP.HCM. [Demo Môi Trường: Giá minh họa]",
             "localizations": {
                 "en": {
                     "name": "Heritage & Historic Harbor of District 4",
@@ -555,6 +555,12 @@ async def seed_database(db: AsyncDatabase):
                 }
             },
             "poi_ids": ["poi_ben_nha_rong", "poi_cau_mong", "poi_dinh_vinh_hoi", "poi_cang_sai_gon"],
+            "price_amount": 99000,
+            "currency": "VND",
+            "pricing_version": 1,
+            "is_purchasable": True,
+            "preview_enabled": True,
+            "preview_poi_ids": ["poi_ben_nha_rong", "poi_cau_mong"],
             "is_active": True,
             "version": 1,
             "created_by": "user_admin_01",
@@ -566,7 +572,7 @@ async def seed_database(db: AsyncDatabase):
             "_id": "tour_quan_4_am_thuc",
             "code": "TOUR-Q4-FOOD",
             "name": "Food Tour - Đêm Ẩm Thực Đường Phố Quận 4",
-            "description": "Trải nghiệm hương vị hải sản Vĩnh Khánh và ẩm thực đường phố trứ danh.",
+            "description": "Trải nghiệm hương vị hải sản Vĩnh Khánh và ẩm thực đường phố trứ danh. [Demo Môi Trường: Giá minh họa]",
             "localizations": {
                 "en": {
                     "name": "District 4 Night Street Food Trail",
@@ -574,6 +580,12 @@ async def seed_database(db: AsyncDatabase):
                 }
             },
             "poi_ids": ["poi_pho_oc_vinh_khanh", "poi_cho_xom_chieu", "poi_pha_lau_di_nui"],
+            "price_amount": 149000,
+            "currency": "VND",
+            "pricing_version": 1,
+            "is_purchasable": True,
+            "preview_enabled": True,
+            "preview_poi_ids": ["poi_pho_oc_vinh_khanh"],
             "is_active": True,
             "version": 1,
             "created_by": "user_admin_01",
@@ -635,15 +647,75 @@ async def seed_database(db: AsyncDatabase):
         )
 
     # =========================================================================
-    # 7. CONTENT DATASET VERSION
+    # 8. SAMPLE ORDERS & PAYMENTS
     # =========================================================================
-    await db[COLLECTION_CONTENT_DATASET_VERSIONS].update_one(
-        {"_id": "district_4"},
-        {"$set": {
-            "dataset_version": "v1.0.0-" + now.strftime("%Y%m%d%H%M"),
-            "updated_at": now
-        }},
-        upsert=True
-    )
+    sample_orders = [
+        {
+            "_id": "TV-ORD-DEMO01",
+            "order_id": "TV-ORD-DEMO01",
+            "order_type": "tour_ticket",
+            "item_id": "tour_di_tich_lich_su_quan_4",
+            "item_title": "Tour Di Tích & Lịch Sử Bến Nhà Rồng (2 Khách)",
+            "customer_name": "Nguyễn Văn An",
+            "customer_phone": "0912345678",
+            "customer_email": "tourist@test.vn",
+            "quantity": 2,
+            "unit_price": 150000,
+            "total_amount": 300000,
+            "notes": "Đoàn tham quan buổi sáng",
+            "payment_method": "vietqr",
+            "status": "paid",
+            "ticket_code": "TICKET-Q4-NR839215",
+            "paid_at": now,
+            "created_at": now,
+            "updated_at": now,
+        },
+        {
+            "_id": "TV-ORD-DEMO02",
+            "order_id": "TV-ORD-DEMO02",
+            "order_type": "menu_order",
+            "item_id": "poi_pho_oc_vinh_khanh",
+            "item_title": "Ốc hương rang muối tuyết - Quán Ốc Oanh",
+            "customer_name": "Trần Thị Mai",
+            "customer_phone": "0987654321",
+            "customer_email": "mai.tran@gmail.com",
+            "quantity": 1,
+            "unit_price": 150000,
+            "total_amount": 150000,
+            "notes": "Ít cay, mang về",
+            "payment_method": "vietqr",
+            "status": "paid",
+            "ticket_code": "TICKET-Q4-OC104829",
+            "paid_at": now,
+            "created_at": now,
+            "updated_at": now,
+        },
+        {
+            "_id": "TV-ORD-DEMO03",
+            "order_id": "TV-ORD-DEMO03",
+            "order_type": "tour_ticket",
+            "item_id": "tour_am_thuc_dem_vinh_khanh",
+            "item_title": "Tour Ẩm Thực Đêm Phố Ốc Vĩnh Khánh (1 Khách)",
+            "customer_name": "Lê Hoàng Phúc",
+            "customer_phone": "0933112233",
+            "customer_email": "phuc.le@gmail.com",
+            "quantity": 1,
+            "unit_price": 200000,
+            "total_amount": 200000,
+            "notes": "Yêu cầu thuyết minh tiếng Việt",
+            "payment_method": "vietqr",
+            "status": "pending",
+            "ticket_code": None,
+            "paid_at": None,
+            "created_at": now,
+            "updated_at": now,
+        }
+    ]
+    for o in sample_orders:
+        await db["orders"].update_one(
+            {"_id": o["_id"]},
+            {"$set": o},
+            upsert=True
+        )
 
     logger.info("Database seeding completed successfully!")

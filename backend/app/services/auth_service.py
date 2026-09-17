@@ -204,6 +204,74 @@ class AuthService:
             "message": "Đăng ký thành công! Hồ sơ của bạn đang chờ Admin xét duyệt."
         }
 
+    async def register_tourist(
+        self,
+        email: str,
+        password: str,
+        full_name: str,
+        confirm_password: Optional[str] = None,
+        guest_credential: Optional[str] = None,
+        ip_address: Optional[str] = None,
+        user_agent: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Registers a tourist user with role 'user' (Section 4 & BR-ACCESS-04)."""
+        clean_email = email.strip().lower()
+        if confirm_password and password != confirm_password:
+            return {"success": False, "error": "Mật khẩu xác nhận không khớp."}
+
+        if len(password) < 6:
+            return {"success": False, "error": "Mật khẩu phải có ít nhất 6 ký tự."}
+
+        existing = await auth_repo.get_user_by_email(clean_email)
+        if existing:
+            return {"success": False, "error": "Email này đã được đăng ký trong hệ thống."}
+
+        user_id = f"user_{uuid.uuid4().hex[:10]}"
+        pwd_hash = get_password_hash(password)
+
+        user_doc = {
+            "_id": user_id,
+            "email": clean_email,
+            "password_hash": pwd_hash,
+            "full_name": full_name.strip(),
+            "role": "user",  # Strict default role 'user'
+            "is_active": True,
+            "is_verified": True,
+            "is_poi_owner_verified": False,
+            "auth_version": 1,
+            "pii_encrypted": None,
+        }
+        await auth_repo.create_user(user_doc)
+
+        # Claim guest session if provided
+        merged_quota = False
+        if guest_credential:
+            from app.services.guest_service import guest_service
+            claim_res = await guest_service.claim_guest_session(user_id, guest_credential)
+            merged_quota = claim_res.get("claimed", False)
+
+        # Generate login session and access token
+        login_res = await self.login(
+            email=clean_email,
+            password=password,
+            ip_address=ip_address,
+            user_agent=user_agent
+        )
+
+        if login_res.get("success"):
+            login_res["merged_guest_quota"] = merged_quota
+            login_res["message"] = "Đăng ký tài khoản du khách thành công."
+            return login_res
+
+        return {
+            "success": True,
+            "user_id": user_id,
+            "email": clean_email,
+            "role": "user",
+            "message": "Đăng ký tài khoản thành công."
+        }
+
+
     async def change_password(self, user_id: str, old_password: str, new_password: str) -> Dict[str, Any]:
         user = await auth_repo.get_user_by_id(user_id)
         if not user:

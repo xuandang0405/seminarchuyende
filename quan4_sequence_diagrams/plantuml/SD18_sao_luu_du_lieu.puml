@@ -1,0 +1,35 @@
+@startuml
+title SD18 - S13: Sao Lưu Dữ Liệu Dự Án (System Data Backup)
+autonumber
+skinparam shadowing false
+skinparam defaultFontName "Arial"
+
+actor "Super Admin" as Admin
+participant "Web Admin CMS" as Web
+participant "FastAPI\nSystem Router" as API
+participant "BackupService" as Service
+participant "MongoDB Collections\n(pois, tours, qr_codes, users)" as DB
+participant "Storage / FileSystem\n(storage/backups/)" as Storage
+participant "AuditRepo\n(audit_logs)" as Audit
+
+Admin -> Web: Nhấn nút "Tạo bản sao lưu dữ liệu mới (Backup Now)"
+Web -> API: POST /api/v1/system/backup\nHeaders: Bearer Token / Cookie\nBody: { include_media: false, collections: ["all"] }
+API -> API: Kiểm tra quyền "system:backup" (bắt buộc SuperAdmin)
+
+alt Không phải SuperAdmin
+    API --> Web: 403 Forbidden ("Yêu cầu đặc quyền SuperAdmin")
+    Web --> Admin: Báo lỗi phân quyền
+else Là SuperAdmin hợp lệ
+    API -> Service: execute_backup(collections, include_media, actor_id)
+    Service -> DB: Trích xuất snapshot JSON từng collection (POI, Tour, QR, Roles, Users)
+    DB --> Service: Dữ liệu documents nguyên bản
+    Service -> Storage: Nén các file JSON thành file zip: "tourvoice_backup_YYYYMMDD_HHMMSS.zip"
+    Storage --> Service: Backup file path & checksum SHA-256
+    Service -> DB: Lưu bản ghi vào collection "system_backups" (filename, size, checksum, created_by)
+    Service -> Audit: record_audit_log(actor_id, "TRIGGER_DATA_BACKUP", backup_meta)
+    Audit -> DB: insert_one(audit_log)
+    Service --> API: JSON { success: True, backup_id, download_url, checksum, size_bytes }
+    API --> Web: 200 OK
+    Web --> Admin: Hiển thị bản backup trong danh sách & Cho phép tải file .zip về lưu trữ an toàn
+end
+@enduml

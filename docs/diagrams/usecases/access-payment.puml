@@ -1,0 +1,73 @@
+@startuml access-payment-usecases
+!theme plain
+skinparam backgroundColor #FFFFFF
+skinparam handwritten false
+skinparam packageStyle rectangle
+skinparam defaultFontName "Segoe UI"
+skinparam roundCorner 8
+skinparam shadowing false
+
+title Sơ Đồ Use Case: Hệ Thống Truy Cập, Nghe Thử & Thanh Toán Tour Đa Ngôn Ngữ Quận 4
+
+left to right direction
+
+actor "Khách Vãng Lai\n(Guest)" as Guest #00b4d8
+actor "Khách Du Lịch\n(Tourist / User)" as Tourist #10b981
+actor "Quản Trị Viên\n(System Admin)" as Admin #ef4444
+actor "Cổng Thanh Toán Ngoại\n(VNPAY / payOS)" as Gateway #f59e0b
+
+rectangle "Hệ Thống TourVoice Quận 4" {
+  package "Nhóm 1: Khởi Tạo Phiên & Định Danh (G01 - G03)" {
+    usecase "G01: Tiếp tục với tư cách Khách\n(Tạo phiên ngẫu nhiên an toàn)" as UC_GuestSession
+    usecase "G02: Nghe thử 1 POI miễn phí\n(Server Quota Atomic Version 1)" as UC_Trial
+    usecase "G03: Hợp nhất phiên Khách vào Tài Khoản\n(Idempotent Quota Merge)" as UC_Claim
+  }
+
+  package "Nhóm 2: Đăng Ký & Đăng Nhập Du Khách (U01 - U08)" {
+    usecase "U01: Đăng ký tài khoản du khách\n(Role: user)" as UC_Register
+    usecase "U02: Đăng nhập Email / Mật khẩu" as UC_Login
+    usecase "U03: Đăng nhập Google (OAuth 2.0 / OIDC)" as UC_GoogleLogin
+    usecase "U04: Khôi phục phiên làm việc tự động" as UC_RestoreSession
+  }
+
+  package "Nhóm 3: Đặt Mua & Thanh Toán Tour (P01 - P08)" {
+    usecase "P01: Tạo đơn mua tour (1 Đơn = 1 Tour)\n(Snapshot giá niêm yết từ server)" as UC_CreateOrder
+    usecase "P02: Khởi tạo phiên thanh toán\n(Thẻ Visa VNPAY / VietQR payOS)" as UC_AttemptPayment
+    usecase "P03: Xác thực Webhook / IPN ký số\n(Giao dịch nguyên tử MongoDB)" as UC_Webhook
+    usecase "P04: Xem danh sách Tour đã mua\n(Tour của tôi - My Tours)" as UC_MyTours
+    usecase "P05: Xem chi tiết & lịch sử đơn hàng\n(Bảo vệ IDOR tuyệt đối)" as UC_MyOrders
+    usecase "P06: Đối soát giao dịch trực tiếp cổng TT\n(Reconciliation Server-to-Server)" as UC_Reconcile
+    usecase "P07: Cấu hình giá & mở bán tour\n(Admin Pricing & Preview Settings)" as UC_ManagePricing
+    usecase "P08: Tải gói ngoại tuyến kèm bản quyền 7 ngày\n(Offline Pack & Signed License)" as UC_OfflinePack
+  }
+}
+
+' Relations for Guest
+Guest --> UC_GuestSession
+Guest --> UC_Trial
+Guest --> UC_Register : "Nâng cấp lên tài khoản"
+Guest --> UC_Login : "Đăng nhập tài khoản cũ"
+
+' Relations for Tourist
+Tourist --> UC_Register
+Tourist --> UC_Login
+Tourist --> UC_GoogleLogin
+Tourist --> UC_RestoreSession
+Tourist --> UC_Trial : "Nếu tài khoản chưa dùng trial"
+Tourist --> UC_CreateOrder
+Tourist --> UC_AttemptPayment
+Tourist --> UC_MyTours
+Tourist --> UC_MyOrders
+Tourist --> UC_OfflinePack
+
+' Merging dependencies
+UC_Register ..> UC_Claim : <<include>> (nếu có phiên khách)
+UC_Login ..> UC_Claim : <<include>> (nếu có phiên khách)
+UC_GoogleLogin ..> UC_Claim : <<include>> (nếu có phiên khách)
+
+' Relations for Admin & Gateway
+Gateway --> UC_Webhook : "Gửi tín hiệu IPN / Webhook"
+Admin --> UC_ManagePricing
+Admin --> UC_Reconcile
+
+@enduml

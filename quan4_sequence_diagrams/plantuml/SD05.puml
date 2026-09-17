@@ -1,0 +1,41 @@
+@startuml
+title 05_quet_qr
+autonumber
+skinparam shadowing false
+skinparam defaultFontName "Arial"
+
+actor "User" as Du khách
+participant "App" as Ứng dụng quét QR
+participant "Cache" as Bộ nhớ offline
+participant "API" as FastAPI
+participant "Audio" as Narration
+User -> App: Mở camera và quét QR
+App -> App: Kiểm tra định dạng và lấy mã QR
+break QR không được hỗ trợ
+App- -> User: Thông báo mã không hợp lệ
+end
+alt Có mạng
+App -> API: Tra cứu QR và nội dung POI
+alt QR còn hiệu lực và POI công khai
+API- -> App: Thông tin POI và nguồn thuyết minh
+App -> Cache: Lưu ánh xạ và dữ liệu theo chính sách cache
+App -> Audio: Yêu cầu nghe chủ động với nguồn QR
+else Trường hợp còn lại
+alt QR bị vô hiệu hoặc không tìm thấy
+API- -> App: Không có POI khả dụng
+App- -> User: Thông báo không thể dùng mã QR này
+else Lỗi mạng khi tra cứu
+API- -> App: Yêu cầu không hoàn tất
+App- -> User: Thông báo lỗi và lựa chọn nội dung đã tải nếu có
+end
+end
+else Không có mạng
+App -> Cache: Tìm ánh xạ QR cùng POI và nội dung đã tải
+Cache- -> App: Snapshot còn dùng được hoặc chưa có
+alt Có snapshot và nội dung phù hợp
+App -> Audio: Nghe từ nội dung đã lưu với nguồn QR
+else Thiếu dữ liệu offline
+App- -> User: Cần mạng hoặc cần tải nội dung trước
+end
+end
+@enduml

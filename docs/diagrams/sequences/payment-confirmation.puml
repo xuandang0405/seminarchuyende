@@ -1,0 +1,76 @@
+@startuml payment-confirmation
+!theme plain
+autonumber
+skinparam defaultFontName "Segoe UI"
+skinparam roundCorner 8
+skinparam shadowing false
+skinparam BoxPadding 10
+skinparam ParticipantPadding 10
+
+title SD24: Xác Minh Webhook & Quyết Toán Giao Dịch Nguyên Tử (Payment Settlement)
+
+box "Cổng Thanh Toán Ngoài" #fff7ed
+  participant "Cổng TT\n(VNPAY / payOS)" as Gateway
+end box
+
+box "TourVoice Backend (FastAPI)" #f0fdf4
+  participant "Webhook / IPN Endpoint" as Webhook
+  participant "PaymentService" as PaySvc
+  participant "Provider Adapter" as Adapter
+  participant "OrderService" as OrderSvc
+  participant "EntitlementService" as EntSvc
+end box
+
+box "Cơ Sở Dữ Liệu (MongoDB Replica Set)" #eff6ff
+  database "payment_events" as DB_Events
+  database "orders" as DB_Orders
+  database "payment_attempts" as DB_Attempts
+  database "tour_entitlements" as DB_Entitlements
+end box
+
+== 1. Cổng Thanh Toán Bắn Thông Báo IPN / Webhook ==
+Gateway -> Webhook: POST /api/v1/payments/webhook/payos (hoặc GET /ipn/vnpay)\n[Headers: x-signature / query params]
+Webhook -> PaySvc: handle_provider_webhook(provider, payload, signature)
+
+PaySvc -> Adapter: verify_notification(payload, signature)
+Adapter -> Adapter: Chuẩn hóa dữ liệu theo SDK chuẩn\nTính mã băm HMAC-SHA256 (payOS) / HMAC-SHA512 (VNPAY)\nSo sánh an toàn timing-attack
+
+alt Chữ ký số KHÔNG hợp lệ
+  Adapter --> PaySvc: is_valid: False, outcome: "invalid_signature"
+  PaySvc -> DB_Events: record_event(provider, outcome: "invalid_signature", state: "failed")
+  PaySvc --> Webhook: Error 400: "Chữ ký số không hợp lệ"
+  Webhook --> Gateway: 400 Bad Request
+else Chữ ký số HỢP LỆ
+  Adapter --> PaySvc: is_valid: True, outcome: "success", provider_reference, transaction_id, amount
+  
+  PaySvc -> DB_Events: get_event(provider, event_key)
+  alt Sự kiện đã xử lý trước đó (Duplicate Webhook Retry)
+    PaySvc --> Webhook: {status: "ok", message: "Duplicate event ignored"}
+    Webhook --> Gateway: 200 OK (Xác nhận an toàn, không xử lý lại)
+  else Sự kiện mới
+    PaySvc -> DB_Attempts: find_one({provider_reference})
+    PaySvc -> DB_Orders: find_one({_id: order_id})
+    
+    alt Số tiền không khớp (VD: trả thiếu 50.000 thay vì 99.000)
+      PaySvc -> DB_Orders: update_one({_id: order_id}, {$set: {status: "requires_review"}})
+      PaySvc -> DB_Attempts: update_one({_id: attempt_id}, {$set: {state: "unknown"}})
+      PaySvc -> DB_Events: record_event(outcome: "amount_mismatch", state: "requires_review")
+      PaySvc --> Webhook: {status: "requires_review", message: "Số tiền không khớp"}
+      Webhook --> Gateway: 200 OK (Chuyển hàng chờ đối soát)
+    else Số tiền chính xác (99.000 VND)
+      == 2. Giao Dịch Quyết Toán Đa Document Nguyên Tử (MongoDB Transaction) ==
+      PaySvc -> PaySvc: Bắt đầu MongoDB Session & Transaction
+      
+      PaySvc -> DB_Attempts: update_attempt_state(\n  state: "succeeded", provider_transaction_id, received_amount_vnd\n)
+      PaySvc -> DB_Orders: update_order_status(\n  status: "paid", paid_at: now\n)
+      PaySvc -> DB_Entitlements: update_one(\n  {user_id, tour_id},\n  {$set: {status: "active", source_order_id, granted_at: now}},\n  upsert=True\n)
+      PaySvc -> DB_Events: record_event(\n  outcome: "success", processing_state: "settled", provider_transaction_id\n)
+      
+      PaySvc -> PaySvc: Commit Transaction!
+      
+      PaySvc --> Webhook: {status: "success", order_id, message: "Quyền truy cập đã kích hoạt"}
+      Webhook --> Gateway: 200 OK {"RspCode": "00", "Message": "Confirm Success"}
+    end
+  end
+end
+@enduml

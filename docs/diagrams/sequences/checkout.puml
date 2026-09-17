@@ -1,0 +1,78 @@
+@startuml checkout
+!theme plain
+autonumber
+skinparam defaultFontName "Segoe UI"
+skinparam roundCorner 8
+skinparam shadowing false
+skinparam BoxPadding 10
+skinparam ParticipantPadding 10
+
+title SD23: Tạo Đơn Mua Tour & Khởi Tạo Phiên Thanh Toán (Checkout Flow)
+
+box "Client (Web / Mobile)" #f8fafc
+  participant "Ứng Dụng\n(Checkout UI)" as Client
+end box
+
+box "TourVoice Backend (FastAPI)" #f0fdf4
+  participant "Orders Router" as Router
+  participant "OrderService" as OrderSvc
+  participant "PaymentService" as PaySvc
+  participant "Provider Adapter\n(VNPAY / payOS / Mock)" as Adapter
+end box
+
+box "Cơ Sở Dữ Liệu (MongoDB)" #eff6ff
+  database "tours" as DB_Tours
+  database "orders" as DB_Orders
+  database "payment_attempts" as DB_Attempts
+  database "tour_entitlements" as DB_Entitlements
+end box
+
+box "Cổng Thanh Toán Ngoài" #fff7ed
+  participant "Cổng VNPAY / payOS" as Gateway
+end box
+
+== 1. Tạo Đơn Hàng Mua Tour (Immutable Order Creation) ==
+Client -> Router: POST /api/v1/orders\n{tour_id: "tour_demo_01"}\n[Header: Authorization: Bearer {user_token}]
+Router -> OrderSvc: create_tour_order(user_id, tour_id, idempotency_key)
+
+OrderSvc -> DB_Entitlements: find_one({user_id, tour_id, status: "active"})
+alt Đã sở hữu tour
+  OrderSvc --> Router: Error 409: "ALREADY_PURCHASED"
+  Router --> Client: Thông báo tour đã được mua
+else Chưa sở hữu
+  OrderSvc -> DB_Tours: find_one({_id: tour_id})
+  OrderSvc -> OrderSvc: Lấy giá niêm yết từ server: price_amount (99.000 VND)\n(Chống can thiệp sửa giá từ frontend)
+  OrderSvc -> DB_Orders: insert_one({\n  _id: "ORD-2026...", user_id, tour_id,\n  tour_title_snapshot, amount_vnd: 99000,\n  currency: "VND", status: "pending_payment",\n  expires_at: now + 30m\n})
+  OrderSvc --> Router: Order document
+  Router --> Client: 201 Created: {order_id, amount_vnd, status: "pending_payment"}
+end
+
+== 2. Khởi Tạo Phiên Thanh Toán (Payment Attempt) ==
+Client -> Router: POST /api/v1/orders/{order_id}/payment-attempts\n{payment_method: "vietqr" | "visa"}
+Router -> PaySvc: create_payment_attempt(order_id, method, user_id)
+
+PaySvc -> DB_Orders: find_one({_id: order_id, user_id})
+PaySvc -> PaySvc: Sinh provider_reference duy nhất\n(VD: ORD-202609-ATT1)
+
+alt Chọn "visa" (Thẻ quốc tế)
+  PaySvc -> Adapter: vnpay_provider.create_payment(\n  amount_vnd, order_id, client_ip, return_url\n)
+  Adapter -> Adapter: Sinh chuỗi tham số, nhân 100 theo chuẩn VNPAY\nTạo chữ ký HMAC-SHA512
+  Adapter --> PaySvc: {checkout_url: "https://sandbox.vnpayment.vn/paymentv2/vpcpay.html?..."}
+else Chọn "vietqr" (Chuyển khoản QR Động)
+  PaySvc -> Adapter: payos_provider.create_payment(amount_vnd, order_id, items)
+  Adapter -> Gateway: POST /v2/payment-requests (HMAC-SHA256)
+  Gateway --> Adapter: {checkoutUrl, qrCode: "00020101021238540010A000000727...", accountNo, accountName}
+  Adapter --> PaySvc: {qr_code_data, checkout_url, bank_account_info}
+end
+
+PaySvc -> DB_Attempts: insert_one({\n  _id, order_id, provider, payment_method,\n  provider_reference, expected_amount_vnd: 99000,\n  state: "pending", checkout_url, qr_code_data\n})
+
+PaySvc --> Router: {attempt_id, provider_reference, checkout_url, qr_code_data}
+Router --> Client: 200 OK: Trả về mã VietQR động hoặc đường dẫn VNPAY Hosted
+
+alt Web/Mobile hiển thị mã QR VietQR
+  Client -> Client: Render mã QR + số tiền + nội dung chuyển khoản chuẩn\nNút "Mở ứng dụng ngân hàng" & Bộ đếm thời gian 15:00
+else Web/Mobile chuyển hướng Visa
+  Client -> Gateway: Chuyển hướng sang trang nhập thẻ bảo mật VNPAY
+end
+@enduml

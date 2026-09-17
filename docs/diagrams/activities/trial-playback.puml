@@ -1,0 +1,60 @@
+@startuml trial-playback-activity
+!theme plain
+skinparam defaultFontName "Segoe UI"
+skinparam roundCorner 8
+skinparam shadowing false
+
+title AD18: Hoạt Động Nghe Thử Miễn Phí & Kiểm Soát Hết Lượt (Trial Playback & Paywall)
+
+start
+
+:Người dùng kích hoạt thuyết minh tại một POI;
+note right: Nguồn: Bấm tay, Quét QR hoặc Đi vào vùng GPS
+
+:Gửi yêu cầu cấp Playback Grant lên Backend\nPOST /api/v1/playback-grants;
+
+if (Kiểm tra quyền sở hữu tour (Entitlement)?) then (Đã Mua Tour)
+  :Cấp Playback Grant với scope="entitled";
+  :Không tiêu tốn hạn ngạch nghe thử;
+  :Phát thuyết minh âm thanh toàn bộ;
+  stop
+else (Chưa Mua Tour)
+  if (Tour có cho phép nghe thử (preview_enabled)?) then (Không)
+    :Trả về lỗi TOUR_NOT_PURCHASABLE;
+    :Hiển thị Paywall thông báo tour không mở nghe thử;
+    stop
+  else (Có cho nghe thử)
+    if (Kích hoạt từ GPS tự động?) then (GPS tự động)
+      if (Đã có sự đồng ý của người dùng?) then (Chưa đồng ý)
+        :Hệ thống KHÔNG tự tiêu lượt nghe thử ngầm;
+        :Hiển thị hộp thoại hỏi: "Bạn còn 1 lượt nghe thử. Đồng ý dùng ngay?";
+        if (Người dùng đồng ý?) then (Đồng ý)
+          :Đặt cờ user_consent_trial = true;
+        else (Từ chối)
+          :Dừng lại, không phát âm thanh, giữ nguyên quota;
+          stop
+        endif
+      endif
+    endif
+
+    :AccessService gọi TrialService kiểm tra quota server;
+    
+    if (Hạn ngạch dùng thử (Trial Quota)?) then (Còn 1 lượt (available))
+      :Thực hiện Atomic Conditional Update trên MongoDB:\navailable -> reserved;
+      :Tạo Playback Grant (thời hạn 15 phút);
+      :Chuyển trạng thái quota: reserved -> consumed;
+      :Trả về stream_url kèm grant_token;
+      :Phát âm thanh thuyết minh trọn vẹn điểm POI;
+      note left: Trong lúc đang phát:\nPause/Resume cùng grant_token\nhoàn toàn miễn phí, không tốn thêm quota!
+      stop
+    else (Đã dùng hết 1 lượt (consumed))
+      :Từ chối cấp Playback Grant (TRIAL_EXHAUSTED);
+      :Hiển thị màn hình Paywall chặn nghe;
+      :Giải thích quyền lợi khi mua tour;
+      :Cung cấp nút "Mua Tour Ngay" chuyển sang Checkout;
+      stop
+    endif
+  endif
+endif
+
+@enduml

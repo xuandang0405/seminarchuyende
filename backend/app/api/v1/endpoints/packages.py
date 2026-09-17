@@ -60,3 +60,24 @@ async def build_offline_package(
         "message": "Đã tạo gói đóng gói offline thành công với mã băm SHA-256 an toàn.",
         "package": pkg
     }
+
+
+from app.api.v1.endpoints.auth import get_current_user
+
+
+@router.post("/tours/{tour_id}/offline-pack")
+async def download_tour_offline_pack_with_license(
+    tour_id: str,
+    language_code: str = Query("vi"),
+    current_user: dict = Depends(get_current_user)
+):
+    """Section 8 & 10 (F02 / BR-PAY-08): Downloads verified offline pack with 7-day signed offline license.
+
+    Strictly requires user to hold an active entitlement for this tour.
+    """
+    return await offline_package_service.generate_tour_offline_pack_with_license(
+        user_id=current_user["_id"],
+        tour_id=tour_id,
+        language_code=language_code
+    )
+

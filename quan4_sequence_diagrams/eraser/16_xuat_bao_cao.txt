@@ -1,0 +1,15 @@
+// SD16 - S10: Xuất Báo Cáo Thống Kê
+Quản trị viên > Web Admin CMS: Chọn khoảng ngày & bấm Xuất báo cáo (CSV/Excel)
+Web Admin CMS > FastAPI: POST /api/v1/analytics/export
+FastAPI > FastAPI: Kiểm tra quyền "analytics:export"
+alt Quyền không hợp lệ
+  FastAPI > Web Admin CMS: 403 Forbidden
+else Quyền hợp lệ
+  FastAPI > AnalyticsService: generate_export_report()
+  AnalyticsService > MongoDB: aggregate POI daily metrics
+  MongoDB > AnalyticsService: Dữ liệu thống kê
+  AnalyticsService > AnalyticsService: Format CSV/Excel & lưu file tạm
+  AnalyticsService > FastAPI: File path & metadata
+  FastAPI > Web Admin CMS: 200 OK (Stream tải file)
+  Web Admin CMS > Quản trị viên: Tải file báo cáo về máy tính
+end

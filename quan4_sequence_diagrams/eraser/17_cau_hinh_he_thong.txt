@@ -1,0 +1,19 @@
+// SD17 - S12: Cấu Hình Hệ Thống Runtime
+Super Admin > Web Admin CMS: Mở trang Cấu hình hệ thống
+Web Admin CMS > FastAPI: GET /api/v1/system/config
+FastAPI > SystemService: get_system_config()
+SystemService > MongoDB: find_one("runtime_config")
+MongoDB > SystemService: Config document
+SystemService > FastAPI: Config data
+FastAPI > Web Admin CMS: 200 OK
+Web Admin CMS > Super Admin: Hiển thị form tham số (GPS debounce, radius, TTS voice)
+
+Super Admin > Web Admin CMS: Điều chỉnh tham số & nhấn Lưu
+Web Admin CMS > FastAPI: PUT /api/v1/system/config
+FastAPI > FastAPI: Validate min/max tham số
+FastAPI > SystemService: update_system_config()
+SystemService > MongoDB: update_one("runtime_config")
+SystemService > MongoDB: Ghi audit log
+SystemService > FastAPI: Success response
+FastAPI > Web Admin CMS: 200 OK
+Web Admin CMS > Super Admin: Thông báo lưu cấu hình thành công

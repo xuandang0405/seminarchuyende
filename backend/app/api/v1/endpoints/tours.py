@@ -88,3 +88,53 @@ async def delete_tour(
     if not success:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tour không tồn tại.")
     return None
+
+
+from app.schemas.tour import TourPricingUpdateRequest
+from app.repositories.tour_repo import tour_repo
+
+
+@router.put("/{tour_id}/pricing")
+async def update_tour_pricing_endpoint(
+    tour_id: str,
+    req: TourPricingUpdateRequest,
+    current_admin: dict = Depends(get_current_admin)
+):
+    """C15 / Section 10: Admin configures tour pricing, purchasable status, and preview settings."""
+    updated = await tour_repo.update_tour_pricing(
+        tour_id=tour_id,
+        price_amount=req.price_amount,
+        currency=req.currency,
+        is_purchasable=req.is_purchasable,
+        preview_enabled=req.preview_enabled,
+        preview_poi_ids=req.preview_poi_ids
+    )
+    if not updated:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tour không tồn tại.")
+    return {
+        "success": True,
+        "message": "Cập nhật giá và trạng thái mở bán thành công.",
+        "tour": updated
+    }
+
+
+from app.services.offline_package_service import offline_package_service
+from app.api.v1.endpoints.auth import get_current_user
+
+
+@router.post("/{tour_id}/offline-pack")
+async def download_tour_offline_pack_endpoint(
+    tour_id: str,
+    language_code: str = Query("vi"),
+    current_user: dict = Depends(get_current_user)
+):
+    """Section 8 & 10 (F02 / BR-PAY-08): Downloads verified offline pack with 7-day signed offline license.
+    Strictly requires user to hold an active entitlement for this tour.
+    """
+    return await offline_package_service.generate_tour_offline_pack_with_license(
+        user_id=current_user["_id"],
+        tour_id=tour_id,
+        language_code=language_code
+    )
+
+

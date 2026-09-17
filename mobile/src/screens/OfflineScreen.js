@@ -25,8 +25,16 @@ export default function OfflineScreen({ onBack }) {
   };
 
   const handleDownload = async () => {
+    if (!session || session.type !== "user" || !session.userToken) {
+      Alert.alert(
+        "Yêu Cầu Quyền Sở Hữu",
+        "Chỉ tài khoản du khách đã thanh toán mua tour mới được phép tải trọn gói ngoại tuyến (BR-ACCESS-05). Vui lòng đăng nhập tài khoản của bạn."
+      );
+      return;
+    }
+
     setLoading(true);
-    setProgressStatus("Đang khởi tạo tải dữ liệu...");
+    setProgressStatus("Đang kiểm tra quyền sở hữu và khởi tạo tải dữ liệu...");
 
     try {
       const result = await offlinePackService.downloadDistrict4Pack((p) => {
@@ -37,7 +45,7 @@ export default function OfflineScreen({ onBack }) {
       });
 
       setManifest(result);
-      Alert.alert("Thành Công", "Đã lưu trữ toàn bộ gói dữ liệu Quận 4 vào bộ nhớ máy!");
+      Alert.alert("Thành Công", "Đã xác thực bản quyền và lưu trữ toàn bộ gói dữ liệu Quận 4 vào bộ nhớ máy (Hiệu lực 7 ngày)!");
     } catch (err) {
       Alert.alert("Lỗi tải gói", err.message || "Không thể tải gói ngoại tuyến");
     } finally {

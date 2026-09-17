@@ -1,0 +1,40 @@
+@startuml
+title 12_tong_hop_thong_ke
+autonumber
+skinparam shadowing false
+skinparam defaultFontName "Arial"
+
+participant "Worker" as Analytics Worker
+participant "Service" as Aggregation Service
+participant "Repo" as Analytics Repository
+participant "DB" as MongoDB
+loop Khi có kỳ dữ liệu cần tổng hợp
+Worker -> Service: Yêu cầu xử lý một job đến hạn
+Service -> Repo: Claim job và lấy lease cùng generation
+Repo -> DB: Cập nhật nguyên tử job đủ điều kiện
+DB- -> Repo: Job đã claim hoặc không có job
+Repo- -> Service: Kết quả claim
+opt Claim thành công
+Service -> Repo: Đọc tập sự kiện nhất quán cho kỳ cần xử lý
+Repo -> DB: Truy vấn analytics_events theo kỳ và môi trường
+DB- -> Repo: Sự kiện thuộc snapshot đã chọn
+Repo- -> Service: Dữ liệu đầu vào
+Service -> Service: Tính lượt nghe, thời gian, tìm kiếm và chỉ số POI
+Service -> Repo: Ghi read model nếu lease còn hợp lệ
+Repo -> DB: Transaction thay kết quả tổng hợp và ghi mốc đã xử lý
+alt Không có generation mới
+DB- -> Repo: Commit kết quả và đánh dấu job hoàn tất
+Repo- -> Service: Hoàn tất kỳ hiện tại
+else Trường hợp còn lại
+alt Có dữ liệu mới cần tổng hợp
+DB- -> Repo: Giữ job dirty cho thế hệ mới
+Repo- -> Service: Cần xử lý tiếp ở lượt sau
+else Lease đã mất hoặc ghi lỗi
+DB- -> Repo: Không ghi đè kết quả của worker hợp lệ
+Repo- -> Service: Bỏ kết quả hoặc thử lại theo chính sách
+end
+end
+end
+Service- -> Worker: Kết quả xử lý lượt hiện tại
+end
+@enduml
