@@ -1,0 +1,59 @@
+@startuml SD-DEPLOY-01-web-login
+title SD-DEPLOY-01: Luồng Đăng Nhập Web Production qua Nginx (Same-Origin)
+
+autonumber
+actor "Người dùng (Browser)" as User
+participant "Trình duyệt Web\n(Origin: http://1.55.58.251)" as Browser
+participant "Nginx Reverse Proxy\n(Port 80/443)" as Nginx
+participant "Auth Router\n(FastAPI)" as Router
+participant "Auth Service" as Service
+participant "User Repository" as Repo
+database "MongoDB" as DB
+
+User -> Browser: Nhập Email & Mật khẩu -> Bấm "Đăng nhập"
+Browser -> Browser: Gọi hàm API với relative path:\nfetch("/api/v1/auth/login", { method: "POST", credentials: "include" })
+
+note over Browser
+  <b>Không có CORS Preflight:</b>
+  Vì request cùng Scheme, Host, Port với trang web
+  (Same-Origin) nên trình duyệt gửi request trực tiếp!
+end note
+
+Browser -> Nginx: POST /api/v1/auth/login
+activate Nginx
+
+Nginx -> Nginx: Bổ sung headers:\nX-Real-IP: $remote_addr\nX-Forwarded-For: $proxy_add_x_forwarded_for\nX-Forwarded-Proto: $scheme
+
+Nginx -> Router: proxy_pass http://127.0.0.1:8000/api/v1/auth/login
+activate Router
+
+Router -> Service: authenticate_user(email, password)
+activate Service
+
+Service -> Repo: get_by_email(email)
+activate Repo
+Repo -> DB: findOne({ email: "admin@tourvoice.vn" })
+activate DB
+DB --> Repo: user document (kèm password hash)
+deactivate DB
+Repo --> Service: UserEntity
+deactivate Repo
+
+Service -> Service: Xác thực bcrypt password hash
+Service -> Service: Sinh Access Token (JWT - 15p)\nSinh Refresh Token (Opaque Token)
+
+Service --> Router: (user_profile, access_token, refresh_token)
+deactivate Service
+
+Router -> Router: Thiết lập HttpOnly Cookie:\nSet-Cookie: tourvoice_refresh_token=...; HttpOnly; SameSite=Lax
+
+Router --> Nginx: 200 OK { success: true, access_token, user }
+deactivate Router
+
+Nginx --> Browser: 200 OK { success: true, access_token, user }\nSet-Cookie: tourvoice_refresh_token=...
+deactivate Nginx
+
+Browser -> Browser: Lưu access_token vào bộ nhớ / state\nLưu user profile hiển thị giao diện
+Browser --> User: Đăng nhập thành công! Chuyển hướng vào Dashboard
+
+@enduml

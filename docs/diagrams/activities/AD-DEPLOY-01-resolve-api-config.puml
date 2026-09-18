@@ -1,0 +1,41 @@
+@startuml AD-DEPLOY-01-resolve-api-config
+title AD-DEPLOY-01: Quy trình Phân Giải & Kiểm Tra Cấu Hình API Runtime (Resolve API Configuration)
+
+start
+
+:Khởi động Ứng dụng Client (Web / Mobile);
+:Đọc biến môi trường (VITE_API_BASE_URL hoặc EXPO_PUBLIC_API_BASE_URL);
+:Xác định chế độ vận hành (MODE = development / staging / production);
+
+if (Có cấu hình URL tùy chỉnh?) then (Có)
+    :Cắt bỏ ký tự gạch chéo cuối chuỗi (trim slash);
+    if (Chế độ hiện tại là Production?) then (Đúng)
+        if (URL chứa 'localhost', '127.0.0.1', '0.0.0.0' hoặc 'host.docker.internal'?) then (Vi phạm)
+            :Ghi log cảnh báo nghiêm trọng:
+            "CRITICAL: Production received loopback address!";
+            if (Nền tảng là Web?) then (Web)
+                :Tự động fallback về Same-Origin an toàn ('/api/v1');
+            else (Mobile)
+                :Hiển thị thông báo cấu hình sai;
+                :Dừng khởi tạo kết nối mạng loopback;
+                stop
+            endif
+        else (Hợp lệ)
+            :Sử dụng URL production đã cấu hình (HTTPS Domain);
+        endif
+    else (Development)
+        :Chấp nhận URL localhost/LAN IP nội bộ để phát triển;
+    endif
+else (Không có cấu hình)
+    if (Nền tảng là Web?) then (Web)
+        :Mặc định an toàn sử dụng Same-Origin relative path ('/api/v1');
+    else (Mobile)
+        :Dùng fallback profile tương ứng (Android: 10.0.2.2, iOS: localhost);
+    endif
+endif
+
+:Khởi tạo API Client với Base URL đã kiểm chứng;
+:Cung cấp helper apiUrl(path) tự động chống double prefix (/api/v1/api/v1);
+
+stop
+@enduml

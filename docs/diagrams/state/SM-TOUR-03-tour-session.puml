@@ -1,0 +1,22 @@
+@startuml SM-TOUR-03-tour-session
+skinparam style strictuml
+title SM-TOUR-03: Máy Trạng Thái Phiên Trải Nghiệm Tour (Tour Session State Machine)
+
+[*] --> active : POST /tour-sessions\n(Kèm idempotency_key chống tạo 2 tour trùng)
+
+active --> active : Ghé thăm trạm mới (PATCH completed_poi_id)\nCập nhật tiến độ & last_activity_at
+
+active --> completed : Đã hoàn thành tất cả các điểm dừng trong tour\n(completed_poi_ids chứa đủ các trạm)
+
+active --> cancelled : Du khách bấm "Dừng Tour" chủ động\n(PATCH {status: "cancelled"})
+
+active --> abandoned : Quá 60 phút không có hoạt động mới\n(Background worker đánh dấu bỏ dở)
+
+active --> expired : Phiên vượt quá thời hạn tối đa của tour
+
+completed --> [*]
+cancelled --> [*]
+abandoned --> [*]
+expired --> [*]
+
+@enduml

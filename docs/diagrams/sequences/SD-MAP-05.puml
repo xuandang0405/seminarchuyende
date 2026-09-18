@@ -1,0 +1,49 @@
+@startuml SD-MAP-05
+title SD-MAP-05: Dẫn đường Thời gian thực trên Mobile & Tự động Tái định tuyến khi Lệch đường
+
+autonumber
+actor "Du khách" as User
+participant "GPS Hardware\n(Thiết bị Mobile)" as GPS
+participant "LocationService" as LocSvc
+participant "NavigationController" as NavCtrl
+participant "Bản đồ Mobile\n(MapScreen HUD)" as UI
+participant "Routing API\n(FastAPI)" as API
+
+User -> UI: Chọn POI và bấm "Dẫn đường thực tế (OSRM)"
+UI -> NavCtrl: previewRoute(userLoc, targetPoi, "walking")
+NavCtrl -> API: POST /api/v1/routes/preview
+API --> NavCtrl: RouteResultDTO (geometry, steps, distance)
+UI -> NavCtrl: startNavigation()
+NavCtrl -> NavCtrl: Chuyển trạng thái -> NAVIGATING
+UI -> UI: Hiển thị Navigation HUD (bước kế tiếp, cự ly, thời gian)
+
+loop Khi vị trí GPS thay đổi liên tục
+    GPS -> LocSvc: Tọa độ mới (latitude, longitude, accuracy)
+    LocSvc -> NavCtrl: updateLocation(userCoords)
+
+    NavCtrl -> NavCtrl: Tính khoảng cách vuông góc đến Polyline (distanceToPolylineMeters)
+
+    alt Khoảng cách đến Polyline <= 35m (Đang đi đúng đường)
+        NavCtrl -> NavCtrl: Reset offRouteCount = 0
+        NavCtrl -> UI: Cập nhật vị trí con trỏ & bước hướng dẫn hiện tại
+    else Khoảng cách đến Polyline > 35m (Lệch khỏi tuyến)
+        NavCtrl -> NavCtrl: offRouteCount += 1
+
+        alt offRouteCount >= 2 VÀ (currentTime - lastRerouteTime >= 15000ms)
+            NavCtrl -> NavCtrl: Chuyển trạng thái -> REROUTING
+            NavCtrl -> UI: Thông báo "🔄 Đang tính toán lại tuyến đường..."
+
+            NavCtrl -> API: POST /api/v1/routes/preview (từ vị trí lệch hiện tại -> targetPoi)
+            activate API
+            API --> NavCtrl: Tuyến đường mới (new RouteResultDTO)
+            deactivate API
+
+            NavCtrl -> NavCtrl: Cập nhật currentRoute = newRoute\nReset offRouteCount = 0\nCập nhật lastRerouteTime = now\nChuyển trạng thái -> NAVIGATING
+            NavCtrl -> UI: Vẽ lại Polyline mới & cập nhật HUD
+        else Chưa đủ 2 mẫu lệch liên tiếp HOẶC trong thời gian cooldown 15s
+            NavCtrl -> NavCtrl: Giữ nguyên tuyến đường hiện tại (chờ thêm mẫu hoặc hết cooldown)
+        end
+    end
+end
+
+@enduml

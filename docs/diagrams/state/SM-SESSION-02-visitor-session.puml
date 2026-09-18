@@ -1,0 +1,17 @@
+@startuml SM-SESSION-02-visitor-session
+skinparam style strictuml
+title SM-SESSION-02: Máy Trạng Thái Phiên Khách Tham Quan (Visitor Session State Machine)
+
+[*] --> active : POST /visitor-sessions/start-or-resume\n(Sau khi có device_token hash)
+
+active --> active : Nhận heartbeat định kỳ mỗi 30-60s\n(Cập nhật last_seen_at)
+active --> active : Tái sử dụng phiên trong vòng 15 phút không hoạt động
+
+active --> ended : Người dùng bấm Đăng xuất hoặc kết thúc chủ động\n(POST /visitor-sessions/{id}/end)
+
+active --> expired : Background worker phát hiện last_seen_at > 15 phút trước\n(Inactivity Timeout)
+
+ended --> [*]
+expired --> [*]
+
+@enduml

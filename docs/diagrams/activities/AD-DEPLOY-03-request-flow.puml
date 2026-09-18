@@ -1,0 +1,36 @@
+@startuml AD-DEPLOY-03-request-flow
+title AD-DEPLOY-03: Luồng Xử Lý Request Production Qua Tầng Reverse Proxy Nginx
+
+start
+
+:Người dùng gửi HTTP request từ Trình duyệt hoặc Mobile;
+:Request đi tới Máy chủ Nginx (Cổng 80 hoặc 443);
+
+if (Đường dẫn request bắt đầu bằng /api/?) then (Đúng: API Request)
+    :Nginx chuyển tiếp (proxy_pass) đến FastAPI nội bộ (127.0.0.1:8000);
+    :Bổ sung các header: Host, X-Real-IP, X-Forwarded-For, X-Forwarded-Proto;
+    
+    if (FastAPI đang chạy và phản hồi trong 60s?) then (Thành công)
+        :FastAPI xử lý qua Router -> Service -> Database;
+        :Trả về kết quả JSON kèm HTTP Status (200, 201...);
+        :Nginx chuyển tiếp response nguyên vẹn về Trình duyệt;
+    else (Backend Down / Timeout 502/504)
+        :Nginx trả về mã lỗi 502 Bad Gateway hoặc 504 Gateway Timeout;
+        :Giao diện người dùng hiển thị thông báo lỗi kết nối thân thiện;
+    endif
+
+else if (Đường dẫn request bắt đầu bằng /storage/?) then (Media File)
+    :Nginx phục vụ trực tiếp file media hoặc proxy tới backend storage;
+    :Thêm cache header 'public, max-age=604800';
+
+else if (Đường dẫn request bắt đầu bằng /client/ hoặc /admin/?) then (Web Portals)
+    :Nginx phục vụ tài nguyên tĩnh HTML, CSS, JavaScript;
+    :Gzip nén dữ liệu giúp tải trang siêu tốc;
+
+else (Đường dẫn khác: Single Page Application)
+    :Nginx áp dụng try_files $uri $uri/ /index.html;
+    :Trình duyệt nhận file index.html và React Router kích hoạt;
+endif
+
+stop
+@enduml

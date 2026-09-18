@@ -1,0 +1,43 @@
+@startuml SD-MAP-01
+title SD-MAP-01: Tìm kiếm & Lọc POI theo danh mục đa ngôn ngữ
+
+autonumber
+actor "Người dùng" as User
+participant "Giao diện (Web/Mobile)" as Client
+participant "POI Router\n(FastAPI)" as Router
+participant "POI Service" as Service
+participant "POI Repository" as Repo
+database "MongoDB" as DB
+
+User -> Client: Nhập từ khóa tìm kiếm (VD: "chợ") hoặc chọn Chip danh mục
+Client -> Client: Debounce 300ms (tránh gửi request dồn dập)
+Client -> Router: GET /api/v1/pois/search?q=chợ&category=culinary&lang=vi
+activate Router
+
+Router -> Service: search_public_pois(query="chợ", category="culinary", lang="vi")
+activate Service
+
+Service -> Repo: search_pois(query="chợ", category="culinary", lang="vi", limit=50)
+activate Repo
+
+Repo -> DB: db.pois.find({\n  is_active: true,\n  category: "culinary",\n  $or: [\n    { name: /chợ/i },\n    { address: /chợ/i },\n    { description: /chợ/i },\n    { "localizations.name": /chợ/i }\n  ]\n})
+activate DB
+DB --> Repo: Danh sách POI Documents thô
+deactivate DB
+
+Repo --> Service: List[Dict[str, Any]]
+deactivate Repo
+
+Service -> Service: resolve_poi_content(poi, lang="vi")\n(Fallback requested_lang -> en -> vi)
+Service -> Service: Chuẩn hóa tọa độ GeoJSON Point [lon, lat]\n-> latitude, longitude
+
+Service --> Router: List[POISummaryDTO]
+deactivate Service
+
+Router --> Client: 200 OK [ { id, name, category, address, latitude, longitude, ... } ]
+deactivate Router
+
+Client -> Client: Cập nhật danh sách kết quả & Marker trên bản đồ Leaflet / MapView
+Client --> User: Hiển thị kết quả tìm kiếm tức thì
+
+@enduml

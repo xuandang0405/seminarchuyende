@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { QrCode, Plus, CheckCircle2, AlertCircle, Ban } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { apiUrl } from '../config/runtime';
 
 export const QRCodes: React.FC = () => {
   const { token, user } = useAuth();
@@ -19,7 +20,7 @@ export const QRCodes: React.FC = () => {
   ]);
 
   useEffect(() => {
-    fetch('/api/v1/pois?limit=100')
+    fetch(apiUrl('/pois?limit=100'))
       .then((r) => r.json())
       .then((data) => {
         setPois(data.items || []);
@@ -33,7 +34,7 @@ export const QRCodes: React.FC = () => {
     e.preventDefault();
     setMessage(null);
     try {
-      const res = await fetch('/api/v1/qr', {
+      const res = await fetch(apiUrl('/qr'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -65,7 +66,7 @@ export const QRCodes: React.FC = () => {
 
   const handleDeactivate = async (qrId: string) => {
     try {
-      await fetch(`/api/v1/qr/${qrId}/deactivate`, {
+      await fetch(apiUrl(`/qr/${qrId}/deactivate`), {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` }
       });

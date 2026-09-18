@@ -1,0 +1,44 @@
+@startuml SD-GEO-01-permission-first-location
+skinparam style strictuml
+autonumber
+title SD-GEO-01: Khởi động bản đồ -> Cấp quyền -> Lấy vị trí ban đầu -> Hiển thị Accuracy
+
+actor "Du khách\n(Tourist)" as User
+participant "Giao diện Bản đồ\n(Map / UI)" as UI
+participant "LocationService\n(Shared Service)" as LocSvc
+participant "Trình duyệt / OS\n(Geolocation API)" as OS
+
+User -> UI : Mở ứng dụng / Tab Bản đồ
+activate UI
+UI -> LocSvc : startWatching(callback, profile="map_idle")
+activate LocSvc
+
+LocSvc -> OS : requestPermission()
+activate OS
+alt Người dùng cho phép quyền vị trí
+    OS --> LocSvc : permission = "granted"
+    LocSvc -> OS : getLastKnownPosition() (nếu có)
+    OS --> LocSvc : lastKnownCoords
+    opt Có vị trí lưu gần nhất
+        LocSvc -> UI : emit(LocationSample, source="last_known")
+        UI -> UI : Hiển thị UserMarker tạm thời (nhãn mờ)
+    end
+    
+    LocSvc -> OS : watchPosition(highAccuracy, timeout=10s)
+    OS --> LocSvc : coords (lat, lon, accuracy=12m)
+    deactivate OS
+    
+    LocSvc -> LocSvc : validate & format(LocationSample, source="current")
+    LocSvc -> UI : emit(LocationSample)
+    UI -> UI : Vẽ UserMarker chính xác\n+ Vẽ Accuracy Circle (bán kính 12m)\n+ Hiển thị tọa độ & độ chính xác
+    opt followUser == true
+        UI -> UI : Di chuyển Camera về vị trí người dùng
+    end
+else Người dùng từ chối quyền vị trí
+    OS --> LocSvc : permission = "denied"
+    LocSvc -> UI : emitError("PERMISSION_DENIED")
+    UI -> UI : Hiển thị hộp thoại hướng dẫn\n+ Đặt tâm bản đồ về mặc định Quận 4\n+ Chuyển sang chế độ duyệt thủ công
+end
+deactivate LocSvc
+deactivate UI
+@enduml

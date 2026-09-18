@@ -1,0 +1,23 @@
+@startuml SD-MAP-07
+title SD-MAP-07: Chuyển hướng Dẫn đường Ngoại quan Google Maps (Dự phòng Không mạng / Trình duyệt)
+
+autonumber
+actor "Du khách" as User
+participant "Giao diện (Web / Mobile)" as Client
+participant "Deep Link Handler\n(Linking / Window)" as LinkHandler
+participant "Google Maps App / Web" as GoogleMaps
+
+User -> Client: Bấm nút "Mở trong Google Maps" trên HUD / POI Card
+Client -> Client: Trích xuất tọa độ POI đích đến [latitude, longitude]
+
+alt Nền tảng Mobile (React Native)
+    Client -> LinkHandler: Linking.openURL("https://www.google.com/maps/dir/?api=1&destination=lat,lon")
+    LinkHandler -> GoogleMaps: Khởi chạy Ứng dụng Google Maps Native qua Intent / URL Scheme
+    GoogleMaps --> User: Hiển thị giao diện dẫn đường chuyên sâu ngoài đời thực
+else Nền tảng Web (React / Vanilla JS)
+    Client -> LinkHandler: window.open("https://www.google.com/maps/dir/?api=1&destination=lat,lon", "_blank")
+    LinkHandler -> GoogleMaps: Mở tab mới trên trình duyệt
+    GoogleMaps --> User: Hiển thị bản đồ Google Maps với điểm đến đã chọn sẵn
+end
+
+@enduml

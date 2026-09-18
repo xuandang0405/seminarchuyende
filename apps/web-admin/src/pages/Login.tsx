@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { Headphones, Shield, Store, ArrowRight, CheckCircle2, Eye, EyeOff, AlertCircle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { apiUrl } from '../config/runtime';
 
 export const Login: React.FC = () => {
   const [isRegister, setIsRegister] = useState(false);
@@ -40,7 +41,7 @@ export const Login: React.FC = () => {
     setLoading(true);
 
     try {
-      const res = await fetch('/api/v1/auth/login', {
+      const res = await fetch(apiUrl('/auth/login'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -69,7 +70,7 @@ export const Login: React.FC = () => {
     setLoading(true);
 
     try {
-      const res = await fetch('/api/v1/auth/register-owner', {
+      const res = await fetch(apiUrl('/auth/register-owner'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -101,7 +102,7 @@ export const Login: React.FC = () => {
     setGoogleLoading(true);
 
     try {
-      const res = await fetch(`/api/v1/auth/google/start?return_to=${encodeURIComponent(fromPath)}`, {
+      const res = await fetch(apiUrl(`/auth/google/start?return_to=${encodeURIComponent(fromPath)}`), {
         method: 'GET',
         credentials: 'include',
       });

@@ -1,0 +1,29 @@
+@startuml AD-MAP-06
+title AD-MAP-06: Chiến lược Xử lý Suy giảm Khả năng Phục vụ & Dự phòng Mạng (Graceful Degradation)
+
+start
+
+:Nhận yêu cầu tính toán tuyến đường (Origin -> Destination);
+
+:Gửi request đến OSRM Routing Engine (với timeout 3000ms);
+
+if (Nhận phản hồi HTTP 200 trong vòng 3.0s?) then (OSRM Sẵn sàng)
+    :Sử dụng tuyến đường bộ thực tế (Turn-by-turn steps & Polyline chi tiết);
+else (OSRM Timeout / Lỗi HTTP 5xx / Ngoại tuyến)
+    :Kích hoạt cơ chế Graceful Fallback;
+    :Ghi log cảnh báo hệ thống;
+    :Tính khoảng cách đường thẳng Haversine giữa 2 điểm;
+    :Tạo đối tượng RouteResultDTO dự phòng:
+    - route_distance_m = straight_line_distance * 1.3 (Hệ số ước tính đường phố)
+    - route_duration_s = distance / 1.25 m/s (Tốc độ đi bộ)
+    - geometry: LineString 2 điểm nối thẳng [Origin, Destination]
+    - steps: 1 bước chỉ đường tổng quát;
+    
+    :Gửi kèm cờ fallback = true về cho Client;
+    :Client hiển thị thông báo nhẹ (Toast/Notice):
+    "Tuyến đường đang được ước tính do dịch vụ OSRM tạm thời gián đoạn";
+    :Cung cấp nút bấm "Mở Google Maps" dự phòng cho người dùng;
+endif
+
+stop
+@enduml

@@ -8,6 +8,8 @@ import {
   ScrollView,
   SafeAreaView,
   Alert,
+  Linking,
+  ActivityIndicator,
 } from "react-native";
 import MapView, { Marker, Circle, Polyline } from "react-native-maps";
 import { api } from "../services/api";
@@ -15,6 +17,7 @@ import { locationService } from "../services/LocationService";
 import { geofenceEngine } from "../services/GeofenceEngine";
 import { narrationController } from "../services/NarrationController";
 import { tourSessionService } from "../services/TourSessionService";
+import { navigationController, NavigationState } from "../services/NavigationController";
 import AudioPlayerBar from "../components/AudioPlayerBar";
 import POIDetailModal from "../components/POIDetailModal";
 import SettingsModal from "../components/SettingsModal";
@@ -28,19 +31,6 @@ const DISTRICT_4_REGION = {
   longitudeDelta: 0.022,
 };
 
-// District 4 walking route polyline (Bến Nhà Rồng -> Cầu Mống -> Chợ Xóm Chiếu -> Vĩnh Khánh)
-const WALKING_TOUR_POINTS = [
-  { latitude: 10.76814, longitude: 106.70678 },
-  { latitude: 10.7674, longitude: 106.7061 },
-  { latitude: 10.7685, longitude: 106.7055 },
-  { latitude: 10.76895, longitude: 106.70488 },
-  { latitude: 10.7672, longitude: 106.7032 },
-  { latitude: 10.7645, longitude: 106.7038 },
-  { latitude: 10.76135, longitude: 106.70425 },
-  { latitude: 10.7602, longitude: 106.7018 },
-  { latitude: 10.75882, longitude: 106.70012 },
-];
-
 export default function MapScreen({ onNavigateQR, onNavigateOffline }) {
   const mapRef = useRef(null);
   const [pois, setPois] = useState([]);
@@ -51,6 +41,11 @@ export default function MapScreen({ onNavigateQR, onNavigateOffline }) {
 
   // Player State
   const [playerState, setPlayerState] = useState(narrationController.getStateSnapshot());
+
+  // Navigation State (turn-by-turn OSRM)
+  const [navState, setNavState] = useState(navigationController.getState());
+  const [tourCoords, setTourCoords] = useState([]);
+  const [directionsLoading, setDirectionsLoading] = useState(false);
 
   // Modals
   const [selectedPoiForModal, setSelectedPoiForModal] = useState(null);
@@ -66,12 +61,44 @@ export default function MapScreen({ onNavigateQR, onNavigateOffline }) {
     return () => unsubscribe();
   }, []);
 
+  // Subscribe to NavigationController updates
+  useEffect(() => {
+    const unsubscribe = navigationController.subscribe((state) => {
+      setNavState(state);
+    });
+    return () => unsubscribe();
+  }, []);
+
   // Load active tour
   useEffect(() => {
     tourSessionService.init().then(() => {
       setActiveTour(tourSessionService.getActiveTour());
     });
   }, []);
+
+  // Load dynamic tour route geometry from backend OSRM
+  useEffect(() => {
+    if (!activeTour) return;
+    const tourId = activeTour._id || activeTour.id || "tour_quan_4_lich_su";
+    api.getTourRouteSummary(tourId, currentLang)
+      .then((summary) => {
+        if (summary && summary.legs) {
+          const coords = [];
+          summary.legs.forEach((leg) => {
+            if (leg.geometry && leg.geometry.coordinates) {
+              leg.geometry.coordinates.forEach(([lon, lat]) => {
+                coords.push({ latitude: lat, longitude: lon });
+              });
+            }
+          });
+          setTourCoords(coords);
+        }
+      })
+      .catch((err) => {
+        console.warn("[MapScreen] Could not load tour route summary:", err.message);
+        setTourCoords([]);
+      });
+  }, [activeTour, currentLang]);
 
   // Initialize Location & Watch GPS
   useEffect(() => {
@@ -84,11 +111,15 @@ export default function MapScreen({ onNavigateQR, onNavigateOffline }) {
         );
       } else {
         const initialLoc = await locationService.getCurrentLocation();
-        if (initialLoc) setUserLocation(initialLoc);
+        if (initialLoc) {
+          setUserLocation(initialLoc);
+          navigationController.updateLocation(initialLoc);
+        }
       }
 
       await locationService.startWatching((coords) => {
         setUserLocation(coords);
+        navigationController.updateLocation(coords);
       });
     })();
 
@@ -96,6 +127,40 @@ export default function MapScreen({ onNavigateQR, onNavigateOffline }) {
       locationService.stopWatching();
     };
   }, []);
+
+  const handleStartDirections = async (poi) => {
+    if (!userLocation) {
+      Alert.alert(
+        "Chưa có vị trí GPS",
+        "Vui lòng chờ tín hiệu GPS hoặc bật định vị trên thiết bị để bắt đầu dẫn đường."
+      );
+      return;
+    }
+    setDirectionsLoading(true);
+    try {
+      const route = await navigationController.previewRoute(
+        userLocation,
+        poi,
+        "walking",
+        currentLang
+      );
+      navigationController.startNavigation();
+      if (mapRef.current && route?.geometry?.coordinates?.length > 0) {
+        const coords = route.geometry.coordinates.map(([lon, lat]) => ({
+          latitude: lat,
+          longitude: lon,
+        }));
+        mapRef.current.fitToCoordinates(coords, {
+          edgePadding: { top: 160, right: 40, bottom: 220, left: 40 },
+          animated: true,
+        });
+      }
+    } catch (err) {
+      Alert.alert("Lỗi dẫn đường", err.message || "Không thể tải tuyến đường OSRM.");
+    } finally {
+      setDirectionsLoading(false);
+    }
+  };
 
   // Fetch POIs whenever language or category changes
   useEffect(() => {
@@ -150,13 +215,27 @@ export default function MapScreen({ onNavigateQR, onNavigateOffline }) {
         showsUserLocation
         showsMyLocationButton={false}
       >
-        {/* Walking Tour Polyline */}
-        <Polyline
-          coordinates={WALKING_TOUR_POINTS}
-          strokeColor="#ff6b35"
-          strokeWidth={4}
-          lineDashPattern={[0]}
-        />
+        {/* Dynamic Walking Tour Polyline */}
+        {tourCoords && tourCoords.length > 1 && (
+          <Polyline
+            coordinates={tourCoords}
+            strokeColor="#ff6b35"
+            strokeWidth={4}
+            lineDashPattern={[0]}
+          />
+        )}
+
+        {/* Dynamic Turn-by-Turn Route Polyline (OSRM) */}
+        {navState.currentRoute?.geometry?.coordinates && (
+          <Polyline
+            coordinates={navState.currentRoute.geometry.coordinates.map(([lon, lat]) => ({
+              latitude: lat,
+              longitude: lon,
+            }))}
+            strokeColor="#0284c7"
+            strokeWidth={6}
+          />
+        )}
 
         {/* POI Markers & Trigger Geofence Circles */}
         {filteredPois.map((poi) => {
@@ -291,6 +370,76 @@ export default function MapScreen({ onNavigateQR, onNavigateOffline }) {
         />
       ) : null}
 
+      {/* Navigation HUD Banner (active during navigation or arrived) */}
+      {navState.state !== NavigationState.IDLE && navState.state !== NavigationState.CANCELLED && (
+        <View style={styles.navHudCard}>
+          <View style={styles.navHudHeader}>
+            <View style={styles.navHudStatusRow}>
+              <Text style={styles.navHudIcon}>
+                {navState.state === NavigationState.ARRIVED ? "🎉" : navState.state === NavigationState.REROUTING ? "🔄" : "🧭"}
+              </Text>
+              <Text style={styles.navHudTitle} numberOfLines={1}>
+                {navState.state === NavigationState.ARRIVED
+                  ? "Bạn đã đến nơi!"
+                  : navState.state === NavigationState.REROUTING
+                  ? "Đang tính lại tuyến đường..."
+                  : navState.destinationPoi?.name || "Đang dẫn đường OSRM"}
+              </Text>
+            </View>
+            <TouchableOpacity
+              style={styles.navHudCloseBtn}
+              onPress={() => navigationController.cancelNavigation()}
+            >
+              <Text style={styles.navHudCloseText}>✕</Text>
+            </TouchableOpacity>
+          </View>
+
+          {navState.currentRoute && (
+            <View style={styles.navHudMetrics}>
+              <Text style={styles.navHudMetricText}>
+                📏 {navState.currentRoute.route_distance_m >= 1000
+                  ? (navState.currentRoute.route_distance_m / 1000).toFixed(1) + " km"
+                  : Math.round(navState.currentRoute.route_distance_m) + " m"}
+              </Text>
+              <Text style={styles.navHudMetricText}>
+                ⏱️ ~{Math.ceil(navState.currentRoute.route_duration_s / 60)} phút
+              </Text>
+              <View style={styles.navHudModeBadge}>
+                <Text style={styles.navHudModeText}>
+                  {navState.travelMode === "walking" ? "🚶 Đi bộ" : "🚗 Xe"}
+                </Text>
+              </View>
+            </View>
+          )}
+
+          {navState.currentRoute?.legs?.[0]?.steps?.[0]?.instruction ? (
+            <Text style={styles.navHudInstruction} numberOfLines={2}>
+              ➡️ {navState.currentRoute.legs[0].steps[0].instruction}
+            </Text>
+          ) : null}
+
+          <View style={styles.navHudActions}>
+            <TouchableOpacity
+              style={styles.navHudGoogleMapsBtn}
+              onPress={() => {
+                if (navState.destinationPoi?.location?.coordinates) {
+                  const [lon, lat] = navState.destinationPoi.location.coordinates;
+                  Linking.openURL(`https://www.google.com/maps/dir/?api=1&destination=${lat},${lon}`);
+                }
+              }}
+            >
+              <Text style={styles.navHudGoogleMapsText}>Mở Google Maps</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.navHudCancelBtn}
+              onPress={() => navigationController.cancelNavigation()}
+            >
+              <Text style={styles.navHudCancelText}>Dừng chỉ đường</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
       {/* POI Detail Bottom Sheet Modal */}
       <POIDetailModal
         poi={selectedPoiForModal}
@@ -300,6 +449,7 @@ export default function MapScreen({ onNavigateQR, onNavigateOffline }) {
         onPlayAudio={(poi, type) => {
           narrationController.requestNarration(poi, type, currentLang);
         }}
+        onDirections={handleStartDirections}
       />
 
       {/* Tour Selection Modal */}
@@ -463,5 +613,113 @@ const styles = StyleSheet.create({
   },
   markerIcon: {
     fontSize: 18,
+  },
+  navHudCard: {
+    position: "absolute",
+    top: 50,
+    left: 16,
+    right: 16,
+    backgroundColor: "rgba(15, 23, 42, 0.96)",
+    borderRadius: 16,
+    padding: 14,
+    borderWidth: 1.5,
+    borderColor: "#0284c7",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
+    elevation: 10,
+    zIndex: 20,
+    gap: 8,
+  },
+  navHudHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  navHudStatusRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+    gap: 8,
+  },
+  navHudIcon: {
+    fontSize: 20,
+  },
+  navHudTitle: {
+    color: "#ffffff",
+    fontSize: 15,
+    fontWeight: "700",
+    flex: 1,
+  },
+  navHudCloseBtn: {
+    padding: 6,
+  },
+  navHudCloseText: {
+    color: "#94a3b8",
+    fontSize: 16,
+    fontWeight: "bold",
+  },
+  navHudMetrics: {
+    flexDirection: "row",
+    gap: 12,
+    alignItems: "center",
+  },
+  navHudMetricText: {
+    color: "#38bdf8",
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  navHudModeBadge: {
+    backgroundColor: "rgba(255,255,255,0.1)",
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 8,
+  },
+  navHudModeText: {
+    color: "#e2e8f0",
+    fontSize: 11,
+    fontWeight: "600",
+  },
+  navHudInstruction: {
+    color: "#f8fafc",
+    fontSize: 13,
+    fontStyle: "italic",
+    backgroundColor: "rgba(2, 132, 199, 0.15)",
+    padding: 8,
+    borderRadius: 8,
+  },
+  navHudActions: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 4,
+  },
+  navHudGoogleMapsBtn: {
+    flex: 1,
+    backgroundColor: "#1e293b",
+    borderWidth: 1,
+    borderColor: "#475569",
+    borderRadius: 8,
+    paddingVertical: 8,
+    alignItems: "center",
+  },
+  navHudGoogleMapsText: {
+    color: "#cbd5e1",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  navHudCancelBtn: {
+    flex: 1,
+    backgroundColor: "rgba(239, 68, 68, 0.2)",
+    borderWidth: 1,
+    borderColor: "#ef4444",
+    borderRadius: 8,
+    paddingVertical: 8,
+    alignItems: "center",
+  },
+  navHudCancelText: {
+    color: "#ef4444",
+    fontSize: 12,
+    fontWeight: "700",
   },
 });

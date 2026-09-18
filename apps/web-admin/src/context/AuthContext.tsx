@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
+import { apiUrl } from '../config/runtime';
 
 export interface UserProfile {
   id: string;
@@ -52,7 +53,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // 1. Fetch CSRF token
   const fetchCsrfToken = useCallback(async (): Promise<string | null> => {
     try {
-      const res = await fetch('/api/v1/auth/csrf', {
+      const res = await fetch(apiUrl('/auth/csrf'), {
         method: 'GET',
         credentials: 'include',
       });
@@ -75,7 +76,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     activeRefreshPromise = (async () => {
       try {
-        const res = await fetch('/api/v1/auth/refresh', {
+        const res = await fetch(apiUrl('/auth/refresh'), {
           method: 'POST',
           credentials: 'include',
           headers: {
@@ -95,7 +96,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         tokenRef.current = newToken;
 
         // Also fetch user profile /me
-        const meRes = await fetch('/api/v1/auth/me', {
+        const meRes = await fetch(apiUrl('/auth/me'), {
           headers: {
             Authorization: `Bearer ${newToken}`,
           },
@@ -167,7 +168,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // 5. Logout helper
   const logout = useCallback(async () => {
     try {
-      await fetch('/api/v1/auth/logout', {
+      await fetch(apiUrl('/auth/logout'), {
         method: 'POST',
         credentials: 'include',
       });
@@ -185,7 +186,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const logoutAll = useCallback(async () => {
     try {
       if (tokenRef.current) {
-        await fetch('/api/v1/auth/logout-all', {
+        await fetch(apiUrl('/auth/logout-all'), {
           method: 'POST',
           headers: {
             Authorization: `Bearer ${tokenRef.current}`,
@@ -206,6 +207,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // 7. Authenticated Fetch wrapper with automatic 401 retry
   const fetchWithAuth = useCallback(
     async (url: string, init: RequestInit = {}): Promise<Response> => {
+      const targetUrl = apiUrl(url);
       const headers = new Headers(init.headers || {});
       if (tokenRef.current) {
         headers.set('Authorization', `Bearer ${tokenRef.current}`);
@@ -214,7 +216,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         headers.set('X-CSRF-Token', csrfToken);
       }
 
-      let res = await fetch(url, {
+      let res = await fetch(targetUrl, {
         ...init,
         headers,
         credentials: 'include',
@@ -226,7 +228,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const newToken = await performRefresh();
           if (newToken) {
             headers.set('Authorization', `Bearer ${newToken}`);
-            res = await fetch(url, {
+            res = await fetch(targetUrl, {
               ...init,
               headers,
               credentials: 'include',

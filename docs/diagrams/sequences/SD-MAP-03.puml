@@ -1,0 +1,66 @@
+@startuml SD-MAP-03
+title SD-MAP-03: Xem trước Lộ trình Dẫn đường Từng bước & Tra cứu Tuyến đường trong Cache
+
+autonumber
+actor "Người dùng" as User
+participant "Giao diện (Web/Mobile)" as Client
+participant "Routes Router\n(FastAPI)" as Router
+participant "Routing Service" as RoutingSvc
+participant "Route Cache Repo" as CacheRepo
+database "MongoDB\n(route_cache)" as CacheDB
+participant "OSRM Provider\n(Routing Engine)" as OSRM
+participant "POI Repository" as POIRepo
+
+User -> Client: Bấm "Chỉ đường" đến Điểm đến (Destination POI)
+Client -> Router: POST /api/v1/routes/preview\n{ origin: {latitude, longitude}, destination_poi_id, mode: "walking", locale: "vi" }
+activate Router
+
+Router -> RoutingSvc: calculate_route(origin, dest_poi_id, mode="walking", locale="vi")
+activate RoutingSvc
+
+RoutingSvc -> POIRepo: get_by_id(destination_poi_id)
+activate POIRepo
+POIRepo --> RoutingSvc: poi_doc (chứa location.coordinates [lon, lat])
+deactivate POIRepo
+
+RoutingSvc -> RoutingSvc: Lượng tử hóa tọa độ (4 chữ số thập phân ~11m)\nSinh cache fingerprint SHA256(origin + dest + mode + locale)
+
+RoutingSvc -> CacheRepo: get_by_fingerprint(fingerprint)
+activate CacheRepo
+CacheRepo -> CacheDB: findOne({ fingerprint: ..., expires_at: { $gt: ISODate() } })
+activate CacheDB
+
+alt Cache Hit (Đã có lộ trình hợp lệ trong TTL 24h)
+    CacheDB --> CacheRepo: route_cache doc
+    CacheRepo --> RoutingSvc: Cached RouteResultDTO
+else Cache Miss (Chưa có hoặc đã hết hạn TTL)
+    CacheDB --> CacheRepo: null
+    deactivate CacheDB
+    CacheRepo --> RoutingSvc: None
+    deactivate CacheRepo
+
+    RoutingSvc -> OSRM: route(origin, destination, mode="walking", locale="vi")
+    activate OSRM
+    note over OSRM: Gọi OSRM v5 API\nsteps=true, overview=full, geometries=geojson
+    OSRM --> RoutingSvc: RouteResultDTO (độ dài thực tế m, thời gian s, geometry LineString, turn-by-turn steps)
+    deactivate OSRM
+
+    RoutingSvc -> CacheRepo: save_route(fingerprint, route_data, ttl_hours=24)
+    activate CacheRepo
+    CacheRepo -> CacheDB: insertOne({ fingerprint, route, expires_at: now + 24h })
+    activate CacheDB
+    CacheDB --> CacheRepo: Acknowledged
+    deactivate CacheDB
+    deactivate CacheRepo
+end
+
+RoutingSvc --> Router: RouteResultDTO (route_distance_m, route_duration_s, geometry, steps, ...)
+deactivate RoutingSvc
+
+Router --> Client: 200 OK (RouteResultDTO)
+deactivate Router
+
+Client -> Client: Vẽ Polyline OSRM lên bản đồ\nHiển thị danh sách các bước chỉ đường (Directions Panel)
+Client --> User: Người dùng xem chi tiết lộ trình đường bộ thực tế
+
+@enduml

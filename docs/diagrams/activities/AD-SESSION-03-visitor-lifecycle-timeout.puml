@@ -1,0 +1,47 @@
+@startuml AD-SESSION-03-visitor-lifecycle-timeout
+skinparam style strictuml
+title AD-SESSION-03: Vòng đời Visitor Session & Cơ chế Timeout không hoạt động
+
+start
+:Thiết bị mở ứng dụng (App Foreground / Tab Active);
+:Kiểm tra cookie/SecureStore token;
+
+if (Đã có device_token hợp lệ?) then (có)
+    :Xác thực token_hash trên máy chủ;
+else (chưa)
+    :Gọi POST /api/v1/device/bootstrap;
+    :Máy chủ sinh token ngẫu nhiên 256-bit;
+    :Lưu HMAC hash trên server, trả cookie HttpOnly cho client;
+endif
+
+:Gọi POST /api/v1/visitor-sessions/start-or-resume;
+if (Tồn tại phiên active trong vòng 15 phút?) then (có)
+    :Tái sử dụng phiên (Resumed);
+    :Cập nhật last_seen_at;
+else (không)
+    :Tạo phiên mới (Created);
+    :Đánh dấu status = "active";
+endif
+
+while (Ứng dụng tiếp tục hoạt động?) is (có)
+    if (Tab trình duyệt ở chế độ hiển thị (Visible)?) then (hiển thị)
+        :Chờ 30-60 giây;
+        :Gửi POST /api/v1/visitor-sessions/{id}/heartbeat;
+        :Máy chủ cập nhật last_seen_at (conditional update);
+    else (ẩn / background)
+        :Tạm dừng gửi heartbeat để tiết kiệm tài nguyên;
+    endif
+endwhile (người dùng đóng tab hoặc unmount)
+
+if (Người dùng bấm đăng xuất chủ động?) then (có)
+    :Gửi POST /api/v1/visitor-sessions/{id}/end;
+    :Máy chủ đổi status = "ended";
+else (đóng đột ngột)
+    :Background worker kiểm tra định kỳ;
+    if (last_seen_at > 15 phút trước?) then (hết hạn)
+        :Máy chủ cập nhật status = "expired";
+    endif
+endif
+
+stop
+@enduml

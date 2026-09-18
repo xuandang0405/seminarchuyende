@@ -43,6 +43,8 @@ from app.db.collections import (
     COLLECTION_PAYMENT_ATTEMPTS,
     COLLECTION_PAYMENT_EVENTS,
     COLLECTION_TOUR_ENTITLEMENTS,
+    COLLECTION_ROUTE_CACHE,
+    COLLECTION_TOUR_SESSIONS,
 )
 
 logger = logging.getLogger("uvicorn")
@@ -87,6 +89,11 @@ async def create_all_indexes(db: AsyncDatabase):
         await db[COLLECTION_POI].create_index(
             [("category", 1), ("is_active", 1)],
             name="idx_poi_category_active"
+        )
+        await db[COLLECTION_POI].create_index(
+            [("name", "text"), ("address", "text"), ("description", "text")],
+            default_language="none",
+            name="idx_poi_text_search"
         )
 
         # 4. poi_localizations: unique (poi_id, lang)
@@ -174,26 +181,77 @@ async def create_all_indexes(db: AsyncDatabase):
             name="uq_ui_bundles_ns_loc_hash"
         )
 
-        # 14. analytics_devices: consent tracking
+        # 14. analytics_devices: unique token_hash & last_seen
+        await db[COLLECTION_ANALYTICS_DEVICES].create_index(
+            [("token_hash", 1)],
+            unique=True,
+            name="uq_analytics_devices_token_hash"
+        )
         await db[COLLECTION_ANALYTICS_DEVICES].create_index(
             [("last_seen_at", -1)],
             name="idx_analytics_devices_last_seen"
         )
 
-        # 15. analytics_sessions: device and time query
+        # 15. analytics_sessions: visitor sessions
         await db[COLLECTION_ANALYTICS_SESSIONS].create_index(
-            [("device_id", 1), ("started_at", -1)],
-            name="idx_analytics_sessions_device_date"
+            [("session_id", 1)],
+            unique=True,
+            name="uq_analytics_sessions_session_id"
+        )
+        await db[COLLECTION_ANALYTICS_SESSIONS].create_index(
+            [("device_id", 1), ("status", 1), ("last_seen_at", -1)],
+            name="idx_analytics_sessions_device_status_seen"
+        )
+        await db[COLLECTION_ANALYTICS_SESSIONS].create_index(
+            [("started_at", -1)],
+            name="idx_analytics_sessions_started_at"
         )
 
-        # 16. analytics_events: session_id, poi_id, occurred_at
+        # 15b. tour_sessions: unique tour_session_id, idempotency and progress
+        await db[COLLECTION_TOUR_SESSIONS].create_index(
+            [("tour_session_id", 1)],
+            unique=True,
+            name="uq_tour_sessions_id"
+        )
+        await db[COLLECTION_TOUR_SESSIONS].create_index(
+            [("idempotency_key", 1)],
+            unique=True,
+            sparse=True,
+            name="uq_tour_sessions_idempotency"
+        )
+        await db[COLLECTION_TOUR_SESSIONS].create_index(
+            [("visitor_session_id", 1), ("started_at", -1)],
+            name="idx_tour_sessions_visitor_started"
+        )
+        await db[COLLECTION_TOUR_SESSIONS].create_index(
+            [("device_id", 1), ("status", 1), ("last_activity_at", -1)],
+            name="idx_tour_sessions_device_status_act"
+        )
+        await db[COLLECTION_TOUR_SESSIONS].create_index(
+            [("tour_id", 1), ("started_at", -1)],
+            name="idx_tour_sessions_tour_started"
+        )
+
+        # 16. analytics_events: session_id, poi_id, occurred_at, playback_id
         await db[COLLECTION_ANALYTICS_EVENTS].create_index(
             [("session_id", 1), ("occurred_at", 1)],
             name="idx_analytics_events_session_date"
         )
         await db[COLLECTION_ANALYTICS_EVENTS].create_index(
-            [("poi_id", 1), ("event_type", 1), ("occurred_at", -1)],
+            [("playback_id", 1), ("event_type", 1)],
+            name="idx_analytics_events_playback_type"
+        )
+        await db[COLLECTION_ANALYTICS_EVENTS].create_index(
+            [("server_received_at", -1), ("event_type", 1)],
+            name="idx_analytics_events_recv_type"
+        )
+        await db[COLLECTION_ANALYTICS_EVENTS].create_index(
+            [("poi_id", 1), ("event_type", 1), ("server_received_at", -1)],
             name="idx_analytics_events_poi_type_date"
+        )
+        await db[COLLECTION_ANALYTICS_EVENTS].create_index(
+            [("tour_id", 1), ("event_type", 1), ("server_received_at", -1)],
+            name="idx_analytics_events_tour_type_date"
         )
 
         # 17. analytics_poi_daily_metrics: unique (poi_id, metric_date, env)
@@ -430,6 +488,22 @@ async def create_all_indexes(db: AsyncDatabase):
         await db[COLLECTION_TOUR_ENTITLEMENTS].create_index(
             [("user_id", 1), ("status", 1)],
             name="idx_entitlements_user_status"
+        )
+
+        # 37. route_cache: unique fingerprint, TTL auto-expiration, mode lookup
+        await db[COLLECTION_ROUTE_CACHE].create_index(
+            [("fingerprint", 1)],
+            unique=True,
+            name="uq_route_cache_fingerprint"
+        )
+        await db[COLLECTION_ROUTE_CACHE].create_index(
+            [("expires_at", 1)],
+            expireAfterSeconds=0,
+            name="ttl_route_cache_expires_at"
+        )
+        await db[COLLECTION_ROUTE_CACHE].create_index(
+            [("mode", 1), ("created_at", -1)],
+            name="idx_route_cache_mode_date"
         )
 
         logger.info("All collection indexes created successfully!")

@@ -1,0 +1,36 @@
+@startuml AD-CONSENT-07-analytics-branches
+skinparam style strictuml
+title AD-CONSENT-07: Phân nhánh Thu Thập Dữ Liệu Dựa Trên Consent của Người Dùng
+
+start
+:Người dùng tương tác với cài đặt quyền riêng tư;
+
+if (Lựa chọn của người dùng?) then (Đồng ý / Chấp nhận)
+    :Gửi POST /api/v1/analytics/consent {consent_granted: true};
+    :Máy chủ lưu trạng thái consent vào collection analytics_devices;
+    :Bật cờ enqueue trong AnalyticsOutbox Client;
+    :Cho phép ghi nhận các sự kiện:
+    - narration_started / completed / progress
+    - tour_started / completed
+    - poi_viewed / qr_scanned;
+    :Cho phép đồng bộ theo lô về máy chủ;
+else (Từ chối / Thu hồi Consent)
+    :Gửi POST /api/v1/analytics/consent {consent_granted: false};
+    :Máy chủ cập nhật consent_revoked_at;
+    :Tắt cờ enqueue trong AnalyticsOutbox Client;
+    :Xóa sạch hàng đợi Outbox cục bộ chưa gửi;
+    :Dừng việc gửi bất kỳ sự kiện thống kê nào;
+    note right
+      BR-CONSENT-01:
+      Khi từ chối Analytics, các chức năng cốt lõi:
+      - Bản đồ trực quan
+      - Định vị GPS
+      - Dẫn đường OSRM
+      - Quét mã QR
+      - Nghe thuyết minh âm thanh
+      VẪN HOẠT ĐỘNG HOÀN TOÀN BÌNH THƯỜNG!
+    end note
+endif
+
+stop
+@enduml

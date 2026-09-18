@@ -1,0 +1,41 @@
+@startuml AD-MAP-02
+title AD-MAP-02: Quy trình Phân định & Tính toán 3 Loại Khoảng cách / Thời gian
+
+start
+
+:Nhận yêu cầu hiển thị khoảng cách từ Vị trí A đến POI B;
+
+fork
+    partition "1. Đường Chim Bay (Straight-line Distance)" {
+        :Lấy tọa độ A (GPS) và tọa độ B (POI Location);
+        if (Truy vấn qua MongoDB Aggregation?) then (Có)
+            :Sử dụng pipeline $geoNear với spherical: true;
+            :MongoDB tính khoảng cách mặt cầu theo mét (straight_line_distance_m);
+        else (Tính toán nội bộ Python/JS)
+            :Áp dụng công thức Haversine với bán kính Trái Đất R = 6,371,000 m;
+            :Trả về straight_line_distance_m (mét nguyên);
+        endif
+        :Format hiển thị SI: <1000m -> "X m", >=1000m -> "Y.Y km";
+        :Hiển thị Badge trên Marker & Thẻ POI;
+    }
+fork again
+    partition "2. Tuyến Đường Thực tế (Route Distance)" {
+        :Tạo điểm xuất phát (Origin) và đích (Destination);
+        :Tra cứu trong Route Cache hoặc gọi OSRM Route Engine;
+        :OSRM tính toán mạng lưới đường sá giao thông thực tế;
+        :Trích xuất route_distance_m (mét nguyên thực tế);
+        :Vẽ Polyline đường bộ lên bản đồ;
+    }
+fork again
+    partition "3. Thời Gian Di chuyển (Route Duration)" {
+        :Dựa trên Mode di chuyển (walking ~4.5 km/h, driving ~30 km/h);
+        :OSRM tính toán thời gian thực tế tính bằng giây (route_duration_s);
+        :Format hiển thị: Math.ceil(duration_s / 60) + " phút";
+        :Hiển thị trên Banner Navigation HUD / Directions Panel;
+    }
+end fork
+
+:Kết hợp 3 chỉ số trong phản hồi DTO duy nhất (RouteResultDTO);
+
+stop
+@enduml

@@ -1,0 +1,27 @@
+@startuml AD-MAP-01
+title AD-MAP-01: Quy trình Khám phá & Lọc POI theo Viewport / Danh mục
+
+start
+
+:Người dùng mở Bản đồ Quận 4;
+:Client gọi API GET /api/v1/map/config;
+:Khởi tạo Bản đồ với Center [10.7635, 106.7042] & Giới hạn Bounding Box Quận 4;
+
+fork
+    :Người dùng di chuyển / phóng to bản đồ (Map Move/Zoom);
+    :Lấy ranh giới Viewport hiện tại (minLat, minLon, maxLat, maxLon);
+    :Gửi request GET /api/v1/pois/in-bounds;
+    :Backend dùng $geoWithin/$box truy vấn các POI trong khung nhìn;
+fork again
+    :Người dùng gõ từ khóa tìm kiếm (VD: "chợ") hoặc chọn Chip danh mục;
+    :Client debounce 300ms;
+    :Gửi request GET /api/v1/pois/search?q=...&category=...;
+    :Backend tìm kiếm POI đa ngôn ngữ & trả về kết quả;
+end fork
+
+:Chuẩn hóa tọa độ [lon, lat] -> latitude, longitude;
+:Xóa Marker cũ & Vẽ các Marker mới lên bản đồ;
+:Cập nhật danh sách POI Cards bên cạnh bản đồ;
+
+stop
+@enduml

@@ -45,6 +45,9 @@ class AsyncMockCollection:
         except Exception:
             return None
 
+    async def distinct(self, *args, **kwargs):
+        return self._col.distinct(*args, **kwargs)
+
     def aggregate(self, *args, **kwargs):
         res = self._col.aggregate(*args, **kwargs)
         return AsyncMockCursor(res)

@@ -32,20 +32,77 @@ class POIService:
             "limit": limit
         }
 
+    async def search_public_pois(
+        self,
+        query: str,
+        category: Optional[str] = None,
+        origin_lat: Optional[float] = None,
+        origin_lon: Optional[float] = None,
+        lang: str = "vi",
+        skip: int = 0,
+        limit: int = 20
+    ) -> List[Dict[str, Any]]:
+        """Search published POIs by keyword across multilingual content."""
+        from app.services.geo_service import haversine_distance_meters, format_distance_display
+
+        pois = await poi_repo.search_pois(query=query, category=category, skip=skip, limit=limit)
+        items = []
+        for p in pois:
+            resolved = await self._resolve_poi_localization(p, lang)
+            if origin_lat is not None and origin_lon is not None:
+                loc = resolved.get("location", {}).get("coordinates")
+                if loc and len(loc) >= 2:
+                    dist = haversine_distance_meters(origin_lat, origin_lon, loc[1], loc[0])
+                    resolved["straight_line_distance_m"] = round(dist, 1)
+                    resolved["distance_display"] = format_distance_display(dist, lang=lang)
+            items.append(resolved)
+        return items
+
     async def get_nearby_pois(
         self,
         longitude: float,
         latitude: float,
-        max_distance_meters: float = 1000.0,
+        max_distance_meters: float = 2000.0,
+        category: Optional[str] = None,
+        limit: int = 20,
+        lang: str = "vi"
+    ) -> List[Dict[str, Any]]:
+        """Geospatial nearby POIs using MongoDB aggregation $geoNear with SI distance."""
+        from app.services.geo_service import format_distance_display
+
+        pois = await poi_repo.find_nearby_geo_near(
+            longitude=longitude,
+            latitude=latitude,
+            max_distance_meters=max_distance_meters,
+            category=category,
+            limit=limit
+        )
+        items = []
+        for p in pois:
+            dist = p.get("straight_line_distance_m")
+            resolved = await self._resolve_poi_localization(p, lang)
+            if dist is not None:
+                resolved["straight_line_distance_m"] = round(float(dist), 1)
+                resolved["distance_display"] = format_distance_display(float(dist), lang=lang)
+            items.append(resolved)
+        return items
+
+    async def get_pois_in_bounds(
+        self,
+        min_lon: float,
+        min_lat: float,
+        max_lon: float,
+        max_lat: float,
         category: Optional[str] = None,
         limit: int = 50,
         lang: str = "vi"
     ) -> List[Dict[str, Any]]:
-        """Geospatial nearby POIs with localization."""
-        pois = await poi_repo.find_nearby(
-            longitude=longitude,
-            latitude=latitude,
-            max_distance_meters=max_distance_meters,
+        """Fetch POIs within map viewport bounding box."""
+        pois = await poi_repo.find_in_bounds(
+            min_lon=min_lon,
+            min_lat=min_lat,
+            max_lon=max_lon,
+            max_lat=max_lat,
             category=category,
             limit=limit
         )
@@ -105,6 +162,11 @@ class POIService:
         radius_exit_m = float(poi.get("radius_exit_m") or (trigger_radius * 1.5))
         cooldown_seconds = int(poi.get("cooldown_seconds") or 60)
 
+        loc_data = poi.get("location", {"type": "Point", "coordinates": [106.7035, 10.7655]})
+        coords = loc_data.get("coordinates", [106.7035, 10.7655]) if isinstance(loc_data, dict) else [106.7035, 10.7655]
+        poi_lon = float(coords[0]) if len(coords) >= 1 else 106.7035
+        poi_lat = float(coords[1]) if len(coords) >= 2 else 10.7655
+
         # Map to client DTO (dual schema compatibility)
         result = {
             "id": poi["_id"],
@@ -115,7 +177,9 @@ class POIService:
             "description": desc_val,
             "category": poi.get("category", "attraction"),
             "address": poi.get("address", ""),
-            "location": poi.get("location", {"type": "Point", "coordinates": [106.7035, 10.7655]}),
+            "location": loc_data,
+            "latitude": poi_lat,
+            "longitude": poi_lon,
             "images": images,
             "image_key": image_key,
             "trigger_radius": trigger_radius,

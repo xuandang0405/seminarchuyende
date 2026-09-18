@@ -1,0 +1,606 @@
+# PROMPT HOÀN CHỈNH: SỬA LOCALHOST/CORS VÀ TRIỂN KHAI WEB + FASTAPI + MOBILE LÊN HOST
+
+Sao chép toàn bộ nội dung từ “BẮT ĐẦU PROMPT” đến “KẾT THÚC PROMPT” cho AI đang sửa repository. Gửi kèm source code hiện tại, cấu hình Docker/Nginx/systemd nếu có và log lỗi. Không gửi secret thật vào hội thoại; chỉ cung cấp tên biến hoặc giá trị đã che.
+
+## BẮT ĐẦU PROMPT
+
+Bạn là kỹ sư DevOps/full-stack chịu trách nhiệm sửa cấu hình triển khai cho dự án **Hệ thống Thuyết minh Du lịch Tự động Đa ngôn ngữ** dùng React/Vite, React Native, FastAPI và MongoDB. Dự án đã được upload lên server nhưng web production vẫn gọi backend bằng `localhost` và trình duyệt báo:
+
+```text
+Access to fetch at 'http://localhost:8000/api/v1/auth/login'
+from origin 'http://1.55.58.251:8000' has been blocked by CORS policy:
+The request client is not a secure context and the resource is in
+more-private address space `loopback`.
+```
+
+Hãy audit repository và cấu hình host, tìm nguyên nhân thật, trực tiếp sửa code/cấu hình, tạo bộ file deploy có thể chuyển từ local lên host, kiểm thử và cập nhật source sơ đồ. Không chỉ giải thích CORS hoặc bảo người dùng cài extension/tắt bảo mật trình duyệt.
+
+## 1. Chẩn đoán bắt buộc
+
+Giải thích ngắn trong báo cáo:
+
+- `localhost` trong JavaScript chạy ở trình duyệt là máy của người truy cập, không phải VPS/server.
+- Frontend ở `http://1.55.58.251:8000` đang gọi loopback `http://localhost:8000`, vì vậy request sai đích và còn bị cơ chế CORS/Private Network Access của trình duyệt chặn.
+- Chỉ thêm `allow_origins=["*"]` không sửa được URL sai đích, không giải quyết secure context và không phù hợp khi dùng cookie/Authorization.
+- Vite thay biến `VITE_*` khi build; đổi `.env` trên server nhưng không rebuild bundle thường không thay URL đã nhúng trong `dist`.
+- Với web cần GPS, service worker, secure cookie và sản phẩm cho người dùng thật, URL production phải dùng HTTPS. Raw IP qua HTTP chỉ là cấu hình tạm để smoke-test, không phải đích production.
+
+Tài liệu tham chiếu chính thức:
+
+- FastAPI CORS: https://fastapi.tiangolo.com/tutorial/cors/
+- Vite env/modes: https://vite.dev/guide/env-and-mode
+- Secure contexts: https://developer.mozilla.org/en-US/docs/Web/Security/Defenses/Secure_Contexts
+- Private Network Access: https://developer.chrome.com/blog/private-network-access-preflight/
+- Nginx `proxy_pass`: https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_pass
+
+## 2. Mục tiêu kiến trúc production
+
+Ưu tiên kiến trúc same-origin:
+
+```text
+Người dùng
+   |
+   | HTTPS 443
+   v
+Nginx/Caddy trên VPS
+   |-- /              -> React static build
+   |-- /api/*         -> FastAPI nội bộ :8000
+   |-- /media/*       -> storage/proxy phù hợp nếu dự án dùng
+   |
+   +-- TLS certificate + security headers + access logs đã lọc
+
+FastAPI -> MongoDB/Redis/worker qua private Docker network hoặc loopback
+```
+
+Frontend production phải gọi URL tương đối, ví dụ:
+
+```text
+/api/v1/auth/login
+```
+
+Không được tạo thành:
+
+```text
+http://localhost:8000/api/v1/auth/login
+```
+
+Nginx nhận `/api/` và proxy đến FastAPI nội bộ. Browser thấy frontend và API cùng scheme/host/port nên không cần dựa vào CORS để chữa lỗi production. Nếu repository bắt buộc dùng hai origin như `https://app.example.com` và `https://api.example.com`, cấu hình CORS explicit theo mục riêng dưới đây.
+
+Không giả định port đang dùng. Trước khi sửa phải xác định:
+
+- Process/container nào đang nghe 80, 443, 8000 và các port khác.
+- `1.55.58.251:8000` hiện đang phục vụ frontend hay backend.
+- Backend bind `127.0.0.1` hay `0.0.0.0` và chạy host/container nào.
+- Nginx/Caddy/Apache/Docker Compose/systemd/PM2 nào đã có.
+- Domain/subdomain có sẵn hay chưa.
+- Auth web dùng cookie HttpOnly hay Bearer token; Google callback/payment callback hiện cấu hình URL nào.
+
+Không chạy song song thêm một reverse proxy hoặc thêm stack deploy mới nếu host đã có hệ thống tương đương. Tái sử dụng và cập nhật cấu hình thật.
+
+## 3. Audit toàn bộ `localhost` và URL hardcode
+
+Dùng `rg`, không tìm bằng mắt từng file. Kiểm tra tối thiểu:
+
+```bash
+rg -n --hidden \
+  --glob '!node_modules/**' \
+  --glob '!dist/**' \
+  --glob '!build/**' \
+  --glob '!.git/**' \
+  '(localhost|127\.0\.0\.1|0\.0\.0\.0|http://|ws://)' .
+```
+
+Phân loại từng kết quả:
+
+1. Giá trị chỉ dành cho local development.
+2. Giá trị dùng nội bộ giữa containers/services.
+3. Giá trị bị nhúng vào frontend/mobile production.
+4. URL callback/redirect của Google, payment, TTS/storage, QR, deep link hoặc email.
+5. Tài liệu/test/fixture không chạy production.
+
+Đặc biệt tìm:
+
+- `fetch(...)`, Axios `baseURL`, RTK/TanStack Query client.
+- `VITE_API_URL`, `VITE_API_BASE_URL`, `REACT_APP_*` và fallback `|| "http://localhost:8000"`.
+- `EXPO_PUBLIC_API_URL` và cấu hình React Native.
+- OpenAPI-generated client base URL.
+- Socket/SSE URL nếu có.
+- URL audio, ảnh, map style, payment return/callback, Google OAuth redirect.
+- CSP `connect-src`, service worker cache và manifest.
+- Docker Compose env/build args, Nginx templates và CI secrets.
+- File `dist/assets/*.js` đã build để chứng minh production bundle còn hay không còn `localhost`.
+
+Không thay máy móc mọi `localhost`: backend gọi MongoDB cùng máy/container có thể dùng hostname nội bộ; unit test có thể dùng loopback. Mục tiêu là không để client production gọi loopback.
+
+## 4. Centralize cấu hình API phía web
+
+Chỉ có một module chịu trách nhiệm resolve API base URL, ví dụ `src/config/runtime.ts` hoặc theo convention hiện có. Mọi API client dùng module này. Không để mỗi service tự nối URL.
+
+Quy ước khuyến nghị:
+
+```env
+# .env.development
+VITE_API_BASE_URL=http://localhost:8000/api/v1
+
+# .env.production
+VITE_API_BASE_URL=/api/v1
+```
+
+Hoặc production bỏ biến và mặc định an toàn là `/api/v1`. Cần tránh double path như `/api/v1/api/v1/auth/login`. Chốt rõ base URL có hay không chứa `/api/v1` rồi viết helper/test cho việc nối path.
+
+Yêu cầu code:
+
+- Trim slash có kiểm soát.
+- Reject URL production chứa `localhost`, `127.0.0.1`, `0.0.0.0`, `http://host.docker.internal` hoặc private development hostname.
+- Nếu config thiếu/sai, hiện màn hình lỗi cấu hình rõ ràng và log không chứa secret; không fallback ngầm về localhost.
+- Axios/fetch client có timeout, JSON/error normalization, refresh single-flight theo module auth hiện có.
+- `credentials: "include"` chỉ dùng khi auth thật sự dùng cookie và server đã cấu hình tương ứng.
+- Không đặt secret vào `VITE_*`; biến Vite được đưa vào bundle phía client.
+- TypeScript khai báo `ImportMetaEnv` và validate bằng schema/hàm runtime.
+
+Vì Vite nhúng env lúc build, quy trình deploy phải truyền đúng env **trước** `npm run build`, sau đó upload/serve `dist` mới. Chỉ restart Nginx không đủ nếu bundle cũ đã chứa localhost.
+
+Thêm build guard, ví dụ script `scripts/assert-no-client-localhost.mjs`, quét output production và fail CI nếu tìm thấy URL loopback trong JS/HTML/manifest/source map được phát hành. Cho phép false positive có whitelist hẹp, có giải thích; không whitelist toàn bộ file.
+
+Nếu cần dùng một bundle cho nhiều host mà không rebuild, triển khai runtime config public riêng, ví dụ `/runtime-config.js` hoặc `/config.json` được Nginx/container tạo khi start. Phải:
+
+- Load trước app bootstrap.
+- Có schema/version.
+- Chỉ chứa giá trị công khai.
+- Fail closed khi thiếu/sai.
+- Không kết hợp nửa build-time nửa runtime gây khó xác định precedence.
+
+Chọn **một** chiến lược phù hợp repository và ghi quyết định. Với một VPS, `.env.production` + rebuild thường đơn giản nhất.
+
+## 5. React Native và thiết bị thật
+
+Mobile không dùng relative `/api/v1` giống browser nếu không có base origin. Cấu hình theo profile:
+
+```env
+# local physical device, chỉ development
+EXPO_PUBLIC_API_BASE_URL=http://<LAN-IP-CUA-MAY-DEV>:8000/api/v1
+
+# production/staging
+EXPO_PUBLIC_API_BASE_URL=https://<api-domain-hoac-domain-chung>/api/v1
+```
+
+Quy tắc:
+
+- Điện thoại thật: `localhost` là điện thoại.
+- Android emulator development có thể dùng `10.0.2.2` tùy môi trường; iOS simulator và physical device khác nhau. Tài liệu hóa, không hardcode vào production.
+- Production mobile bắt buộc HTTPS hợp lệ; không tắt cleartext/network security/ATS toàn cục để né lỗi.
+- `EXPO_PUBLIC_*` là dữ liệu công khai, không chứa Mongo URI, JWT secret, Google client secret, payment secret, TTS secret.
+- Env build mobile cũng cần rebuild binary/update bundle theo pipeline; thay file `.env` trên VPS không đổi ứng dụng đã cài.
+- Dùng secure storage cho refresh/access credential theo thiết kế auth, không AsyncStorage thường.
+- Google OAuth redirect/deep link và payment return URL dùng domain/scheme production đã đăng ký, không dùng localhost.
+
+Tạo bảng môi trường:
+
+| Client | Development | Staging | Production |
+|---|---|---|---|
+| Web | local Vite → local API hoặc Vite proxy | HTTPS staging | relative `/api/v1` same-origin |
+| Android emulator | host mapping dev | HTTPS staging | HTTPS production |
+| iOS simulator | URL dev phù hợp | HTTPS staging | HTTPS production |
+| Thiết bị thật | LAN/tunnel dev có kiểm soát | HTTPS staging | HTTPS production |
+
+## 6. Reverse proxy Nginx
+
+Tạo/cập nhật file thực, ví dụ:
+
+- `deploy/nginx/tour-guide.conf`.
+- `deploy/nginx/snippets/proxy-common.conf` nếu repository cần.
+
+Mẫu phải được điều chỉnh theo domain, đường dẫn build và topology thật; không copy mù:
+
+```nginx
+server {
+    listen 80;
+    server_name tour.example.com;
+
+    # Sau khi TLS hoạt động, redirect HTTP sang HTTPS.
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name tour.example.com;
+
+    # ssl_certificate ...;
+    # ssl_certificate_key ...;
+
+    root /var/www/tour-guide/dist;
+    index index.html;
+
+    location /api/ {
+        # Không có dấu / sau upstream để giữ nguyên /api/v1/...
+        proxy_pass http://127.0.0.1:8000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_connect_timeout 5s;
+        proxy_read_timeout 60s;
+    }
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}
+```
+
+Bắt buộc kiểm tra semantics của `proxy_pass`: dấu slash có thể làm thay đổi path. Test request `/api/v1/auth/login` đến FastAPI đúng nguyên path, không thành `/v1/...` hoặc `/api/api/v1/...`.
+
+Thêm theo nhu cầu thật:
+
+- `client_max_body_size` đủ cho upload audio nhưng có giới hạn.
+- Timeout riêng cho streaming/job; không tăng vô hạn toàn server.
+- Cache header cho assets có content hash; `index.html`/runtime config không cache quá lâu.
+- HTTP Range cho audio nếu luồng hiện có cần.
+- CSP `connect-src`, `img-src`, `media-src`, map style/tile domains và payment/Google domains chính xác; không dùng `*` để chữa lỗi.
+- Security headers sau khi test; không tự đặt header làm hỏng OAuth, map, audio hoặc camera.
+
+Nếu Nginx chạy trong container riêng, `127.0.0.1:8000` là container Nginx, không phải container backend. Khi đó dùng Docker service name, ví dụ `proxy_pass http://backend:8000;`. Nếu Nginx chạy host và backend expose loopback host, dùng `127.0.0.1:8000`.
+
+Chạy và ghi kết quả:
+
+```bash
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+Không reload nếu `nginx -t` thất bại. Backup file config hiện tại trước khi thay trên host và cung cấp rollback.
+
+## 7. FastAPI bind, proxy headers và CORS
+
+FastAPI/Uvicorn phải nghe đúng interface theo topology:
+
+- Chạy trực tiếp trên host sau Nginx: có thể bind `127.0.0.1:8000` để không public trực tiếp.
+- Chạy trong container: bind `0.0.0.0:8000` **bên trong container**, chỉ expose cho network/reverse proxy cần thiết; không đồng nghĩa mở MongoDB/Redis ra Internet.
+
+Tạo settings typed từ env:
+
+```env
+APP_ENV=production
+PUBLIC_WEB_URL=https://tour.example.com
+CORS_ALLOWED_ORIGINS=https://tour.example.com
+TRUSTED_HOSTS=tour.example.com
+FORWARDED_ALLOW_IPS=<proxy-hop-duoc-tin-cay>
+```
+
+Không hardcode IP/domain vào Python. Parse danh sách origin có validate; origin là scheme + host + port, không có path/trailing slash.
+
+### Same-origin production
+
+Khi web gọi `/api` cùng origin thông qua Nginx, browser không thực hiện CORS cho request đó. Vẫn có thể giữ CORS explicit cho local development/staging nhưng không dùng wildcard production.
+
+### Separate-origin production
+
+Nếu web và API khác origin, cấu hình `CORSMiddleware` explicit:
+
+```python
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_allowed_origins,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=[
+        "Authorization",
+        "Content-Type",
+        "X-CSRF-Token",
+        "Idempotency-Key",
+    ],
+    expose_headers=["ETag", "X-Request-ID"],
+)
+```
+
+Chỉ giữ header thực sự dùng. Khi `allow_credentials=True`, không đặt origins/methods/headers bằng wildcard. FastAPI cũng khuyến nghị liệt kê origin cụ thể cho request có credentials.
+
+Đảm bảo OPTIONS preflight không bị middleware auth/redirect/rate limit sai cách chặn. CORS middleware nên bọc đủ response lỗi để browser nhận header phù hợp; test thứ tự middleware trong app thật.
+
+CORS không phải authentication. React Native/curl không bị browser CORS nhưng vẫn phải xác thực, phân quyền, rate-limit và validate request.
+
+### Proxy/trusted hosts
+
+- Chỉ tin `X-Forwarded-*` từ reverse proxy đã biết; không trust toàn Internet tùy tiện.
+- FastAPI sinh redirect/callback URL với `https` khi client dùng HTTPS.
+- Allowed/trusted hosts chứa domain production; readiness/health không lộ config/secret.
+- Không chạy Uvicorn `--reload` trong production.
+
+## 8. Cookie, token, CSRF và OAuth
+
+Đọc module auth hiện có, không đổi cơ chế token tùy tiện chỉ để CORS hết lỗi.
+
+Nếu web dùng cookie HttpOnly:
+
+- Same-origin qua Nginx là phương án ưu tiên.
+- Production cookie có `Secure`, `HttpOnly`, Path và SameSite phù hợp.
+- Nếu thực sự cross-site, `SameSite=None` yêu cầu `Secure`; phải có CSRF protection cho mutation.
+- Không đặt cookie Domain rộng hơn cần thiết.
+- Refresh rotation/revocation giữ nguyên theo prompt auth.
+- Frontend `credentials: include`; backend allow credential và origin explicit.
+
+Nếu web dùng Bearer access token:
+
+- CORS cho phép `Authorization` khi cross-origin.
+- Không chuyển token sang localStorage chỉ vì dễ triển khai nếu thiết kế hiện tại dùng cookie an toàn.
+- Không log header/token.
+
+Google OAuth:
+
+- Cập nhật authorized origins/redirect URIs chính xác theo HTTPS domain.
+- State/nonce/PKCE/session binding giữ nguyên.
+- Return path chỉ cho internal allowlist; không open redirect.
+- Local callback và production callback tách env.
+
+Payment:
+
+- ReturnURL, webhook/IPN/callback phải dùng public HTTPS domain.
+- ReturnURL trình duyệt không phải bằng chứng cấp entitlement; backend vẫn xác minh webhook/query provider.
+- Không đặt payment secret trong web/mobile env.
+
+## 9. HTTPS và domain
+
+Đưa ra hai giai đoạn nhưng triển khai đích cuối an toàn:
+
+### Giai đoạn tạm IP-only
+
+- Có thể dùng Nginx same-origin trên `http://1.55.58.251` để chứng minh frontend gọi `/api/v1` đúng và hết request tới localhost.
+- Không tuyên bố hoàn tất production cho GPS, secure cookies, OAuth/payment nếu còn HTTP raw IP.
+- Không hướng dẫn tắt Chrome security/PNA, dùng `--disable-web-security`, extension CORS hoặc sửa hosts trên máy mọi người.
+
+### Production
+
+- Dùng domain/subdomain do chủ dự án kiểm soát.
+- DNS trỏ đúng VPS.
+- TLS certificate hợp lệ, tự gia hạn và redirect HTTP → HTTPS.
+- Frontend/API/callback URLs đều HTTPS.
+- Firewall chỉ mở cổng cần thiết, thường 22 có giới hạn, 80, 443; không mở MongoDB 27017, Redis 6379, worker dashboard hoặc Uvicorn 8000 ra Internet nếu Nginx đã proxy.
+
+Không tự mua domain, đổi DNS hoặc xin certificate nếu chưa có quyền truy cập. Khi thiếu domain/credentials, hoàn thiện file template và checklist, ghi rõ blocker thay vì bịa rằng HTTPS đã hoạt động.
+
+## 10. Docker Compose/systemd
+
+Audit cơ chế đang dùng rồi chọn một. Không tạo đồng thời Compose và systemd cho cùng process.
+
+Nếu dùng Docker Compose, tạo/cập nhật:
+
+- `deploy/docker-compose.prod.yml` hoặc file convention hiện có.
+- Backend, worker, Redis/Mongo nếu dự án tự host, và reverse proxy nếu proxy nằm trong Compose.
+- Named volume có mục đích; healthcheck; restart policy phù hợp; network internal.
+- Chỉ frontend build stage nhận `VITE_API_BASE_URL=/api/v1` hoặc runtime config public.
+- Backend nhận secret ở runtime, không bake vào image/layer.
+- Không commit `.env.production` thật; cung cấp `.env.production.example`.
+- Không `ports:` cho Mongo/Redis nếu chỉ service nội bộ cần.
+
+Nếu dùng systemd:
+
+- Tạo unit chạy user không phải root.
+- `WorkingDirectory`, virtualenv/command, env file có permission phù hợp.
+- Restart policy, graceful shutdown và log strategy.
+- Uvicorn bind loopback; Nginx public.
+- Không đưa secret trực tiếp vào unit được commit.
+
+Tạo manifest file cần copy lên host, ví dụ:
+
+```text
+deploy/
+├── README_DEPLOY.md
+├── nginx/tour-guide.conf
+├── docker-compose.prod.yml       # nếu dùng Compose
+├── systemd/tour-guide-api.service # nếu dùng systemd, không dùng đồng thời
+├── env/.env.production.example
+├── scripts/preflight.sh
+├── scripts/deploy.sh
+├── scripts/smoke-test.sh
+└── scripts/rollback.sh
+```
+
+Chỉ sinh file áp dụng cho lựa chọn thật. Không tạo file rỗng cho cả hai phương án.
+
+## 11. Script chuyển từ local lên host
+
+Tạo script deploy an toàn, dễ đọc, không tự xóa dữ liệu. Script phải:
+
+1. `set -Eeuo pipefail`.
+2. Kiểm tra biến đích không rỗng; không dùng `$HOME`, `/` hoặc glob rộng làm đích xóa.
+3. Build/test frontend với production env.
+4. Chạy guard không có localhost trong bundle.
+5. Tạo artifact có version/commit SHA, ví dụ tarball chứa `dist`, backend code/requirements hoặc image tag và `deploy/` config cần thiết.
+6. Không đóng gói `.env`, Mongo URI, private key, `.git`, upload tạm, `node_modules`, cache, database dump hoặc secret.
+7. Upload bằng `rsync`/`scp` đến thư mục release mới, không ghi đè release đang chạy trước khi healthcheck.
+8. Trên server: cài/restart đúng cơ chế, migration/index idempotent, `nginx -t`, healthcheck rồi mới switch symlink/reload.
+9. Nếu smoke test thất bại, rollback release/config trước và giữ log.
+10. Không tự chạy thao tác production chỉ vì script được tạo; tài liệu hóa lệnh để người có quyền chạy.
+
+Ví dụ interface script, không hardcode mật khẩu/IP nếu có biến:
+
+```bash
+DEPLOY_HOST=1.55.58.251 \
+DEPLOY_USER=<user> \
+DEPLOY_PATH=/opt/tour-guide \
+./deploy/scripts/deploy.sh
+```
+
+Không nhúng password SSH. Dùng SSH key đã cấu hình, host key checking và user deploy có quyền tối thiểu. Không chạy app bằng root nếu không cần.
+
+Nếu team còn đang copy thủ công, tối thiểu tạo một file ZIP/TAR có checksum và `README_DEPLOY.md` ghi rõ:
+
+- File nào upload.
+- Upload vào đâu.
+- File env thật đặt ở đâu và permission nào.
+- Lệnh backup, giải nén, build/restart/reload.
+- Lệnh health/smoke test.
+- Lệnh rollback.
+
+## 12. CI/CD và chống tái phát
+
+Pipeline production phải:
+
+- Lint/typecheck/unit/integration test.
+- Build web với mode production.
+- Fail nếu bundle chứa loopback/private development URL.
+- Không in env/secrets vào logs.
+- Build image/artifact bất biến, có commit SHA/version.
+- Deploy staging trước nếu có.
+- Healthcheck backend và smoke test login preflight/route public.
+- Giữ release trước để rollback.
+- Không chạy Mongo migration phá hủy tự động.
+
+Thêm kiểm tra source:
+
+- ESLint/custom rule hoặc unit test cấm API client hardcode URL.
+- Test config development/staging/production.
+- Test base URL/path joining.
+- Test `.env.production.example` không có localhost.
+- Test built artifact.
+
+## 13. Kiểm thử bắt buộc
+
+### Trước deploy
+
+- Test config resolver.
+- Test login API qua FastAPI trực tiếp nội bộ.
+- Test Nginx config trong môi trường phù hợp.
+- Quét source và bundle production.
+- OpenAPI/auth tests không bị thay sai.
+
+### Trên host
+
+Ghi lệnh và kết quả thật, không tự tuyên bố thành công:
+
+```bash
+curl -i http://127.0.0.1:8000/health/live
+curl -i https://tour.example.com/api/v1/health/live
+curl -i -X OPTIONS 'https://tour.example.com/api/v1/auth/login' \
+  -H 'Origin: https://tour.example.com' \
+  -H 'Access-Control-Request-Method: POST' \
+  -H 'Access-Control-Request-Headers: content-type'
+```
+
+Điều chỉnh health route theo code thật. Không gửi password thật trong command lưu vào tài liệu/log.
+
+Kiểm tra bằng browser DevTools:
+
+- Request URL là domain hoặc relative path production, không có localhost.
+- Status/preflight/response headers đúng.
+- Không mixed content `https` page → `http` API.
+- Cookie flags/domain/path đúng nếu dùng cookie.
+- Refresh/logout/login hoạt động sau reload.
+- Google login/payment return chỉ test khi credentials/sandbox có thật.
+
+Kiểm tra mobile:
+
+- Thiết bị thật gọi HTTPS public API.
+- Không có localhost trong production bundle/log.
+- Login/register/guest/refresh/logout hoạt động.
+- Map/GPS/audio/QR/payment callback không bị URL cũ.
+
+### Test trường hợp lỗi
+
+- API down trả trạng thái UI dễ hiểu, không treo spinner.
+- Sai origin bị chặn trong separate-origin mode.
+- OPTIONS không yêu cầu JWT.
+- Missing env làm build/start fail rõ ràng.
+- Bundle chứa localhost làm CI fail.
+- Nginx upstream sai/timeout trả lỗi có request ID/log, không lộ stack trace.
+- Rollback hoạt động.
+
+## 14. Source code sơ đồ bắt buộc
+
+Đây chủ yếu là thay đổi triển khai, không tự bịa thêm use case nghiệp vụ. Thực hiện:
+
+- Cập nhật traceability của U01 login, đăng ký, Google, guest, refresh/logout và các client web/mobile nếu đường API/config thay đổi.
+- Nếu hành vi người dùng không đổi, ghi `No semantic Use Case change` trong changelog, nhưng vẫn bàn giao code sơ đồ kiến trúc/sequence/activity bên dưới.
+- ERD không đổi nếu không thêm/sửa schema. Ghi `No ERD change`; không thêm bảng “CORS” hoặc “server config” vào MongoDB.
+
+Tạo/cập nhật source code:
+
+1. Deployment/Component diagram: Browser, Mobile, Nginx, FastAPI, MongoDB, Redis/worker/storage/provider; phân biệt public/private network và HTTPS.
+2. Sequence diagram “Web production login”: Browser → Nginx `/api/v1/auth/login` → FastAPI Router → AuthService → Repository → MongoDB; response/cookie qua proxy.
+3. Sequence diagram “CORS preflight” chỉ cho cấu hình separate-origin: Browser OPTIONS → Nginx → CORSMiddleware → allow/deny; không vẽ login service chạy cho OPTIONS.
+4. Sequence diagram “Mobile production login”: Mobile → HTTPS API domain/Nginx → FastAPI; không có browser CORS nhưng có auth/rate limit.
+5. Activity diagram “Resolve API configuration”: dev/staging/prod → validate → reject localhost production → initialize client/fail configuration.
+6. Activity diagram “Deployment”: test/build → scan bundle → package/upload release → backup/config test → healthcheck → switch/reload → smoke test → success/rollback.
+7. Activity diagram “Request production”: same-origin relative `/api` → reverse proxy → backend → success/error; nhánh API unavailable.
+
+Dùng PlantUML/Mermaid/Eraser đúng convention repository; lưu source tại `docs/diagrams/`, không chỉ ảnh. Cập nhật `docs/traceability/deployment-network-matrix.md`:
+
+```text
+client action → resolved URL → reverse-proxy route → backend endpoint
+→ auth/CORS policy → config/env → smoke test → diagram
+```
+
+Render/lint source nếu công cụ có. Nếu chỉ kiểm tra tĩnh, nói đúng giới hạn.
+
+## 15. File bàn giao bắt buộc
+
+Sau khi audit, bàn giao đúng file phù hợp repo, tối thiểu:
+
+- Web centralized config/API client đã sửa.
+- `.env.development.example`.
+- `.env.production.example` với `/api/v1`, không localhost.
+- Mobile env example cho dev/staging/production.
+- FastAPI typed settings + CORS/trusted-host/proxy config.
+- Reverse proxy config.
+- Docker Compose **hoặc** systemd production config theo lựa chọn thật.
+- Deploy/preflight/smoke/rollback scripts.
+- Build guard cấm localhost trong production bundle.
+- `README_DEPLOY.md` từ local → host.
+- Source deployment/sequence/activity diagrams và traceability.
+- Test report và changelog.
+
+Không commit:
+
+- `.env.production` thật.
+- JWT/Google/payment/TTS secret.
+- SSH private key/certificate private key.
+- Mongo URI có password.
+- Database dump hoặc log chứa token/password.
+
+## 16. Thứ tự thực hiện
+
+1. Audit repo/host config và tái hiện lỗi bằng URL/request chính xác.
+2. Lập inventory URL/env/ports/services.
+3. Chọn same-origin reverse proxy hoặc separate-origin có lý do; ưu tiên same-origin.
+4. Centralize web/mobile config và xóa fallback localhost production.
+5. Cập nhật FastAPI settings/CORS/auth cookie/proxy trust.
+6. Tạo/cập nhật Nginx và HTTPS/domain templates.
+7. Tạo deploy bundle/scripts và CI build guard.
+8. Rebuild frontend production; quét bundle.
+9. Deploy release an toàn; healthcheck/smoke test/rollback nếu lỗi.
+10. Test web/mobile auth và các URL map/audio/Google/payment.
+11. Cập nhật source sơ đồ, traceability và tài liệu.
+
+Không hỏi lại những điều có thể xác định từ repository/config. Chỉ dừng và báo blocker khi cần quyền/giá trị thực như domain, DNS, SSH, certificate, Google/payment credentials. Khi thiếu quyền host, vẫn tạo patch/config/template và lệnh chính xác, nhưng không tuyên bố đã deploy.
+
+## 17. Tiêu chí hoàn thành
+
+Chỉ đánh dấu xong khi:
+
+- Source và production bundle không còn client URL `localhost:8000`.
+- Browser gọi `/api/v1/...` hoặc HTTPS API domain đúng.
+- Nginx chuyển tiếp đúng nguyên path đến FastAPI.
+- Login/register/guest/refresh/logout hoạt động trên web production.
+- Mobile production dùng HTTPS public API, không localhost.
+- Không có wildcard CORS cùng credentials.
+- HTTPS/domain được thiết lập hoặc được ghi rõ là blocker; raw-IP HTTP không bị gọi là production-ready.
+- Google/payment/map/audio callbacks/config không còn URL local ngoài môi trường dev.
+- Có artifact/script để chuyển release từ local lên host, smoke test và rollback.
+- Code sơ đồ deployment/sequence/activity và traceability khớp implementation.
+- Báo cáo liệt kê file đã sửa, lệnh đã chạy, kết quả thật và phần chưa test.
+
+Kết quả cuối trả theo mẫu:
+
+1. Root cause đã xác nhận.
+2. Kiến trúc/config được chọn.
+3. Danh sách file thêm/sửa.
+4. Diff quan trọng, không dán secret.
+5. Lệnh build/package/copy/deploy/reload.
+6. Lệnh và kết quả smoke test.
+7. Source sơ đồ đã cập nhật.
+8. Blocker/giới hạn còn lại.
+
+**Không chữa lỗi bằng cách tắt CORS, tắt bảo mật Chrome, cài extension, dùng `--disable-web-security`, mở toàn bộ origin hoặc expose MongoDB/Redis/FastAPI thẳng ra Internet. Sửa đúng URL client, cấu hình môi trường, reverse proxy và HTTPS.**
+
+## KẾT THÚC PROMPT

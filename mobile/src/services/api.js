@@ -1,18 +1,9 @@
 import { Platform } from "react-native";
+import { MOBILE_API_BASE_URL, MOBILE_BACKEND_ROOT } from "../config/runtime.js";
 
-// Base URL for API requests.
-// On real Android devices, replace "10.0.2.2" with your development machine's LAN IP address.
-export const API_BASE_URL = Platform.select({
-  android: "http://10.0.2.2:8000/api/v1",
-  ios: "http://localhost:8000/api/v1",
-  default: "http://localhost:8000/api/v1",
-});
-
-export const BACKEND_ROOT = Platform.select({
-  android: "http://10.0.2.2:8000",
-  ios: "http://localhost:8000",
-  default: "http://localhost:8000",
-});
+// Centralized Mobile API Base URL
+export const API_BASE_URL = MOBILE_API_BASE_URL;
+export const BACKEND_ROOT = MOBILE_BACKEND_ROOT;
 
 export const api = {
   API_BASE_URL,
@@ -73,6 +64,87 @@ export const api = {
     } catch (err) {
       console.warn("[API] getNearbyPOIs error:", err.message);
       return [];
+    }
+  },
+
+  /**
+   * GET /api/v1/map/config - Public map settings (center, zoom, style, bounds).
+   */
+  async getMapConfig() {
+    try {
+      const res = await fetch(`${API_BASE_URL}/map/config`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return await res.json();
+    } catch (err) {
+      console.warn("[API] getMapConfig error:", err.message);
+      return null;
+    }
+  },
+
+  /**
+   * GET /api/v1/pois/search - Search published POIs with distance and accents normalization.
+   */
+  async searchPOIs({ query, category = null, originLat = null, originLon = null, lang = "vi", limit = 20 }) {
+    try {
+      const params = new URLSearchParams({ q: query, lang, limit: String(limit) });
+      if (category && category !== "all") params.append("category", category);
+      if (originLat != null) params.append("origin_lat", String(originLat));
+      if (originLon != null) params.append("origin_lon", String(originLon));
+
+      const res = await fetch(`${API_BASE_URL}/pois/search?${params.toString()}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      return (data || []).map((poi) => ({
+        ...poi,
+        audio_url: this.resolveUrl(poi.audio_url),
+        images: (poi.images || []).map((img) => this.resolveUrl(img)),
+      }));
+    } catch (err) {
+      console.warn("[API] searchPOIs error:", err.message);
+      return [];
+    }
+  },
+
+  /**
+   * POST /api/v1/routes/preview - Calculates normalized route via OSRM engine.
+   */
+  async getRoutePreview({ origin, originPoiId, destination, destinationPoiId, mode = "walking", locale = "vi" }) {
+    try {
+      const payload = {
+        mode,
+        locale,
+        origin,
+        origin_poi_id: originPoiId,
+        destination,
+        destination_poi_id: destinationPoiId,
+      };
+      const res = await fetch(`${API_BASE_URL}/routes/preview`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.detail || `HTTP ${res.status}`);
+      }
+      return await res.json();
+    } catch (err) {
+      console.warn("[API] getRoutePreview error:", err.message);
+      throw err;
+    }
+  },
+
+  /**
+   * GET /api/v1/routes/tour/{id} - Dynamic multi-stop route geometry for tours.
+   */
+  async getTourRouteSummary(tourId, locale = "vi") {
+    try {
+      const res = await fetch(`${API_BASE_URL}/routes/tour/${tourId}?locale=${locale}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return await res.json();
+    } catch (err) {
+      console.warn("[API] getTourRouteSummary error:", err.message);
+      return null;
     }
   },
 

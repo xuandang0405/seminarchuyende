@@ -1,0 +1,75 @@
+@startuml SD-SESSION-05-device-bootstrap-visitor
+skinparam style strictuml
+autonumber
+title SD-SESSION-05: Khởi tạo Device Credential -> Visitor Session -> Heartbeat -> Timeout/End
+
+actor "Thiết bị người dùng" as Client
+participant "FastAPI Device / Session Router" as Router
+participant "SessionService" as Svc
+participant "Device / Session Repository" as Repo
+database "MongoDB" as DB
+
+== Bước 1: Khởi tạo Device Identity bền vững ==
+Client -> Router : POST /api/v1/device/bootstrap (platform="web", user_agent)
+activate Router
+Router -> Svc : bootstrap_device()
+activate Svc
+Svc -> Svc : Sinh token 256-bit ngẫu nhiên + HMAC-SHA256 hash
+Svc -> Repo : get_or_create_device(token_hash)
+activate Repo
+Repo -> DB : update_one({token_hash}, {$set: {last_seen_at}}, upsert=True)
+activate DB
+DB --> Repo : device_id
+deactivate DB
+Repo --> Svc : device_id
+deactivate Repo
+Svc --> Router : device_id, raw_token
+deactivate Svc
+Router --> Client : Set-Cookie: tourvoice_device_token (HttpOnly, Secure)
+deactivate Router
+
+== Bước 2: Bắt đầu / Tái sử dụng Visitor Session ==
+Client -> Router : POST /api/v1/visitor-sessions/start-or-resume
+activate Router
+Router -> Svc : start_or_resume_session(device_id)
+activate Svc
+Svc -> Repo : find_active_session_within_15min(device_id)
+activate Repo
+Repo -> DB : find_one({device_id, status: "active", last_seen_at >= now - 15m})
+activate DB
+alt Đã có phiên gần đây
+    DB --> Repo : existing_session_doc
+    Repo --> Svc : existing_session
+    Svc --> Router : 200 OK (session_id cũ, status="resumed")
+else Chưa có hoặc đã hết hạn
+    DB --> Repo : null
+    deactivate DB
+    Repo -> DB : insert_one({session_id, device_id, status: "active", started_at, last_seen_at})
+    activate DB
+    DB --> Repo : new_session
+    deactivate DB
+    Repo --> Svc : new_session
+    deactivate Repo
+    Svc --> Router : 200 OK (session_id mới, status="created")
+end
+deactivate Svc
+Router --> Client : VisitorSessionStartResponse
+deactivate Router
+
+== Bước 3: Heartbeat định kỳ & Kết thúc ==
+loop Mỗi 30-60 giây khi Tab hiển thị (Visible)
+    Client -> Router : POST /api/v1/visitor-sessions/{id}/heartbeat
+    activate Router
+    Router -> Repo : update_one({session_id, status: "active"}, {$set: {last_seen_at: now}})
+    Router --> Client : 200 OK {acknowledged: true}
+    deactivate Router
+end
+
+opt Người dùng đóng app hoặc logout chủ động
+    Client -> Router : POST /api/v1/visitor-sessions/{id}/end
+    activate Router
+    Router -> Repo : update_one({session_id}, {$set: {status: "ended", ended_at: now}})
+    Router --> Client : 200 OK
+    deactivate Router
+end
+@enduml

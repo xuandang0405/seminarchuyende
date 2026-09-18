@@ -1,0 +1,53 @@
+@startuml SD-MAP-02
+title SD-MAP-02: Truy vấn Điểm đến Lân cận & Tính Khoảng cách Đường chim bay ($geoNear)
+
+autonumber
+actor "Người dùng" as User
+participant "Giao diện (Web/Mobile)" as Client
+participant "POI Router\n(FastAPI)" as Router
+participant "POI Service" as Service
+participant "POI Repository" as Repo
+participant "Geo Service\n(Haversine Fallback)" as Geo
+database "MongoDB" as DB
+
+User -> Client: Bật GPS / Cho phép định vị tọa độ
+Client -> Router: GET /api/v1/pois/nearby?latitude=10.7681&longitude=106.7067&radius_m=1000&lang=vi
+activate Router
+
+Router -> Service: get_nearby_pois(latitude=10.7681, longitude=106.7067, radius_m=1000, lang="vi")
+activate Service
+
+Service -> Repo: find_nearby_geo_near(longitude=106.7067, latitude=10.7681, max_distance_m=1000)
+activate Repo
+
+Repo -> DB: db.pois.aggregate([\n  { $geoNear: {\n      near: { type: "Point", coordinates: [106.7067, 10.7681] },\n      distanceField: "straight_line_distance_m",\n      maxDistance: 1000,\n      spherical: true,\n      query: { is_active: true }\n  } },\n  { $limit: 30 }\n])
+activate DB
+
+alt 2dsphere index khả dụng trên MongoDB
+    DB --> Repo: Danh sách POI docs kèm field "straight_line_distance_m" (mét)
+else Fallback trường hợp môi trường test / mongomock
+    DB --> Repo: Lỗi hoặc danh sách không hỗ trợ $geoNear
+    Repo -> Geo: haversine_distance_meters(p1, p2)
+    Geo --> Repo: straight_line_distance_m chính xác
+end
+deactivate DB
+
+Repo --> Service: List[Dict] kèm straight_line_distance_m (mét nguyên)
+deactivate Repo
+
+loop Với từng POI lân cận
+    Service -> Service: resolve_poi_content(poi, "vi")
+    Service -> Geo: format_distance_si(straight_line_distance_m)
+    Geo --> Service: formatted_distance (VD: "350 m" hoặc "1.2 km")
+end
+
+Service --> Router: List[POISummaryDTO] kèm straight_line_distance_m
+deactivate Service
+
+Router --> Client: 200 OK [ { id, name, straight_line_distance_m: 350, formatted_distance: "350 m", ... } ]
+deactivate Router
+
+Client -> Client: Hiển thị Badge khoảng cách chim bay trên POI Card & Popup
+Client --> User: Người dùng thấy cự ly thẳng đến từng điểm đến
+
+@enduml

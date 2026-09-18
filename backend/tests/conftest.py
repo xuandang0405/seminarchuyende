@@ -56,6 +56,9 @@ class AsyncMockCollection:
     async def count_documents(self, *args, **kwargs):
         return self._col.count_documents(*args, **kwargs)
 
+    async def distinct(self, *args, **kwargs):
+        return self._col.distinct(*args, **kwargs)
+
     async def create_index(self, *args, **kwargs):
         try:
             return self._col.create_index(*args, **kwargs)

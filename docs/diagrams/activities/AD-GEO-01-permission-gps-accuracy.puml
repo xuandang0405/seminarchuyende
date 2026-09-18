@@ -1,0 +1,50 @@
+@startuml AD-GEO-01-permission-gps-accuracy
+skinparam style strictuml
+title AD-GEO-01: Quy trình Xin quyền Vị trí, Lọc Accuracy & Xử lý Vị trí Không Khả Dụng
+
+start
+:Người dùng mở bản đồ;
+:LocationService kiểm tra trạng thái quyền;
+
+if (Đã có quyền định vị?) then (chưa)
+    :Hiển thị hộp thoại xin cấp quyền GPS;
+    if (Người dùng đồng ý?) then (có)
+        :Đặt trạng thái = "granted";
+    else (không)
+        :Đặt trạng thái = "denied";
+        :Hiển thị thông báo hướng dẫn bật GPS;
+        :Đặt tâm bản đồ về mặc định trung tâm Quận 4;
+        stop
+    endif
+else (đã có)
+endif
+
+:Lấy vị trí lưu gần nhất (last-known) nếu có;
+if (Có last-known?) then (có)
+    :Hiển thị marker vị trí tạm thời với nhãn mờ;
+else (không)
+endif
+
+:Bắt đầu watchPosition với hồ sơ phù hợp (idle/nav);
+:Hệ điều hành / Trình duyệt trả về tọa độ;
+
+if (Tọa độ hợp lệ (không NaN, đúng miền [-90,90], [-180,180])?) then (hợp lệ)
+    if (Accuracy <= 65m?) then (độ chính xác tốt)
+        if (Vận tốc dịch chuyển <= 600km/h (không Teleport)?) then (hợp lý)
+            :Cập nhật marker chính xác;
+            :Vẽ vòng tròn Accuracy (bán kính theo mét);
+            :Chuyển mẫu đến bộ phân phối chung (Geofence, Route, Map);
+        else (dịch chuyển vô lý)
+            :Bỏ qua mẫu ngoại lai (Outlier Ignored);
+        endif
+    else (sai số quá lớn > 65m)
+        :Hiển thị vòng tròn cảnh báo màu vàng;
+        :Gắn cờ "stale_accuracy";
+        :Không kích hoạt Geofence bằng mẫu nhiễu này;
+    endif
+else (dữ liệu sai)
+    :Bỏ qua mẫu không hợp lệ;
+endif
+
+stop
+@enduml

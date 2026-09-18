@@ -1,0 +1,46 @@
+@startuml SD-DEPLOY-02-cors-preflight
+title SD-DEPLOY-02: Xử Lý CORS Preflight Khi Cấu Hình Khác Origin (Separate-Origin)
+
+autonumber
+actor "Khách truy cập" as User
+participant "Trình duyệt Web\n(Origin: https://app.quan4.vn)" as Browser
+participant "Nginx Reverse Proxy\n(https://api.quan4.vn)" as Nginx
+participant "CORSMiddleware\n(FastAPI)" as CORS
+participant "Auth Router\n(FastAPI)" as Router
+
+User -> Browser: Thực hiện thao tác gửi dữ liệu có chứa Header tùy biến
+Browser -> Browser: Phát hiện Cross-Origin request có credentials & custom headers:\nX-CSRF-Token, Content-Type: application/json
+
+Browser -> Nginx: OPTIONS /api/v1/auth/login\nOrigin: https://app.quan4.vn\nAccess-Control-Request-Method: POST\nAccess-Control-Request-Headers: content-type, x-csrf-token
+activate Nginx
+
+Nginx -> CORS: proxy_pass OPTIONS /api/v1/auth/login
+activate CORS
+
+note over CORS
+  <b>Kiểm tra Preflight tại Middleware:</b>
+  1. So khớp Origin với settings.CORS_ALLOWED_ORIGINS
+  2. Xác nhận Origin "https://app.quan4.vn" nằm trong allowlist
+  3. KHÔNG gọi vào AuthService/Database (chặn xử lý nghiệp vụ)
+end note
+
+CORS --> Nginx: 200 OK\nAccess-Control-Allow-Origin: https://app.quan4.vn\nAccess-Control-Allow-Credentials: true\nAccess-Control-Allow-Methods: GET, POST, PUT, PATCH, DELETE, OPTIONS\nAccess-Control-Allow-Headers: Authorization, Content-Type, X-CSRF-Token, Idempotency-Key
+deactivate CORS
+
+Nginx --> Browser: 200 OK (CORS Preflight Headers)
+deactivate Nginx
+
+note over Browser
+  Trình duyệt xác nhận Server cho phép gửi request thực tế!
+end note
+
+Browser -> Nginx: POST /api/v1/auth/login (Request chính thức)
+activate Nginx
+Nginx -> Router: proxy_pass POST /api/v1/auth/login
+activate Router
+Router --> Nginx: 200 OK (Kết quả đăng nhập)
+deactivate Router
+Nginx --> Browser: 200 OK
+deactivate Nginx
+
+@enduml

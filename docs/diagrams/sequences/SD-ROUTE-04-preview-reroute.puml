@@ -1,0 +1,49 @@
+@startuml SD-ROUTE-04-preview-reroute
+skinparam style strictuml
+autonumber
+title SD-ROUTE-04: Tìm lộ trình thực tế & Tự động tính lại khi lệch tuyến (Re-route)
+
+actor "Du khách" as User
+participant "Navigation UI" as UI
+participant "RoutingRouter\n(FastAPI)" as Router
+participant "RoutingService" as Svc
+participant "RoutingProvider\n(OSRM Engine)" as Engine
+
+User -> UI : Bấm "Tìm Lộ Trình" (Origin -> Destination POI)
+activate UI
+UI -> Router : POST /api/v1/routes/preview\n{origin: {lat, lon}, destination_poi_id: "poi_1", mode: "walking"}
+activate Router
+
+Router -> Svc : calculate_route(origin, dest, mode)
+activate Svc
+Svc -> Engine : request_route(coords, mode="foot")
+activate Engine
+Engine --> Svc : Raw OSRM Route (legs, steps, polyline)
+deactivate Engine
+
+Svc -> Svc : Chuẩn hóa DTO (route_id, distance_m, duration_s, GeoJSON LineString)
+Svc --> Router : RoutePreviewResponse
+deactivate Svc
+Router --> UI : 200 OK (Route Data)
+deactivate Router
+
+UI -> UI : Vẽ LineString lên bản đồ (Map Layer)\n+ Hiển thị tổng quãng đường & thời gian ước tính\n+ Fit bounds camera có padding
+
+== Giai đoạn Điều hướng & Xử lý Lệch Tuyến ==
+loop Khi nhận mẫu GPS mới
+    UI -> UI : Tính khoảng cách từ vị trí đến Polyline (distanceToPolyline)
+    alt Lệch tuyến > 30m liên tiếp trong 2 mẫu
+        UI -> UI : offTrackCounter++\nKiểm tra cooldown re-route (>= 15s)
+        opt Đủ điều kiện Re-route
+            UI -> Router : POST /api/v1/routes/preview (Single-flight)
+            activate Router
+            Router --> UI : Tuyến đường mới đã tính lại
+            deactivate Router
+            UI -> UI : Cập nhật lại Polyline mới mượt mà
+        end
+    else Đang đi đúng tuyến
+        UI -> UI : Reset offTrackCounter = 0
+    end
+end
+deactivate UI
+@enduml

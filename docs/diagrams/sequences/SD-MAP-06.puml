@@ -1,0 +1,37 @@
+@startuml SD-MAP-06
+title SD-MAP-06: Phát hiện Đến nơi & Bắt tay Tự động Phát Thuyết minh Âm thanh
+
+autonumber
+actor "Du khách" as User
+participant "GPS Hardware" as GPS
+participant "LocationService" as LocSvc
+participant "NavigationController" as NavCtrl
+participant "GeofenceEngine" as GeoEngine
+participant "NarrationController" as NarrCtrl
+participant "AudioPlayerBar / HUD" as UI
+
+GPS -> LocSvc: Tọa độ người dùng [lat, lon]
+LocSvc -> NavCtrl: updateLocation(userCoords)
+LocSvc -> GeoEngine: evaluateLocation(userCoords, pois)
+
+NavCtrl -> NavCtrl: Tính khoảng cách đến Destination POI\ncalculateDistanceMeters(lat, lon, destLat, destLon)
+
+alt Khoảng cách đến đích <= 15 mét (Arrival Threshold)
+    NavCtrl -> NavCtrl: Chuyển trạng thái -> ARRIVED
+    NavCtrl -> UI: Hiển thị Banner chúc mừng: "🎉 Bạn đã đến nơi!"
+
+    alt POI nằm trong bán kính kích hoạt Geofence (trigger_radius)
+        GeoEngine -> GeoEngine: Kiểm tra cooldown & debounce >= 3s
+        GeoEngine -> NarrCtrl: requestNarration(destinationPoi, "gps", lang)
+        activate NarrCtrl
+
+        NarrCtrl -> NarrCtrl: Tải file âm thanh tương ứng ngôn ngữ
+        NarrCtrl -> UI: Hiển thị Player Bar & tự động phát Audio thuyết minh
+        deactivate NarrCtrl
+        UI --> User: Du khách vừa đến nơi và nghe thấy bài thuyết minh tự động
+    end
+else Khoảng cách > 15 mét
+    NavCtrl -> UI: Tiếp tục dẫn đường turn-by-turn
+end
+
+@enduml

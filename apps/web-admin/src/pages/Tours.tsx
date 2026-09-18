@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Route, MapPin, Plus, CheckCircle2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { apiUrl } from '../config/runtime';
 
 export const Tours: React.FC = () => {
   const { token } = useAuth();
@@ -11,7 +12,7 @@ export const Tours: React.FC = () => {
   const fetchTours = async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/v1/tours');
+      const res = await fetch(apiUrl('/tours'));
       const data = await res.json();
       setTours(Array.isArray(data) ? data : []);
       if (data.length > 0) {
@@ -26,7 +27,7 @@ export const Tours: React.FC = () => {
 
   const fetchTourDetail = async (tourId: string) => {
     try {
-      const res = await fetch(`/api/v1/tours/${tourId}`);
+      const res = await fetch(apiUrl(`/tours/${tourId}`));
       const data = await res.json();
       setSelectedTour(data);
     } catch (err) {

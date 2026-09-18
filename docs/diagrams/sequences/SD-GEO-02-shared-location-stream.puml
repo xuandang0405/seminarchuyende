@@ -1,0 +1,33 @@
+@startuml SD-GEO-02-shared-location-stream
+skinparam style strictuml
+autonumber
+title SD-GEO-02: Cập nhật vị trí -> Lọc nhiễu -> Phân phối luồng dùng chung (Multiplexing)
+
+participant "Trình duyệt / OS GPS" as OS
+participant "LocationService\n(Multiplexing Watcher)" as LocSvc
+participant "Bản đồ tương tác\n(Interactive Map)" as MapUI
+participant "Geofence Engine" as Geofence
+participant "Navigation Controller" as Nav
+
+OS -> LocSvc : onWatchPosition(rawCoords)
+activate LocSvc
+
+LocSvc -> LocSvc : validateSample(lat, lon, accuracy, speed)
+alt Tọa độ NaN / Ngoài miền [-90,90] / Vận tốc > 600km/h (Teleport)
+    LocSvc -> LocSvc : ignoreSample("OUTLIER_DETECTED")
+else Mẫu hợp lệ
+    LocSvc -> LocSvc : formatStandardLocationSample()
+    
+    par Subscriber 1: Bản đồ
+        LocSvc -> MapUI : updateMarker(lat, lon, accuracy, heading)
+        MapUI -> MapUI : Cập nhật vòng tròn Accuracy\n(Không giật camera nếu đang drag)
+    and Subscriber 2: Động cơ Geofence
+        LocSvc -> Geofence : checkProximity(lat, lon, accuracy)
+        Geofence -> Geofence : Áp dụng Debounce (>=3s)\n+ Kiểm tra bán kính kích hoạt
+    and Subscriber 3: Bộ điều hướng dẫn đường
+        LocSvc -> Nav : updateProgress(lat, lon, accuracy)
+        Nav -> Nav : Snap tọa độ vào đường đi\n+ Kiểm tra khoảng cách lệch tuyến
+    end
+end
+deactivate LocSvc
+@enduml

@@ -1,0 +1,71 @@
+// Eraser.io Diagram - Map & Routing Schema
+
+pois [icon: map-pin, color: blue] {
+  _id string pk
+  code string unique
+  name string
+  description string
+  category string
+  address string
+  location object [2dsphere]
+  trigger_radius number
+  radius_enter_m number
+  radius_exit_m number
+  cooldown_seconds number
+  audio_priority number
+  is_active boolean
+  content_version number
+  updated_at datetime
+}
+
+poi_localizations [icon: globe, color: green] {
+  _id string pk
+  poi_id string fk
+  lang string
+  name string
+  description string
+  audio_url string
+  audio_asset_id string
+  audio_duration_ms number
+  is_published boolean
+}
+
+tours [icon: compass, color: orange] {
+  _id string pk
+  code string unique
+  title string
+  description string
+  poi_ids array_string
+  estimated_duration_minutes number
+  is_active boolean
+  version number
+  created_at datetime
+  updated_at datetime
+}
+
+route_cache [icon: database, color: purple] {
+  _id object_id pk
+  fingerprint string unique
+  origin array_number
+  destination array_number
+  mode string
+  locale string
+  route object
+  expires_at datetime [ttl]
+  created_at datetime
+}
+
+guest_sessions [icon: user, color: yellow] {
+  _id string pk
+  current_tour_id string fk
+  current_poi_id string fk
+  last_location object
+  lang string
+  created_at datetime
+}
+
+// Relationships
+pois._id < poi_localizations.poi_id
+pois._id < tours.poi_ids
+tours._id < guest_sessions.current_tour_id
+pois._id < guest_sessions.current_poi_id

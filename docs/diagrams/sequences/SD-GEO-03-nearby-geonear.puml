@@ -1,0 +1,42 @@
+@startuml SD-GEO-03-nearby-geonear
+skinparam style strictuml
+autonumber
+title SD-GEO-03: Tìm kiếm POI gần tôi -> FastAPI Service -> Repository -> MongoDB $geoNear
+
+actor "Du khách\n(Tourist)" as User
+participant "Client Web / App" as Client
+participant "POIRouter\n(FastAPI)" as Router
+participant "POIService" as Service
+participant "POIRepository" as Repo
+database "MongoDB\n(2dsphere Index)" as DB
+
+User -> Client : Mở danh sách POI gần tôi
+activate Client
+Client -> Router : GET /api/v1/pois/nearby?latitude=10.76&longitude=106.70&max_distance_meters=3000
+activate Router
+
+Router -> Router : Validate DTO (Bounds, radius limit <= 10000m)
+Router -> Service : get_nearby_pois(lat, lon, max_dist=3000)
+activate Service
+
+Service -> Repo : find_nearby_geospatial(lon, lat, max_dist)
+activate Repo
+
+Repo -> DB : aggregate([\n  {$geoNear: {\n    near: {type: "Point", coordinates: [lon, lat]},\n    distanceField: "straight_line_distance_m",\n    maxDistance: 3000,\n    spherical: true\n  }},\n  {$match: {deleted_at: null, status: "active"}}\n])
+activate DB
+DB --> Repo : Danh sách POI kèm khoảng cách mét
+deactivate DB
+
+Repo --> Service : poi_docs
+deactivate Repo
+
+Service -> Service : Tính toán format display (m / km)\nLọc đa ngôn ngữ theo locale
+Service --> Router : List[POINearbyResponse]
+deactivate Service
+
+Router --> Client : 200 OK (JSON List POI)
+deactivate Router
+
+Client -> Client : Hiển thị danh sách sắp xếp gần -> xa\n+ Cập nhật Marker bản đồ
+deactivate Client
+@enduml

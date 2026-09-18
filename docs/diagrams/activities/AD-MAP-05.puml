@@ -1,0 +1,38 @@
+@startuml AD-MAP-05
+title AD-MAP-05: Ghép nối Đa điểm Dừng & Tổng hợp Lộ trình Tour Tuyến (Legs Aggregation)
+
+start
+
+:Nhận yêu cầu hiển thị lộ trình tour (tour_id, lang);
+
+:Truy vấn Tour Document từ MongoDB;
+:Lấy danh sách các điểm dừng theo thứ tự: poi_ids [p0, p1, ..., pn-1];
+
+if (Số lượng điểm dừng < 2?) then (Dưới 2 điểm)
+    :Trả về danh sách rỗng (legs = [], total_distance = 0);
+    stop
+endif
+
+:Truy vấn danh sách POI Documents tương ứng;
+:Khởi tạo total_distance = 0, total_duration = 0, legs = [];
+
+:Chạy vòng lặp từ i = 0 đến n - 2;
+while (Còn cặp điểm kế tiếp (p_i, p_i+1)?) is (Đúng)
+    :Lấy tọa độ điểm xuất phát p_i và điểm đến p_i+1;
+    :Tính toán chặng di chuyển (Leg) qua RoutingService (OSRM / Cache);
+    
+    :Cộng dồn total_distance += leg.route_distance_m;
+    :Cộng dồn total_duration += leg.route_duration_s;
+    :Thêm leg vào danh sách legs;
+endwhile (Đã duyệt hết các chặng)
+
+:Đóng gói kết quả TourRouteSummaryResponse:
+- tour_id
+- total_route_distance_m
+- total_route_duration_s
+- legs[] (từng chặng gồm geometry, distance, duration, steps);
+
+:Client vẽ đường Polyline liên tục nối tất cả các chặng;
+
+stop
+@enduml

@@ -69,6 +69,9 @@ class POIAdminService:
             expected_version=expected_version,
             content_changed=content_changed
         )
+        if updated and ("location" in update_fields or "coordinates" in update_fields):
+            from app.repositories.route_cache_repo import route_cache_repo
+            await route_cache_repo.invalidate_all()
         return updated
 
     async def soft_delete_poi(self, poi_id: str) -> bool:

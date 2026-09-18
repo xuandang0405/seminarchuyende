@@ -1,0 +1,50 @@
+@startuml SD-ANALYTICS-09-aggregation-dashboard
+skinparam style strictuml
+autonumber
+title SD-ANALYTICS-09: Tác vụ Tổng hợp Số liệu (Aggregation) -> Chỉ số Read Models -> Bảng điều khiển Quản trị
+
+actor "Quản trị viên\n(Admin)" as Admin
+participant "Admin Portal UI\n(admin.js)" as UI
+participant "AnalyticsRouter\n(FastAPI)" as Router
+participant "AnalyticsAggregationService" as Svc
+participant "AnalyticsRepository" as Repo
+database "MongoDB Collections\n(sessions, tour_sessions, poi_metrics)" as DB
+
+Admin -> UI : Mở Tab "Thống Kê & Báo Cáo"
+activate UI
+
+UI -> Router : GET /api/v1/analytics/overview
+activate Router
+Router -> Svc : get_overview()
+activate Svc
+
+Svc -> Repo : get_admin_overview()
+activate Repo
+
+== Tính toán Chỉ số Hệ thống & Thiết bị Duy nhất ==
+Repo -> DB : count_documents({status: "active", last_seen_at >= now - 15m})
+Repo -> DB : count_documents({started_at >= today_midnight})
+Repo -> DB : distinct("device_id")
+activate DB
+DB --> Repo : distinct_device_list
+note over Repo
+  Section 17: Unique devices được tính bằng distinct query
+  trên collection sessions, KHÔNG cộng dồn daily uniques
+  để tránh trùng lặp khi 1 thiết bị truy cập nhiều ngày.
+end note
+
+Repo -> DB : aggregate([\n  {$group: {\n    _id: null,\n    total_started: {$sum: "$listen_started_count"},\n    total_completed: {$sum: "$listen_completed_count"},\n    total_ms: {$sum: "$listened_ms"}\n  }}\n])
+DB --> Repo : totals
+deactivate DB
+
+Repo -> Repo : Tính tỷ lệ hoàn tất (%) & thời lượng trung bình (safe non-zero division)
+Repo --> Svc : overview_metrics_doc
+deactivate Repo
+Svc --> Router : AnalyticsOverviewResponse
+deactivate Svc
+Router --> UI : 200 OK (JSON Overview)
+deactivate Router
+
+UI -> UI : Hiển thị KPI cards:\n- Thiết bị duy nhất\n- Phiên đang hoạt động\n- Lượt nghe bắt đầu / hoàn thành\n- Tỷ lệ hoàn tất & Watermark thời gian thực
+deactivate UI
+@enduml

@@ -1,4 +1,16 @@
-const API_BASE = "http://localhost:8000/api/v1";
+// Centralized Same-Origin API Resolver for Admin CMS
+function resolveAdminApiBase() {
+  if (typeof window !== "undefined" && window.TOURVOICE_API_BASE) {
+    const custom = window.TOURVOICE_API_BASE.trim().replace(/\/+$/, "");
+    if (custom.includes("localhost") && window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1") {
+      console.warn("[Admin API] Rejecting localhost in remote environment, falling back to same-origin /api/v1");
+      return "/api/v1";
+    }
+    return custom;
+  }
+  return "/api/v1";
+}
+const API_BASE = resolveAdminApiBase();
 let adminToken = null;
 let adminMap = null;
 let pickerMarker = null;
@@ -321,33 +333,134 @@ function switchTab(tabName, element) {
 async function loadDashboardStats() {
   if (!adminToken) return;
   try {
-    const res = await fetch(`${API_BASE}/analytics/dashboard`, {
-      headers: { "Authorization": `Bearer ${adminToken}` }
-    });
-    if (res.ok) {
-      const data = await res.json();
-      document.getElementById("stat-playbacks").innerText = data.total_playbacks || 0;
-      document.getElementById("stat-hours").innerText = data.total_listen_hours || 0;
-      document.getElementById("stat-pois").innerText = data.total_active_pois || 0;
-      document.getElementById("stat-sessions").innerText = data.total_sessions || 0;
-
-      const tbody = document.getElementById("top-pois-table");
-      tbody.innerHTML = "";
-      if (data.top_pois && data.top_pois.length > 0) {
-        data.top_pois.forEach(p => {
-          tbody.innerHTML += `
-            <tr>
-              <td><strong>${p.code}</strong></td>
-              <td>${p.title}</td>
-              <td><span class="badge badge-success">${p.total_playbacks} lượt</span></td>
-              <td>${p.total_duration_minutes} phút</td>
-            </tr>
-          `;
-        });
+    // 1. Fetch Overview (try /analytics/overview first, fallback to /analytics/dashboard)
+    let overviewData = {};
+    try {
+      const res = await fetch(`${API_BASE}/analytics/overview`, {
+        headers: { "Authorization": `Bearer ${adminToken}` }
+      });
+      if (res.ok) {
+        overviewData = await res.json();
       } else {
-        tbody.innerHTML = `<tr><td colspan="4" style="text-align:center; color:#94a3b8;">Chưa có dữ liệu phát âm thanh ghi nhận.</td></tr>`;
+        const dashRes = await fetch(`${API_BASE}/analytics/dashboard`, {
+          headers: { "Authorization": `Bearer ${adminToken}` }
+        });
+        if (dashRes.ok) overviewData = await dashRes.json();
       }
+    } catch (e) {
+      console.warn("Error fetching analytics overview:", e);
     }
+
+    // Populate Primary KPI cards
+    const devElem = document.getElementById("stat-devices");
+    if (devElem) devElem.innerText = overviewData.unique_devices_count ?? 0;
+
+    const accElem = document.getElementById("stat-accounts");
+    if (accElem) accElem.innerText = overviewData.unique_accounts_count ?? 0;
+
+    const actElem = document.getElementById("stat-active-sessions");
+    if (actElem) actElem.innerText = overviewData.active_visitor_sessions_now ?? 0;
+
+    const dailyElem = document.getElementById("stat-daily-sessions");
+    if (dailyElem) dailyElem.innerText = overviewData.daily_visitor_sessions ?? 0;
+
+    // Populate Audio & Tour Telemetry
+    const listenStartsElem = document.getElementById("stat-listen-starts");
+    if (listenStartsElem) listenStartsElem.innerText = overviewData.listen_started_count ?? overviewData.total_audio_plays ?? 0;
+
+    const listenCompElem = document.getElementById("stat-listen-completed");
+    if (listenCompElem) listenCompElem.innerText = overviewData.listen_completed_count ?? 0;
+
+    const listenRateElem = document.getElementById("stat-listen-rate");
+    if (listenRateElem) listenRateElem.innerText = `${overviewData.listen_completion_rate_percent ?? 0}%`;
+
+    const avgListenElem = document.getElementById("stat-avg-listen");
+    if (avgListenElem) avgListenElem.innerText = overviewData.average_listening_time_seconds ?? overviewData.avg_listen_duration_seconds ?? 0;
+
+    const totalMinElem = document.getElementById("stat-total-minutes");
+    if (totalMinElem) totalMinElem.innerText = overviewData.total_listening_time_minutes ?? Math.round((overviewData.total_listen_hours || 0) * 60);
+
+    const tourStartedElem = document.getElementById("stat-tour-started");
+    if (tourStartedElem) tourStartedElem.innerText = overviewData.tour_sessions_started ?? 0;
+
+    const tourCompElem = document.getElementById("stat-tour-completed");
+    if (tourCompElem) tourCompElem.innerText = overviewData.tour_sessions_completed ?? 0;
+
+    const tourRateElem = document.getElementById("stat-tour-rate");
+    if (tourRateElem) tourRateElem.innerText = `${overviewData.tour_completion_rate_percent ?? 0}%`;
+
+    // Data freshness badge
+    const freshnessElem = document.getElementById("data-freshness-badge");
+    if (freshnessElem) {
+      const ts = overviewData.data_freshness_watermark || overviewData.updated_at;
+      const timeStr = ts ? new Date(ts).toLocaleTimeString("vi-VN") : "vừa xong";
+      freshnessElem.innerText = `💧 Cập nhật lúc: ${timeStr} (${overviewData.timezone || 'Asia/Ho_Chi_Minh'})`;
+    }
+
+    // 2. Fetch Top POIs (GET /analytics/pois)
+    try {
+      const poisRes = await fetch(`${API_BASE}/analytics/pois?limit=10`, {
+        headers: { "Authorization": `Bearer ${adminToken}` }
+      });
+      const topPois = poisRes.ok ? await poisRes.json() : [];
+      const tbody = document.getElementById("top-pois-table");
+      if (tbody) {
+        tbody.innerHTML = "";
+        if (topPois && topPois.length > 0) {
+          topPois.forEach(p => {
+            const catBadge = p.category === "food" ? "badge-warning" : "badge-info";
+            const minStr = (p.total_listened_seconds ? (p.total_listened_seconds / 60).toFixed(1) : "0.0") + " phút";
+            tbody.innerHTML += `
+              <tr>
+                <td><strong>${p.poi_id}</strong></td>
+                <td><strong>${p.name || p.poi_id}</strong></td>
+                <td><span class="badge ${catBadge}">${p.category || 'Điểm đến'}</span></td>
+                <td><span class="badge badge-success">${p.listen_started_count || 0} lượt</span></td>
+                <td>${p.listen_completed_count || 0} lượt</td>
+                <td><strong style="color:#00b4d8;">${p.unique_devices || 0}</strong> thiết bị</td>
+                <td>${minStr}</td>
+              </tr>
+            `;
+          });
+        } else {
+          tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:#94a3b8;">Chưa có dữ liệu lượt nghe POI ghi nhận.</td></tr>`;
+        }
+      }
+    } catch (e) {
+      console.warn("Could not load top POIs:", e);
+    }
+
+    // 3. Fetch Tour Analytics (GET /analytics/tours)
+    try {
+      const toursRes = await fetch(`${API_BASE}/analytics/tours`, {
+        headers: { "Authorization": `Bearer ${adminToken}` }
+      });
+      const toursData = toursRes.ok ? await toursRes.json() : [];
+      const tbodyTour = document.getElementById("tours-analytics-table");
+      if (tbodyTour) {
+        tbodyTour.innerHTML = "";
+        if (toursData && toursData.length > 0) {
+          toursData.forEach(t => {
+            tbodyTour.innerHTML += `
+              <tr>
+                <td><strong>${t.tour_id}</strong></td>
+                <td><strong>${t.title || t.tour_id}</strong></td>
+                <td>${t.total_sessions || 0} phiên</td>
+                <td><span class="badge badge-success">${t.completed_sessions || 0}</span></td>
+                <td><span class="badge badge-warning">${t.abandoned_sessions || 0}</span></td>
+                <td><strong style="color:#38bdf8;">${t.completion_rate_percent || 0}%</strong></td>
+                <td><strong style="color:#00b4d8;">${t.unique_devices || 0}</strong> thiết bị</td>
+              </tr>
+            `;
+          });
+        } else {
+          tbodyTour.innerHTML = `<tr><td colspan="7" style="text-align:center; color:#94a3b8;">Chưa có phiên trải nghiệm tour nào được bắt đầu.</td></tr>`;
+        }
+      }
+    } catch (e) {
+      console.warn("Could not load tour analytics:", e);
+    }
+
   } catch (err) {
     console.error("Failed to load dashboard metrics:", err);
   }

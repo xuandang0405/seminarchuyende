@@ -1,0 +1,36 @@
+@startuml AD-MAP-02-interaction-route-nav
+skinparam style strictuml
+title AD-MAP-02: Tương tác Bản đồ, Tìm kiếm POI, Tìm đường & Dẫn đường
+
+start
+:Người dùng thao tác trên màn hình bản đồ;
+
+fork
+    :Tìm kiếm POI qua ô Search;
+    :Debounce 300ms;
+    :Gọi API GET /pois/search hoặc /pois/nearby;
+    :Hiển thị danh sách kết quả kèm khoảng cách chim bay;
+    :Người dùng chọn 1 POI;
+    :Đóng bàn phím, di chuyển camera (flyTo) đến POI;
+    :Mở panel xem trước (Preview);
+fork again
+    :Người dùng kéo / xoay bản đồ;
+    :Tắt cờ followUser = false;
+    :Hiện nút "Định vị lại" (Recenter);
+    if (Bấm Recenter?) then (có)
+        :Bật cờ followUser = true;
+        :Di chuyển camera về vị trí GPS người dùng;
+    endif
+fork again
+    :Bấm "Chỉ đường" đến POI;
+    :Chọn điểm xuất phát (GPS hiện tại / Chọn trên map);
+    :Chọn phương thức di chuyển (Đi bộ / Xe máy);
+    :Gọi API POST /api/v1/routes/preview;
+    :Nhận GeoJSON LineString từ OSRM Engine;
+    :Vẽ tuyến đường lên bản đồ (Map Layer);
+    :Hiển thị quãng đường thực tế & thời gian ước tính;
+    :Fit camera ôm trọn tuyến đường;
+end fork
+
+stop
+@enduml

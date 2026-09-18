@@ -16,11 +16,19 @@ from app.api.v1.endpoints import (
     access,
     orders,
     me,
+    map,
+    routes,
+    jobs,
+    device,
+    visitor_sessions,
+    tour_sessions,
 )
 
 api_router = APIRouter()
 
 api_router.include_router(health.router)
+api_router.include_router(map.router)
+api_router.include_router(routes.router)
 api_router.include_router(auth.router)
 api_router.include_router(auth.router, prefix="/admin")
 api_router.include_router(guest_sessions.router)
@@ -37,6 +45,10 @@ api_router.include_router(admin.router)
 api_router.include_router(analytics.router)
 api_router.include_router(packages.router)
 api_router.include_router(payments.router)
+api_router.include_router(jobs.router)
+api_router.include_router(device.router)
+api_router.include_router(visitor_sessions.router)
+api_router.include_router(tour_sessions.router)
 
 
 from typing import Any, Dict

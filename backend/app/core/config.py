@@ -31,6 +31,12 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 15  # Short-lived access token (15 mins)
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30    # Long-lived refresh token in HttpOnly cookie
 
+    # Environment and Domain Settings
+    APP_ENV: str = "production"  # "development" | "staging" | "production"
+    PUBLIC_WEB_URL: str = "http://localhost:8000"
+    TRUSTED_HOSTS: Union[List[str], str] = ["*"]
+    FORWARDED_ALLOW_IPS: str = "*"
+
     # Cookies & CSRF Settings
     SESSION_COOKIE_NAME: str = "tourvoice_refresh_token"
     CSRF_COOKIE_NAME: str = "tourvoice_csrf_token"
@@ -74,8 +80,23 @@ class Settings(BaseSettings):
     PAYOS_CLIENT_ID: Optional[str] = "demo-client-id"
     PAYOS_API_KEY: Optional[str] = "demo-api-key"
     PAYOS_CHECKSUM_KEY: Optional[str] = "demo-checksum-key-1234567890"
-    PAYOS_ENDPOINT: str = "https://api-merchant.payos.vn"
+    # Map and Geo Configuration (District 4, HCMC)
+    MAP_DEFAULT_CENTER_LAT: float = 10.7635
+    MAP_DEFAULT_CENTER_LNG: float = 106.7042
+    MAP_DEFAULT_ZOOM: int = 15
+    MAP_BOUNDS_MIN_LNG: float = 106.685
+    MAP_BOUNDS_MIN_LAT: float = 10.745
+    MAP_BOUNDS_MAX_LNG: float = 106.720
+    MAP_BOUNDS_MAX_LAT: float = 10.775
+    MAP_TILE_PROVIDER_NAME: str = "CartoDB Voyager"
+    MAP_TILE_STYLE_URL: str = "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
+    MAP_ATTRIBUTION: str = "© CartoDB Voyager | OpenStreetMap contributors"
 
+    # Routing Engine Configuration (OSRM)
+    ROUTING_PROVIDER_URL: str = "https://router.project-osrm.org"
+    ROUTING_TIMEOUT_SECONDS: float = 6.0
+    ROUTING_CACHE_TTL_HOURS: int = 24
+    ROUTING_MAX_POINTS_PER_REQUEST: int = 25
 
     # CORS
     CORS_ORIGINS: Union[List[str], str] = [
@@ -87,10 +108,13 @@ class Settings(BaseSettings):
         "http://127.0.0.1:8000",
         "*"
     ]
+    CORS_ALLOWED_ORIGINS: Optional[Union[List[str], str]] = None
 
-    @field_validator("CORS_ORIGINS", mode="before")
+    @field_validator("CORS_ORIGINS", "CORS_ALLOWED_ORIGINS", mode="before")
     @classmethod
-    def assemble_cors_origins(cls, v: Union[str, List[str]]) -> List[str]:
+    def assemble_cors_origins(cls, v: Union[str, List[str], None]) -> Union[List[str], None]:
+        if v is None:
+            return None
         if isinstance(v, str):
             if v.startswith("[") and v.endswith("]"):
                 try:

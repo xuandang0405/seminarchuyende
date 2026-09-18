@@ -14,7 +14,10 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 
-  <link rel="stylesheet" href="style.css">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
+  <link rel="stylesheet" href="style.css?v=20260919_01">
 </head>
 <body>
 
@@ -79,6 +82,21 @@
         </div>
       </div>
 
+      <!-- POI Search & Category Filter Section -->
+      <div class="search-section" style="padding: 0.75rem 1rem; border-bottom: 1px solid rgba(255,255,255,0.08); background: #162032;">
+        <div style="position: relative;">
+          <input type="text" id="poi-search-input" placeholder="🔍 Tìm địa điểm, quán ăn Quận 4..." style="width: 100%; padding: 8px 32px 8px 12px; border-radius: 8px; border: 1px solid #334155; background: #0f172a; color: #f8fafc; font-size: 0.85rem; box-sizing: border-box; outline: none;">
+          <button id="btn-clear-search" onclick="clearSearch()" style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: transparent; border: none; color: #94a3b8; cursor: pointer; display: none; font-size: 0.8rem;">✕</button>
+        </div>
+        <div class="category-filter-chips" style="display: flex; gap: 6px; margin-top: 8px; overflow-x: auto; padding-bottom: 4px;">
+          <button class="chip-btn active" data-cat="all" onclick="setCategoryFilter('all', this)">Tất cả</button>
+          <button class="chip-btn" data-cat="food" onclick="setCategoryFilter('food', this)">🍲 Ẩm thực</button>
+          <button class="chip-btn" data-cat="historical" onclick="setCategoryFilter('historical', this)">🏛️ Di tích</button>
+          <button class="chip-btn" data-cat="culture" onclick="setCategoryFilter('culture', this)">⛩️ Văn hóa</button>
+          <button class="chip-btn" data-cat="sightseeing" onclick="setCategoryFilter('sightseeing', this)">🌉 Cảnh quan</button>
+        </div>
+      </div>
+
       <!-- POI List -->
       <div class="poi-list-container" id="poi-list">
         <!-- POI items injected dynamically -->
@@ -89,8 +107,87 @@
     <main id="map-container">
       <div id="map"></div>
 
+      <!-- Floating Directions Panel (OSRM Engine) -->
+      <div id="directions-panel">
+        <div class="directions-header">
+          <h3>🧭 Chỉ Đường Thực Tế (OSRM)</h3>
+          <button class="directions-close-btn" onclick="toggleDirectionsPanel(false)">✕</button>
+        </div>
+
+        <div class="dir-field">
+          <label>Điểm Xuất Phát (Origin)</label>
+          <select id="dir-origin-select" onchange="handleOriginChange()">
+            <option value="current_gps">📍 Vị trí hiện tại (GPS của tôi)</option>
+            <option value="pick_map">📌 Bấm chọn điểm trên bản đồ</option>
+            <!-- POIs populated dynamically -->
+          </select>
+        </div>
+
+        <div class="dir-field">
+          <label>Điểm Đến (Destination POI)</label>
+          <select id="dir-dest-select">
+            <option value="">-- Chọn điểm đến --</option>
+            <!-- POIs populated dynamically -->
+          </select>
+        </div>
+
+        <div class="dir-field">
+          <label>Phương thức di chuyển</label>
+          <div class="mode-toggle-group">
+            <button class="mode-btn active" id="btn-mode-walking" onclick="setRoutingMode('walking')">🚶 Đi bộ</button>
+            <button class="mode-btn" id="btn-mode-driving" onclick="setRoutingMode('driving')">🚗 Xe hơi/máy</button>
+          </div>
+        </div>
+
+        <div style="display: flex; gap: 6px;">
+          <button class="btn-sim" id="btn-calc-route" style="flex: 2; margin: 0; padding: 8px 12px; background: #ff6b35; font-weight: 700; color: white;" onclick="calculateRoute()">
+            ⚡ Tìm Lộ Trình
+          </button>
+          <button class="btn-sim" id="btn-clear-route" style="flex: 1; margin: 0; padding: 8px 12px; background: #334155; font-size: 0.75rem;" onclick="clearActiveRoute()">
+            Xóa Tuyến
+          </button>
+        </div>
+
+        <!-- Route Summary & Step Details -->
+        <div id="route-summary-card" class="route-summary-card" style="display: none;">
+          <div class="route-stat-row">
+            <div>
+              <span style="font-size: 0.7rem; color: #94a3b8; text-transform: uppercase;">Quãng đường thực tế</span>
+              <div class="route-stat-val" id="route-dist-text">0 m</div>
+            </div>
+            <div style="text-align: right;">
+              <span style="font-size: 0.7rem; color: #94a3b8; text-transform: uppercase;">Thời gian dự kiến</span>
+              <div class="route-stat-val" id="route-dur-text" style="color: #38bdf8;">0 phút</div>
+            </div>
+          </div>
+
+          <div style="font-size: 0.7rem; color: #cbd5e1; background: rgba(0,0,0,0.3); padding: 4px 8px; border-radius: 4px; display: flex; justify-content: space-between;">
+            <span>📏 Khoảng cách chim bay:</span>
+            <strong id="route-straight-text">0 m</strong>
+          </div>
+
+          <!-- Turn by turn steps accordion -->
+          <details style="margin-top: 4px;">
+            <summary style="font-size: 0.75rem; color: #38bdf8; cursor: pointer; font-weight: 600;">
+              📋 Hướng dẫn từng bước (<span id="route-step-count">0</span> bước)
+            </summary>
+            <ul class="steps-list" id="route-steps-list" style="margin-top: 6px;"></ul>
+          </details>
+
+          <button id="btn-open-ext-maps" style="margin-top: 6px; width: 100%; padding: 6px 10px; background: rgba(56, 189, 248, 0.15); border: 1px solid #38bdf8; border-radius: 6px; color: #38bdf8; font-size: 0.75rem; font-weight: 700; cursor: pointer;" onclick="openExternalGoogleMaps()">
+            🌐 Mở bằng Google Maps (Dự phòng)
+          </button>
+        </div>
+      </div>
+
       <!-- Floating Map Tools -->
       <div class="map-overlay-tools">
+        <button class="tool-btn" id="btn-toggle-directions" onclick="toggleDirectionsPanel()">
+          <span>🧭</span> Chỉ Đường
+        </button>
+        <button class="tool-btn" id="btn-recenter-user" onclick="recenterMap()">
+          <span>🎯</span> Định Vị Lại
+        </button>
         <button class="tool-btn" id="btn-open-my-tours" onclick="openMyToursModal()">
           <span>🌟</span> Tour Của Tôi
         </button>
@@ -401,7 +498,9 @@
   <!-- Audio Element -->
   <audio id="global-audio" preload="auto"></audio>
 
-  <script src="app.js"></script>
+  <script src="location_service.js?v=20260919_02"></script>
+  <script src="analytics_outbox.js?v=20260919_02"></script>
+  <script src="app.js?v=20260919_02"></script>
 </body>
 </html>
 

@@ -1,0 +1,54 @@
+@startuml AD-SYNC-06-offline-sync-ack
+skinparam style strictuml
+title AD-SYNC-06: Quy trình Lưu Outbox Ngoại Tuyến & Đồng Bộ Theo Lô với Per-Item ACK
+
+start
+:Phát sinh sự kiện telemetry tại Client;
+
+if (Người dùng đã cấp Consent cho Analytics?) then (không)
+    :Hủy bỏ sự kiện, không lưu cục bộ;
+    stop
+else (có)
+endif
+
+:Ghi sự kiện vào IndexedDB (Web) hoặc SQLite (Mobile);
+:Gán event_id cố định (UUID) không đổi qua các lần retry;
+
+if (Thiết bị đang có kết nối mạng (Online)?) then (online)
+    :Lấy tối đa 20 sự kiện từ đầu hàng đợi;
+    :Gửi POST /api/v1/analytics/events/batch;
+else (offline)
+    :Giữ lại sự kiện trong hàng đợi cục bộ;
+    :Chờ sự kiện window.online hoặc app foreground;
+    stop
+endif
+
+:Máy chủ FastAPI nhận mảng events và duyệt từng item;
+
+fork
+    :Sự kiện có ID mới và hợp lệ;
+    :Ghi vào DB;
+    :Đánh dấu ACK = "accepted";
+fork again
+    :Sự kiện có ID đã tồn tại trong DB;
+    :Đánh dấu ACK = "duplicate";
+fork again
+    :Sự kiện thiếu trường bắt buộc;
+    :Đánh dấu ACK = "rejected_permanent";
+fork again
+    :Lỗi cơ sở dữ liệu tạm thời;
+    :Đánh dấu ACK = "retryable";
+end fork
+
+:Máy chủ trả về mảng acks: [{event_id, status, reason}];
+
+:Client nhận kết quả và duyệt từng item:;
+if (status in ["accepted", "duplicate", "rejected_permanent"]?) then (xong)
+    :Xóa sự kiện khỏi Local Outbox;
+else (status == "retryable" hoặc lỗi mạng)
+    :Giữ lại sự kiện trong Local Outbox;
+    :Kích hoạt cơ chế Exponential Backoff + Jitter trước lần gửi tiếp theo;
+endif
+
+stop
+@enduml

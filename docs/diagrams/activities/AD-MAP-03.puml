@@ -1,0 +1,39 @@
+@startuml AD-MAP-03
+title AD-MAP-03: Quy trình Tính toán Lộ trình OSRM, Sinh Fingerprint Cache & Hết hạn TTL
+
+start
+
+:Nhận request tính tuyến (Origin, Destination, Mode, Locale);
+
+:Lượng tử hóa tọa độ Origin & Destination (round 4 số thập phân ~11m);
+:Tạo fingerprint = sha256(origin_str + "_" + dest_str + "_" + mode + "_" + locale);
+
+:Truy vấn route_cache trong MongoDB theo fingerprint;
+
+if (Tìm thấy bản ghi cache VÀ expires_at > now?) then (Cache Hit)
+    :Đọc RouteResultDTO từ document cache;
+    :Tăng hit counter;
+else (Cache Miss / Hết hạn)
+    if (Khoảng cách Origin -> Destination < 8 mét?) then (Micro-distance)
+        :Tạo tuyến đường cự ly gần trực tiếp (0m, 0s, 1 bước "Đã ở điểm đến");
+    else (Cự ly bình thường)
+        :Gửi HTTP GET đến OSRM Routing Engine (với timeout 3.0s);
+        if (OSRM phản hồi HTTP 200?) then (Thành công)
+            :Phân tích OSRM JSON response;
+            :Trích xuất geometry GeoJSON LineString;
+            :Dịch maneuver sang tiếng Việt / bản địa hóa steps;
+            :Đóng gói RouteResultDTO;
+        else (Lỗi mạng hoặc Timeout)
+            :Ghi log cảnh báo;
+            :Fallback tính tuyến đường thẳng (Straight-line direct leg);
+        endif
+    endif
+
+    :Ghi tuyến đường vào route_cache với expires_at = now + 24 giờ;
+    :MongoDB TTL Index tự động dọn dẹp các bản ghi hết hạn;
+endif
+
+:Trả về RouteResultDTO cho Client;
+
+stop
+@enduml

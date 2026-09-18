@@ -93,6 +93,9 @@ class TourService:
         updated = await tour_repo.update_tour(tour_id, payload, expected_version)
         if not updated:
             return {"success": False, "error": "Xung đột phiên bản tour (Version conflict)."}
+        if "poi_ids" in payload:
+            from app.repositories.route_cache_repo import route_cache_repo
+            await route_cache_repo.invalidate_all()
         return {"success": True, "tour": updated}
 
     async def delete_tour(self, tour_id: str) -> bool:

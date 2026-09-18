@@ -1,0 +1,50 @@
+@startuml SD-DEPLOY-03-mobile-login
+title SD-DEPLOY-03: Luồng Đăng Nhập Mobile Client Thực Tế (React Native -> HTTPS API)
+
+autonumber
+actor "Du khách" as User
+participant "Mobile App\n(React Native)" as Mobile
+participant "Mobile Runtime Config\n(runtime.js)" as Runtime
+participant "Nginx Reverse Proxy\n(Port 443 HTTPS)" as Nginx
+participant "Auth Router\n(FastAPI)" as Router
+participant "Auth Service" as Service
+database "MongoDB" as DB
+
+User -> Mobile: Nhập thông tin tài khoản & bấm "Đăng nhập"
+Mobile -> Runtime: resolveMobileApiBaseUrl()
+Runtime -> Runtime: Đọc process.env.EXPO_PUBLIC_API_BASE_URL\n-> Trả về "https://tour.quan4.vn/api/v1"
+Runtime --> Mobile: Base URL HTTPS hợp lệ (Không chứa localhost)
+
+Mobile -> Nginx: POST https://tour.quan4.vn/api/v1/auth/login\nContent-Type: application/json\nBody: { email, password }
+activate Nginx
+
+note over Mobile, Nginx
+  <b>Không bị giới hạn bởi Browser CORS:</b>
+  Mã nguồn Native Mobile gửi trực tiếp qua TLS socket.
+  Tuy nhiên vẫn tuân thủ xác thực, phân quyền và Rate Limit.
+end note
+
+Nginx -> Router: proxy_pass http://127.0.0.1:8000/api/v1/auth/login
+activate Router
+
+Router -> Service: authenticate_user(email, password)
+activate Service
+Service -> DB: findOne({ email: ... })
+activate DB
+DB --> Service: user doc
+deactivate DB
+
+Service -> Service: Xác thực mật khẩu & Sinh JWT Access Token
+Service --> Router: { access_token, user }
+deactivate Service
+
+Router --> Nginx: 200 OK { success: true, access_token, user }
+deactivate Router
+
+Nginx --> Mobile: 200 OK { success: true, access_token, user }
+deactivate Nginx
+
+Mobile -> Mobile: Lưu access_token vào SecureStore (Encrypted Storage)
+Mobile --> User: Đăng nhập thành công! Chuyển sang màn hình Bản đồ & Dẫn đường
+
+@enduml

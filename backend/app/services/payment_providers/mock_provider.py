@@ -35,7 +35,8 @@ class MockPaymentProvider(PaymentProvider):
         amount = order["amount_vnd"]
         title = order.get("tour_title_snapshot", "Tour District 4")
 
-        mock_checkout_url = f"http://localhost:8000/client/index.html?mock_payment=true&order_id={order['_id']}&ref={ref}"
+        base_url = return_url.split("?")[0] if return_url else f"{settings.PUBLIC_WEB_URL}/client/index.html"
+        mock_checkout_url = f"{base_url}?mock_payment=true&order_id={order['_id']}&ref={ref}"
         mock_qr = f"https://img.vietqr.io/image/970422-0909123456-compact2.png?amount={amount}&addInfo=MOCK-{order['_id']}&accountName=TOURVOICE%20DEMO"
 
         return {

@@ -1,0 +1,56 @@
+@startuml AD-LISTEN-05-audio-counting-rules
+skinparam style strictuml
+title AD-LISTEN-05: Quy tắc Ghi nhận Lượt Nghe & Chống Đếm Trùng (BR-LISTEN-01 & BR-LISTEN-02)
+
+start
+:Du khách bấm Play hoặc GPS bước vào Geofence;
+:Gửi yêu cầu cấp quyền phát (POST /api/v1/playback-grants);
+
+if (Được cấp quyền (Access Granted)?) then (thất bại / từ chối)
+    :Dừng lại, hiển thị thông báo lỗi hoặc Paywall;
+    :KHÔNG tăng lượt nghe (listen_started_count = 0);
+    stop
+else (thành công)
+    :Nhận playback_id & stream_url;
+endif
+
+:Client nạp URL vào audio player và gọi play();
+if (Audio phát sinh lỗi trước khi kịp phát (Network error / Decode error)?) then (có lỗi)
+    :Báo lỗi cho người dùng;
+    :KHÔNG tăng lượt nghe;
+    stop
+else (bắt đầu phát thành công)
+    :Trình phát kích hoạt sự kiện onplaying;
+    :Tạo sự kiện narration_started kèm event_id (UUID) & playback_id;
+    :Gửi sự kiện về backend (/api/v1/analytics/events/batch);
+endif
+
+if (playback_id này đã từng có sự kiện narration_started trong DB?) then (đã có rồi)
+    :Ghi nhận event vào nhật ký audit;
+    :KHÔNG tăng listen_started_count (Tránh double-count);
+else (lần đầu tiên)
+    :Tăng listen_started_count đúng 1 lần ($inc = 1);
+    :Ghi nhận device_id vào unique_device_ids;
+endif
+
+while (Đang trong quá trình phát âm thanh?) is (tiếp tục)
+    if (Người dùng bấm Pause / Resume?) then (pause/resume)
+        :Phát sự kiện narration_paused / narration_resumed;
+        :KHÔNG cấp playback_id mới;
+        :TUYỆT ĐỐI KHÔNG tăng listen_started_count;
+    else (phát bình thường)
+    endif
+
+    if (Âm thanh phát hết (onended)?) then (hoàn tất)
+        :Phát sự kiện narration_completed;
+        if (playback_id này chưa từng ghi nhận completed?) then (lần đầu)
+            :Tăng listen_completed_count đúng 1 lần;
+        else (đã có)
+        endif
+        stop
+    else (chưa hết)
+    endif
+endwhile (dừng)
+
+stop
+@enduml

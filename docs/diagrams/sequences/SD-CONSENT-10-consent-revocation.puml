@@ -1,0 +1,43 @@
+@startuml SD-CONSENT-10-consent-revocation
+skinparam style strictuml
+autonumber
+title SD-CONSENT-10: Từ chối / Thu hồi Consent -> Dừng Enqueue -> Xóa sạch Outbox cục bộ
+
+actor "Du khách\n(Tourist)" as User
+participant "Cài đặt Riêng tư\n(Privacy UI)" as UI
+participant "AnalyticsOutbox\n(Client Service)" as Outbox
+participant "AnalyticsRouter\n(FastAPI)" as Router
+database "IndexedDB / SQLite\n(Local Storage)" as Storage
+database "MongoDB\n(analytics_devices)" as DB
+
+User -> UI : Tắt tùy chọn "Chia sẻ dữ liệu thống kê & lộ trình"
+activate UI
+
+UI -> Outbox : setConsent(false)
+activate Outbox
+
+Outbox -> Outbox : this.consent = false
+Outbox -> Storage : clearOutbox()
+Storage --> Outbox : Đã xóa sạch hàng đợi chưa gửi
+note over Outbox
+  BR-CONSENT-01: Rút consent lập tức dừng enqueue
+  sự kiện mới và dọn sạch các sự kiện đang chờ gửi.
+end note
+
+Outbox -> Router : POST /api/v1/analytics/consent\n{device_id: "dev_123", consent_granted: false, scopes: []}
+activate Router
+
+Router -> DB : update_one(\n  {_id: "dev_123"},\n  {$set: {consent_granted: false, consent_revoked_at: now}}\n)
+activate DB
+DB --> Router : updated
+deactivate DB
+
+Router --> Outbox : 200 OK {success: true, consent_granted: false}
+deactivate Router
+
+Outbox --> UI : Cập nhật trạng thái thành công
+deactivate Outbox
+
+UI -> UI : Hiển thị thông báo: "Đã tắt thu thập dữ liệu thống kê.\nBản đồ và Thuyết minh vẫn hoạt động bình thường."
+deactivate UI
+@enduml

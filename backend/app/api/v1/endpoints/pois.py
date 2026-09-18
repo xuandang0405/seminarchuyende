@@ -57,6 +57,52 @@ async def get_nearby_pois(
     )
 
 
+@router.get("/search", response_model=List[Dict[str, Any]])
+async def search_pois_endpoint(
+    q: str = Query(..., min_length=1, description="Search keyword for name, address, description, or tags"),
+    category: Optional[str] = None,
+    origin_lat: Optional[float] = Query(None, ge=-90, le=90, description="User latitude to calculate distance"),
+    origin_lon: Optional[float] = Query(None, ge=-180, le=180, description="User longitude to calculate distance"),
+    lang: str = Query("vi"),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=50)
+):
+    """Use Case T03 / SD-MAP-03: Search published POIs by query string with multilingual fallback."""
+    return await poi_service.search_public_pois(
+        query=q,
+        category=category,
+        origin_lat=origin_lat,
+        origin_lon=origin_lon,
+        lang=lang,
+        skip=skip,
+        limit=limit
+    )
+
+
+@router.get("/in-bounds", response_model=List[Dict[str, Any]])
+async def get_pois_in_bounds_endpoint(
+    min_lon: float = Query(..., ge=-180, le=180),
+    min_lat: float = Query(..., ge=-90, le=90),
+    max_lon: float = Query(..., ge=-180, le=180),
+    max_lat: float = Query(..., ge=-90, le=90),
+    category: Optional[str] = None,
+    lang: str = Query("vi"),
+    limit: int = Query(50, ge=1, le=100)
+):
+    """Use Case T01 / SD-MAP-01: Fetch POIs inside map viewport bounding box."""
+    from app.services.geo_service import validate_bbox
+    validate_bbox(min_lon, min_lat, max_lon, max_lat)
+    return await poi_service.get_pois_in_bounds(
+        min_lon=min_lon,
+        min_lat=min_lat,
+        max_lon=max_lon,
+        max_lat=max_lat,
+        category=category,
+        limit=limit,
+        lang=lang
+    )
+
+
 @router.get("/{poi_id}", response_model=Dict[str, Any])
 async def get_poi_detail(
     poi_id: str,

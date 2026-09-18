@@ -12,7 +12,10 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 
-  <link rel="stylesheet" href="admin.css">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
+  <link rel="stylesheet" href="admin.css?v=20260919_01">
 </head>
 <body>
 
@@ -133,8 +136,11 @@
     <section id="tab-dashboard" class="tab-section active">
       <div class="page-header">
         <div>
-          <h1>Báo Cáo Hoạt Động Hệ Thống</h1>
-          <p style="color: #94a3b8; font-size: 0.85rem; margin-top: 2px;">Dữ liệu thời gian thực từ các phiên tham quan du lịch tại Quận 4</p>
+          <h1>Báo Cáo Hoạt Động Hệ Thống (Analytics)</h1>
+          <p style="color: #94a3b8; font-size: 0.85rem; margin-top: 2px;">
+            Dữ liệu thiết bị duy nhất, phiên tham quan và lượt nghe thực tế tại Quận 4 • 
+            <span id="data-freshness-badge" style="color: #38bdf8; font-size: 0.75rem;">💧 Cập nhật: Đang nạp...</span>
+          </p>
         </div>
         <div style="display: flex; gap: 8px;">
           <button class="btn btn-primary" onclick="loadDashboardStats()">🔄 Cập nhật số liệu</button>
@@ -142,38 +148,94 @@
         </div>
       </div>
 
+      <!-- Primary KPI Grid -->
       <div class="stats-grid">
         <div class="stat-card">
-          <div class="stat-label">Tổng Lượt Nghe (Playbacks)</div>
-          <div class="stat-num" id="stat-playbacks">0</div>
+          <div class="stat-label">📱 Thiết Bị Duy Nhất (Unique Devices)</div>
+          <div class="stat-num" id="stat-devices">0</div>
+          <div style="font-size: 0.7rem; color: #94a3b8; margin-top: 4px;">Định danh bền vững (không dùng IP đơn thuần)</div>
         </div>
         <div class="stat-card">
-          <div class="stat-label">Thời Lượng Đã Thuyết Minh</div>
-          <div class="stat-num"><span id="stat-hours">0</span> <small style="font-size: 1rem;">giờ</small></div>
+          <div class="stat-label">👤 Tài Khoản Đã Đăng Nhập</div>
+          <div class="stat-num" id="stat-accounts">0</div>
+          <div style="font-size: 0.7rem; color: #94a3b8; margin-top: 4px;">Tài khoản du khách / quản trị</div>
         </div>
         <div class="stat-card">
-          <div class="stat-label">Điểm Đến Đang Hoạt Động</div>
-          <div class="stat-num" id="stat-pois">0</div>
+          <div class="stat-label">🟢 Phiên Đang Hoạt Động (Active Now)</div>
+          <div class="stat-num" id="stat-active-sessions" style="color: #10b981;">0</div>
+          <div style="font-size: 0.7rem; color: #94a3b8; margin-top: 4px;">Tương tác trong 15 phút gần nhất</div>
         </div>
         <div class="stat-card">
-          <div class="stat-label">Phiên Tham Quan (Sessions)</div>
-          <div class="stat-num" id="stat-sessions">0</div>
+          <div class="stat-label">📅 Tổng Phiên Khách Hôm Nay</div>
+          <div class="stat-num" id="stat-daily-sessions">0</div>
+          <div style="font-size: 0.7rem; color: #94a3b8; margin-top: 4px;">Visitor sessions khởi tạo hôm nay</div>
         </div>
       </div>
 
-      <div class="card">
-        <h3>🏆 Top Điểm Tham Quan Được Lắng Nghe Nhiều Nhất</h3>
+      <!-- Audio & Tour Telemetry Grid -->
+      <div class="stats-grid" style="margin-top: 1rem;">
+        <div class="stat-card">
+          <div class="stat-label">🎧 Lượt Bắt Đầu Nghe (Listen Starts)</div>
+          <div class="stat-num" id="stat-listen-starts">0</div>
+          <div style="font-size: 0.7rem; color: #94a3b8; margin-top: 4px;">Đúng 1 lần / playback (không đếm pause/resume)</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">✅ Lượt Nghe Hoàn Tất (Completions)</div>
+          <div class="stat-num" id="stat-listen-completed">0</div>
+          <div style="font-size: 0.7rem; color: #94a3b8; margin-top: 4px;">Tỷ lệ hoàn tất: <strong id="stat-listen-rate" style="color: #38bdf8;">0%</strong></div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">⏱️ Thời Lượng Nghe Trung Bình</div>
+          <div class="stat-num"><span id="stat-avg-listen">0</span> <small style="font-size: 1rem;">giây</small></div>
+          <div style="font-size: 0.7rem; color: #94a3b8; margin-top: 4px;">Tổng thời lượng: <strong id="stat-total-minutes">0</strong> phút</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">🗺️ Phiên Tour (Started / Completed)</div>
+          <div class="stat-num"><span id="stat-tour-started">0</span> / <span id="stat-tour-completed" style="color: #10b981;">0</span></div>
+          <div style="font-size: 0.7rem; color: #94a3b8; margin-top: 4px;">Tỷ lệ hoàn thành tour: <strong id="stat-tour-rate" style="color: #f59e0b;">0%</strong></div>
+        </div>
+      </div>
+
+      <!-- Top POIs Table -->
+      <div class="card" style="margin-top: 1.5rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+          <h3>🏆 Top Điểm Tham Quan Được Lắng Nghe Nhiều Nhất (Deduplicated)</h3>
+        </div>
         <table>
           <thead>
             <tr>
               <th>Mã POI</th>
               <th>Tên Điểm Đến</th>
-              <th>Số Lượt Nghe</th>
-              <th>Tổng Thời Gian (Phút)</th>
+              <th>Danh Mục</th>
+              <th>Lượt Bắt Đầu Nghe</th>
+              <th>Lượt Hoàn Tất</th>
+              <th>Thiết Bị Tiếp Cận</th>
+              <th>Tổng Thời Gian</th>
             </tr>
           </thead>
           <tbody id="top-pois-table">
-            <tr><td colspan="4" style="text-align: center; color: #94a3b8;">Đang nạp dữ liệu thống kê...</td></tr>
+            <tr><td colspan="7" style="text-align: center; color: #94a3b8;">Đang nạp dữ liệu thống kê...</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Tour Usage Table -->
+      <div class="card" style="margin-top: 1.5rem;">
+        <h3>🗺️ Hiệu Quả & Tiến Độ Các Tuyến Tour Du Lịch</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Mã Tour</th>
+              <th>Tên Tour</th>
+              <th>Tổng Phiên Bắt Đầu</th>
+              <th>Hoàn Thành</th>
+              <th>Bỏ Dở (Abandoned)</th>
+              <th>Tỷ Lệ Hoàn Thành</th>
+              <th>Thiết Bị Trải Nghiệm</th>
+            </tr>
+          </thead>
+          <tbody id="tours-analytics-table">
+            <tr><td colspan="7" style="text-align: center; color: #94a3b8;">Đang nạp dữ liệu tour...</td></tr>
           </tbody>
         </table>
       </div>
@@ -761,6 +823,6 @@
   <!-- Audio Player Element for TTS Preview -->
   <audio id="admin-audio-preview"></audio>
 
-  <script src="admin.js"></script>
+  <script src="admin.js?v=20260919_01"></script>
 </body>
 </html>

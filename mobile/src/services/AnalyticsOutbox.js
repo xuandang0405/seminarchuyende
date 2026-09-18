@@ -109,13 +109,32 @@ class AnalyticsOutboxService {
         return;
       }
 
-      // Batch up to 20 events
-      const batch = queue.slice(0, 20);
+      // Batch up to 20 events, ensuring event_id is properly formatted
+      const batch = queue.slice(0, 20).map((e) => ({
+        event_id: e.event_id || e._id,
+        event_type: e.event_type,
+        visitor_session_id: e.session_id || this.sessionId,
+        poi_id: e.poi_id || null,
+        tour_id: e.tour_id || null,
+        playback_id: e.playback_id || (e.properties && e.properties.playback_id) || null,
+        client_occurred_at: e.occurred_at || new Date().toISOString(),
+        properties: e.properties || {},
+      }));
+
       const res = await api.sendAnalyticsBatch(batch);
 
-      if (res && res.success) {
-        const processedIds = new Set(res.processed_ids || batch.map((e) => e._id));
-        const remaining = queue.filter((e) => !processedIds.has(e._id));
+      if (res && res.acks && Array.isArray(res.acks)) {
+        // BR-SYNC-01: Remove only accepted, duplicate, or rejected_permanent
+        const ackedSet = new Set(
+          res.acks
+            .filter((a) => a.status === "accepted" || a.status === "duplicate" || a.status === "rejected_permanent")
+            .map((a) => a.event_id)
+        );
+        const remaining = queue.filter((e) => !ackedSet.has(e.event_id || e._id));
+        await AsyncStorage.setItem(STORAGE_KEY_OUTBOX, JSON.stringify(remaining));
+      } else if (res && (res.acked_ids || res.success)) {
+        const processedIds = new Set(res.acked_ids || res.processed_ids || batch.map((e) => e.event_id || e._id));
+        const remaining = queue.filter((e) => !processedIds.has(e.event_id || e._id));
         await AsyncStorage.setItem(STORAGE_KEY_OUTBOX, JSON.stringify(remaining));
       }
     } catch (err) {

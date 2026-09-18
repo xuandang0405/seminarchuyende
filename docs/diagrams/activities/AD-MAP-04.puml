@@ -1,0 +1,54 @@
+@startuml AD-MAP-04
+title AD-MAP-04: Máy trạng thái Dẫn đường Mobile & Tái định tuyến chống Rung lắc (Debounce & Cooldown)
+
+start
+
+:Khởi tạo NavigationController (Trạng thái: IDLE);
+
+:Người dùng chọn POI và yêu cầu dẫn đường;
+:Gọi previewRoute() -> Trạng thái: PREVIEWING;
+:Nhận Route preview -> startNavigation() -> Trạng thái: NAVIGATING;
+:Đặt lastRerouteTime = now, offRouteCount = 0;
+
+repeat
+    :Nhận mẫu GPS mới (lat, lon);
+    
+    :Kiểm tra khoảng cách tới Destination POI (distToDest);
+    if (distToDest <= 15 mét?) then (Đến nơi)
+        :Chuyển trạng thái -> ARRIVED;
+        :Kích hoạt thông báo đến nơi & Thuyết minh âm thanh;
+        stop
+    endif
+
+    :Tính khoảng cách vuông góc từ vị trí hiện tại đến Polyline (crossTrackDist);
+
+    if (crossTrackDist > 35.0 mét?) then (Lệch tuyến)
+        :Tăng offRouteCount += 1;
+        
+        if (offRouteCount >= 2 VÀ (now - lastRerouteTime >= 15000ms)?) then (Đủ điều kiện Reroute)
+            :Chuyển trạng thái -> REROUTING;
+            :Gọi API backend tính tuyến đường mới từ vị trí hiện tại;
+            if (Thành công?) then (Có)
+                :Cập nhật currentRoute = newRoute;
+                :Đặt lastRerouteTime = now;
+                :Reset offRouteCount = 0;
+                :Chuyển trạng thái -> NAVIGATING;
+            else (Không)
+                :Giữ nguyên tuyến cũ;
+                :Chuyển trạng thái -> NAVIGATING;
+            endif
+        else (Chưa đủ điều kiện)
+            :Bỏ qua nhiễu GPS (Giữ nguyên lộ trình);
+        endif
+    else (Đang đi đúng tuyến)
+        :Reset offRouteCount = 0;
+        :Cập nhật vị trí và khoảng cách còn lại trên HUD;
+    endif
+
+repeat while (Người dùng chưa hủy và chưa đến nơi)
+
+:Người dùng bấm "Dừng chỉ đường";
+:Chuyển trạng thái -> CANCELLED;
+
+stop
+@enduml

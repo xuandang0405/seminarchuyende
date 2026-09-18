@@ -1,0 +1,29 @@
+@startuml SM-NAV-01-navigation
+skinparam style strictuml
+title SM-NAV-01: Máy Trạng Thái Điều Hướng Dẫn Đường (Navigation State Machine)
+
+[*] --> idle : Khởi tạo bản đồ
+
+idle --> locating : Bấm "Chỉ Đường" hoặc chọn Điểm đến
+locating --> preview_loading : Đã có tọa độ Origin & Destination
+locating --> error : Không có quyền GPS hoặc GPS lỗi
+
+preview_loading --> preview_ready : OSRM Engine trả về LineString & steps
+preview_loading --> error : ROUTE_NOT_FOUND (vẫn giữ điểm đến & khoảng cách chim bay)
+
+preview_ready --> navigating : Người dùng bấm "Bắt Đầu Đi"
+preview_ready --> idle : Bấm "Hủy Tuyến"
+
+navigating --> rerouting : Lệch tuyến > 30m trong 2 mẫu GPS liên tiếp\n(Sau khi cooldown >= 15s)
+rerouting --> navigating : Tính toán xong lộ trình mới thay thế
+rerouting --> navigating : Lỗi tính lại -> Tiếp tục hướng dẫn về chặng cũ
+
+navigating --> arrived : Khoảng cách tới điểm đến <= 15m (Arrival Threshold)
+navigating --> cancelled : Người dùng bấm "Dừng Dẫn Đường"
+navigating --> error : Mất tín hiệu GPS kéo dài
+
+arrived --> [*]
+cancelled --> idle
+error --> idle
+
+@enduml

@@ -14,6 +14,7 @@ import {
   Clock
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { apiUrl } from '../config/runtime';
 
 export const POIList: React.FC = () => {
   const { token, user } = useAuth();
@@ -38,11 +39,11 @@ export const POIList: React.FC = () => {
   const fetchPOIs = async () => {
     setLoading(true);
     try {
-      let url = `/api/v1/pois?limit=100`;
-      if (search) url += `&search=${encodeURIComponent(search)}`;
-      if (category) url += `&category=${encodeURIComponent(category)}`;
+      let endpoint = `/pois?limit=100`;
+      if (search) endpoint += `&search=${encodeURIComponent(search)}`;
+      if (category) endpoint += `&category=${encodeURIComponent(category)}`;
 
-      const res = await fetch(url);
+      const res = await fetch(apiUrl(endpoint));
       const data = await res.json();
       setPois(data.items || []);
     } catch (err) {
@@ -67,7 +68,7 @@ export const POIList: React.FC = () => {
     setMessage(null);
 
     try {
-      const res = await fetch('/api/v1/pois', {
+      const res = await fetch(apiUrl('/pois'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -107,7 +108,7 @@ export const POIList: React.FC = () => {
     setActionLoading(`tts_${poiId}`);
     setMessage(null);
     try {
-      const res = await fetch(`/api/v1/audio/generate/${poiId}`, {
+      const res = await fetch(apiUrl(`/audio/generate/${poiId}`), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -131,7 +132,7 @@ export const POIList: React.FC = () => {
     setActionLoading(`toggle_${poiId}`);
     setMessage(null);
     try {
-      const res = await fetch(`/api/v1/pois/${poiId}/toggle-active?active=${!currentActive}`, {
+      const res = await fetch(apiUrl(`/pois/${poiId}/toggle-active?active=${!currentActive}`), {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` }
       });

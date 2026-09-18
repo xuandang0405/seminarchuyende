@@ -1,0 +1,66 @@
+@startuml deployment-architecture
+title Sơ đồ Kiến trúc Triển khai (Deployment & Network Architecture) - TourVoice Quận 4
+
+skinparam packageStyle rectangle
+skinparam shadowing false
+skinparam defaultFontName "Arial"
+
+actor "Du khách / Quản trị viên\n(Trình duyệt Web)" as WebUser
+actor "Du khách Mobile\n(Thiết bị thật iOS/Android)" as MobileUser
+
+cloud "Internet Công Cộng (Public Network)" as PublicNet {
+  node "HTTPS (Port 443) / HTTP (Port 80)" as Ingress
+}
+
+node "Máy Chủ VPS (1.55.58.251 / tour.quan4.vn)" {
+  
+  package "DMZ / Tầng Đảo Nghịch (Reverse Proxy)" {
+    component "Nginx Web Server\n(Port 80 / 443)" as Nginx
+    folder "Static Assets\n(/client, /admin, /storage)" as StaticAssets
+  }
+
+  package "Mạng Nội Bộ Biệt Lập (Private Network / Docker Bridge)" {
+    component "FastAPI Backend Server\n(Uvicorn - 127.0.0.1:8000)" as FastAPI
+    database "MongoDB 7.0\n(ReplicaSet rs0 - Port 27017)" as MongoDB
+    database "Redis 7.2\n(Cache & Queue - Port 6379)" as Redis
+    component "OSRM Routing Engine\n(Open Source Routing)" as OSRM
+  }
+}
+
+cloud "Dịch vụ Bên Thứ Ba (External APIs)" {
+  [Google OAuth 2.0 / OIDC] as GoogleAuth
+  [Cổng Thanh Toán VietQR / payOS] as VietQR
+  [OpenStreetMap / CartoDB CDN] as OSM_CDN
+}
+
+WebUser --> Ingress : Truy cập cùng Origin (Same-Origin)
+MobileUser --> Ingress : Gọi API qua HTTPS Domain
+
+Ingress --> Nginx : Port 80/443
+
+Nginx --> StaticAssets : Phục vụ trực tiếp HTML/JS/CSS
+Nginx --> FastAPI : Proxy Pass /api/v1/ (giữ nguyên path)
+Nginx ..> FastAPI : Chuyển tiếp X-Forwarded-For, X-Forwarded-Proto
+
+FastAPI --> MongoDB : Truy vấn POI, Tour, Session, Payment
+FastAPI --> Redis : Quản lý Token Blacklist & Rate Limit
+FastAPI --> OSRM : Tính cự ly đường bộ & lộ trình turn-by-turn
+
+FastAPI --> GoogleAuth : Xác thực Token OAuth
+FastAPI --> VietQR : Tạo link thanh toán VietQR
+WebUser ..> OSM_CDN : Tải bản đồ nền CartoDB
+
+note right of Nginx
+  <b>Same-Origin Architecture:</b>
+  - Frontend gọi: <code>/api/v1/auth/login</code>
+  - Trình duyệt KHÔNG phát sinh CORS preflight
+  - Triệt tiêu 100% lỗi Private Network Access (loopback blocked)
+end note
+
+note right of MongoDB
+  <b>Bảo mật Hệ thống:</b>
+  - MongoDB và Redis KHÔNG mở cổng ra Internet
+  - Uvicorn bind 127.0.0.1 hoặc Docker network nội bộ
+end note
+
+@enduml

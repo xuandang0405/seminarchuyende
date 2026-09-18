@@ -1,0 +1,59 @@
+@startuml SD-SYNC-08-outbox-batch-ack
+skinparam style strictuml
+autonumber
+title SD-SYNC-08: Hàng đợi Ngoại tuyến (Offline Outbox) -> Đồng bộ theo lô -> Xử lý Per-Item ACK
+
+participant "Bộ lưu trữ Cục bộ\n(IndexedDB / SQLite)" as Storage
+participant "AnalyticsOutbox\n(Client Service)" as Outbox
+participant "FastAPI Analytics Router" as Router
+participant "AnalyticsIngestionService" as IngestionSvc
+database "MongoDB\n(analytics_events)" as DB
+
+== Giai đoạn Offline (Mất mạng) ==
+note over Outbox
+  Khi người dùng trải nghiệm tour lúc mất mạng,
+  các sự kiện được ghi bền vững vào Local Outbox.
+end note
+Outbox -> Storage : persist(event_id, event_type, payload, occurred_at)
+
+== Giai đoạn Khôi phục mạng (Online Auto-Flush) ==
+Outbox -> Outbox : window.addEventListener("online")
+Outbox -> Storage : readBatch(limit=20)
+Storage --> Outbox : [ev_001, ev_002, ev_003 (trùng)]
+
+Outbox -> Router : POST /api/v1/analytics/events/batch\n{events: [ev_001, ev_002, ev_003]}
+activate Router
+
+Router -> IngestionSvc : ingest_events(batch)
+activate IngestionSvc
+
+loop Cho từng sự kiện trong lô
+    IngestionSvc -> DB : find_one({_id: event_id})
+    activate DB
+    alt Sự kiện đã tồn tại trong DB (ev_003)
+        DB --> IngestionSvc : existing_doc
+        IngestionSvc -> IngestionSvc : acks.append({event_id: ev_003, status: "duplicate"})
+    else Sự kiện mới hợp lệ (ev_001, ev_002)
+        DB --> IngestionSvc : null
+        deactivate DB
+        IngestionSvc -> DB : insert_one(doc)
+        activate DB
+        DB --> IngestionSvc : inserted
+        deactivate DB
+        IngestionSvc -> IngestionSvc : acks.append({event_id: id, status: "accepted"})
+    end
+end
+
+IngestionSvc --> Router : EventBatchResponse (acks: [accepted, accepted, duplicate])
+deactivate IngestionSvc
+
+Router --> Outbox : 200 OK {acks: [{ev_001: accepted}, {ev_002: accepted}, {ev_003: duplicate}]}
+deactivate Router
+
+Outbox -> Storage : removeEvents(["ev_001", "ev_002", "ev_003"])
+note over Outbox
+  Chỉ xóa các sự kiện đã có ACK "accepted" hoặc "duplicate".
+  Các sự kiện bị lỗi mạng tạm thời ("retryable") được giữ lại
+  với cơ chế Exponential Backoff + Jitter.
+end note
+@enduml

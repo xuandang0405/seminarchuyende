@@ -1,0 +1,48 @@
+@startuml SD-MAP-04
+title SD-MAP-04: Lộ trình Toàn diện Tour Tuyến & Tổng hợp các Chặng Di chuyển (Legs)
+
+autonumber
+actor "Người dùng" as User
+participant "Giao diện (Web/Mobile)" as Client
+participant "Routes Router\n(FastAPI)" as Router
+participant "Routing Service" as RoutingSvc
+participant "Tour Repository" as TourRepo
+participant "POI Repository" as POIRepo
+participant "OSRM Provider\n& Cache Layer" as OSRM
+
+User -> Client: Mở tab "Tour Tuyến" / Chọn Tour du lịch Quận 4
+Client -> Router: GET /api/v1/routes/tour/tour_quan_4_lich_su?lang=vi
+activate Router
+
+Router -> RoutingSvc: get_tour_route_summary(tour_id="tour_quan_4_lich_su", lang="vi")
+activate RoutingSvc
+
+RoutingSvc -> TourRepo: get_by_id("tour_quan_4_lich_su")
+activate TourRepo
+TourRepo --> RoutingSvc: tour_doc (chứa danh sách poi_ids: [p1, p2, p3, p4])
+deactivate TourRepo
+
+RoutingSvc -> POIRepo: Lấy thông tin & tọa độ từng POI theo thứ tự
+activate POIRepo
+POIRepo --> RoutingSvc: poi_1, poi_2, poi_3, poi_4
+deactivate POIRepo
+
+loop Với từng cặp chặng kế tiếp (p_i -> p_{i+1})
+    RoutingSvc -> OSRM: calculate_route(poi_i.coords, poi_{i+1}.coords, mode="walking")
+    activate OSRM
+    OSRM --> RoutingSvc: RouteLegDTO (đoạn nối OSRM, khoảng cách m, thời gian s, geometry GeoJSON)
+    deactivate OSRM
+end
+
+RoutingSvc -> RoutingSvc: Tính tổng cự ly hành trình (total_route_distance_m)\nTính tổng thời gian di chuyển (total_route_duration_s)\nĐóng gói danh sách legs[]
+
+RoutingSvc --> Router: TourRouteSummaryResponse
+deactivate RoutingSvc
+
+Router --> Client: 200 OK { tour_id, total_route_distance_m, total_route_duration_s, legs: [...] }
+deactivate Router
+
+Client -> Client: Hợp nhất toàn bộ coordinates từ các legs\nVẽ Polyline lộ trình tour liên tục xuyên suốt Quận 4
+Client --> User: Người dùng thấy toàn bộ hành trình đi bộ thực tế cùng thứ tự các trạm dừng
+
+@enduml

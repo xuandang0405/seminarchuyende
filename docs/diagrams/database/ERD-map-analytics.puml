@@ -1,0 +1,130 @@
+@startuml ERD-map-analytics
+skinparam linetype ortho
+skinparam roundcorner 5
+skinparam class {
+  BackgroundColor White
+  BorderColor #334155
+  ArrowColor #0284c7
+}
+
+title Sơ đồ Thực thể Liên kết (ERD): Bản đồ, Phiên & Phân tích Dữ liệu (MongoDB + Local Storage)
+
+entity "pois" as POI {
+  * **_id**: string <<PK>>
+  --
+  * **code**: string <<Unique>>
+  * **name**: string
+  * **category**: string
+  * **location**: GeoJSON Point <<2dsphere>>
+    * type: "Point"
+    * coordinates: [longitude, latitude]
+  * **radius_enter_m**: number
+  * **radius_exit_m**: number
+  * **cooldown_seconds**: number
+  * **audio_sources**: array
+  * **status**: string
+  * **deleted_at**: datetime <<nullable>>
+}
+
+entity "analytics_devices" as Device {
+  * **_id**: string <<PK, device_id>>
+  --
+  * **device_token_hash**: string <<Unique>>
+  * **platform**: string (web | android | ios)
+  * **user_agent**: string
+  * **consent_granted**: boolean
+  * **consent_scopes**: array
+  * **first_seen_at**: datetime
+  * **last_seen_at**: datetime <<Index>>
+  * **created_at**: datetime
+}
+
+entity "analytics_sessions" as VisitorSession {
+  * **_id**: string <<PK, session_id>>
+  --
+  * **device_id**: string <<FK, Device>>
+  * **user_id**: string <<nullable, FK>>
+  * **status**: string (active | ended | expired) <<Index>>
+  * **started_at**: datetime <<Index>>
+  * **last_seen_at**: datetime <<Index>>
+  * **ended_at**: datetime <<nullable>>
+  * **platform**: string
+  * **user_agent**: string
+  --
+  **Compound Index:** (device_id, status, last_seen_at)
+}
+
+entity "tour_sessions" as TourSession {
+  * **_id**: string <<PK, tour_session_id>>
+  --
+  * **tour_id**: string <<FK, Tour>>
+  * **visitor_session_id**: string <<FK, VisitorSession>>
+  * **device_id**: string <<FK, Device>>
+  * **user_id**: string <<nullable>>
+  * **idempotency_key**: string <<Unique Sparse>>
+  * **status**: string (active | completed | cancelled | abandoned)
+  * **current_stop_index**: number
+  * **completed_poi_ids**: array of string
+  * **started_at**: datetime <<Index>>
+  * **last_activity_at**: datetime <<Index>>
+  * **ended_at**: datetime <<nullable>>
+  --
+  **Compound Index:** (device_id, status, last_activity_at)
+}
+
+entity "analytics_events" as Event {
+  * **_id**: string <<PK, event_id (UUID)>>
+  --
+  * **event_id**: string <<Unique>>
+  * **event_type**: string <<Index>>
+  * **playback_id**: string <<nullable, Index>>
+  * **visitor_session_id**: string <<nullable, FK>>
+  * **tour_session_id**: string <<nullable, FK>>
+  * **device_id**: string <<FK>>
+  * **poi_id**: string <<nullable, FK>>
+  * **tour_id**: string <<nullable, FK>>
+  * **locale**: string
+  * **source**: string (gps | qr | manual)
+  * **client_occurred_at**: datetime
+  * **server_received_at**: datetime <<Index>>
+  * **properties**: object
+  --
+  **Compound Indexes:**
+  (playback_id, event_type)
+  (poi_id, event_type, server_received_at)
+  (tour_id, event_type, server_received_at)
+}
+
+entity "analytics_poi_daily_metrics" as PoiDaily {
+  * **_id**: string <<PK: {poi_id}_{date}>>
+  --
+  * **poi_id**: string <<FK, POI>>
+  * **metric_date**: string (YYYY-MM-DD)
+  * **listen_started_count**: number
+  * **listen_completed_count**: number
+  * **listened_ms**: number
+  * **unique_device_ids**: array of string <<distinct set>>
+  * **updated_at**: datetime
+}
+
+entity "LocalOutbox (IndexedDB / SQLite)" as LocalOutbox {
+  * **event_id**: string <<PK, UUID>>
+  --
+  * **event_type**: string
+  * **playback_id**: string
+  * **poi_id**: string
+  * **tour_id**: string
+  * **occurred_at**: datetime
+  * **retry_count**: number
+  * **status**: string (pending | retryable)
+}
+
+Device "1" -- "0..*" VisitorSession : owns
+VisitorSession "1" -- "0..*" TourSession : contains
+VisitorSession "1" -- "0..*" Event : generates
+TourSession "1" -- "0..*" Event : tracks
+POI "1" -- "0..*" Event : referenced_by
+POI "1" -- "0..*" PoiDaily : aggregates_into
+LocalOutbox ..> Event : syncs_batch_to
+
+@enduml

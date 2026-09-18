@@ -1,4 +1,16 @@
-const API_BASE = "/api/v1";
+// Centralized Same-Origin API Resolver for Tourist Client
+function resolveClientApiBase() {
+  if (typeof window !== "undefined" && window.TOURVOICE_API_BASE) {
+    const custom = window.TOURVOICE_API_BASE.trim().replace(/\/+$/, "");
+    if (custom.includes("localhost") && window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1") {
+      console.warn("[Client API] Rejecting localhost in remote environment, falling back to same-origin /api/v1");
+      return "/api/v1";
+    }
+    return custom;
+  }
+  return "/api/v1";
+}
+const API_BASE = resolveClientApiBase();
 
 // State
 let map;
@@ -25,6 +37,18 @@ let activeOrderId = null;
 let selectedPaymentMethod = "vietqr";
 let reconcileInterval = null;
 
+// Routing & Search State
+let routeLayerGroup = null;
+let tourLayerGroup = null;
+let activeRouteResult = null;
+let activeRoutingMode = "walking";
+let isPickingOriginOnMap = false;
+let pickedOriginLocation = null;
+let followUser = true;
+let searchDebounceTimer = null;
+let currentCategoryFilter = "all";
+let mapConfig = null;
+
 // Audio Elements
 const audioElement = document.getElementById("global-audio");
 const playerBar = document.getElementById("player-bar");
@@ -39,10 +63,12 @@ const seekBar = document.getElementById("seek-bar");
 
 // Initialize
 document.addEventListener("DOMContentLoaded", async () => {
-  initMap();
+  await initMap();
   await initSession();
   await fetchPOIs();
   setupEventListeners();
+  setupSearchAndFilters();
+  await loadTourRouteLine(activeTourId);
 });
 
 function getAuthHeaders() {
@@ -333,77 +359,185 @@ async function checkTourAccess(tourId) {
 }
 
 // ==========================================================================
-// MAP & POI RENDERING
+// MAP, POI & REAL ROUTING INTEGRATION (OSRM ENGINE)
 // ==========================================================================
 
-function initMap() {
+async function initMap() {
+  try {
+    const configRes = await fetch(`${API_BASE}/map/config`);
+    if (configRes.ok) {
+      mapConfig = await configRes.json();
+      userLocation = {
+        lat: mapConfig.center.latitude,
+        lng: mapConfig.center.longitude
+      };
+    }
+  } catch (e) {
+    console.warn("Could not fetch /map/config, using default District 4 center:", e);
+  }
+
   map = L.map("map", {
     center: [userLocation.lat, userLocation.lng],
-    zoom: 15
+    zoom: (mapConfig && mapConfig.default_zoom) || 15
   });
 
-  const cartoVoyager = L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
+  const tileUrl = (mapConfig && mapConfig.style_url) || "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png";
+  const tileAttrib = (mapConfig && mapConfig.attribution) || "© CartoDB Voyager | OpenStreetMap";
+
+  const defaultBaseLayer = L.tileLayer(tileUrl, {
     maxZoom: 20,
     subdomains: "abcd",
-    attribution: "© CartoDB Voyager | OpenStreetMap"
+    attribution: tileAttrib
   });
 
-  const googleStreets = L.tileLayer("https://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}", {
-    maxZoom: 20,
-    subdomains: ["mt0", "mt1", "mt2", "mt3"],
-    attribution: "© Google Maps"
+  const osmStandard = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19,
+    attribution: "© OpenStreetMap contributors"
   });
 
-  cartoVoyager.addTo(map);
+  defaultBaseLayer.addTo(map);
 
   const baseMaps = {
-    "🗺️ Đường Phố Chi Tiết (Voyager)": cartoVoyager,
-    "📍 Đường Phố Google (Google Maps)": googleStreets,
+    "🗺️ Bản Đồ Chi Tiết (Voyager)": defaultBaseLayer,
+    "📍 OpenStreetMap (Chuẩn)": osmStandard,
   };
   L.control.layers(baseMaps, null, { position: "topright" }).addTo(map);
 
-  // Walking Tour Route Line
-  const tourWalkingRoute = [
-    [10.76814, 106.70678], // Bến Nhà Rồng
-    [10.76740, 106.70610],
-    [10.76850, 106.70550],
-    [10.76895, 106.70488], // Cầu Mống
-    [10.76720, 106.70320],
-    [10.76450, 106.70380],
-    [10.76135, 106.70425], // Chợ Xóm Chiếu
-    [10.76020, 106.70180],
-    [10.75882, 106.70012], // Phố Ốc Vĩnh Khánh
-  ];
-
-  L.polyline(tourWalkingRoute, {
-    color: "#ff6b35",
-    weight: 5,
-    opacity: 0.85,
-    dashArray: "6, 8"
-  }).addTo(map).bindPopup("<strong>🚶 Lộ Trình Tour Di Sản Quận 4</strong><br>Dài ~2.8 km");
+  // Dedicated layer groups for real routes
+  tourLayerGroup = L.layerGroup().addTo(map);
+  routeLayerGroup = L.layerGroup().addTo(map);
 
   const userIcon = L.divIcon({
     className: "user-marker-container",
-    html: '<div class="user-marker"></div>',
+    html: '<div class="user-marker"><div class="user-marker-pulse"></div></div>',
     iconSize: [20, 20],
     iconAnchor: [10, 10]
   });
 
   userMarker = L.marker([userLocation.lat, userLocation.lng], { icon: userIcon }).addTo(map);
 
+  // Dragging disables auto camera recenter (BR-MAP-03)
+  map.on("dragstart", () => {
+    followUser = false;
+  });
+
+  // Map click handler
   map.on("click", (e) => {
+    if (isPickingOriginOnMap) {
+      pickedOriginLocation = { lat: e.latlng.lat, lng: e.latlng.lng };
+      isPickingOriginOnMap = false;
+      const originSelect = document.getElementById("dir-origin-select");
+      if (originSelect) {
+        let opt = originSelect.querySelector("option[value='picked_map']");
+        if (opt) {
+          opt.innerText = `📌 Tọa độ chọn (${e.latlng.lat.toFixed(4)}, ${e.latlng.lng.toFixed(4)})`;
+          originSelect.value = "picked_map";
+        }
+      }
+      calculateRoute();
+      return;
+    }
+
     updateUserLocation(e.latlng.lat, e.latlng.lng);
   });
+
+  // Connect standardized LocationService stream (BR-GEO-01 / BR-GEO-02)
+  if (window.locationService) {
+    window.locationService.startWatching((sample) => {
+      onLocationSampleReceived(sample);
+    });
+  }
 }
+
+let userAccuracyCircle = null;
+
+function onLocationSampleReceived(sample) {
+  if (!sample) return;
+  userLocation = { lat: sample.latitude, lng: sample.longitude };
+
+  if (userMarker) {
+    userMarker.setLatLng([sample.latitude, sample.longitude]);
+  }
+
+  // Render & update accuracy circle (BR-MAP-02)
+  if (userAccuracyCircle) {
+    userAccuracyCircle.setLatLng([sample.latitude, sample.longitude]);
+    userAccuracyCircle.setRadius(sample.accuracyM || 15);
+  } else if (map) {
+    userAccuracyCircle = L.circle([sample.latitude, sample.longitude], {
+      radius: sample.accuracyM || 15,
+      color: "#38bdf8",
+      weight: 1,
+      fillColor: "#38bdf8",
+      fillOpacity: 0.15,
+      interactive: false
+    }).addTo(map);
+  }
+
+  const coordsEl = document.getElementById("current-coords");
+  if (coordsEl) {
+    const accStr = sample.accuracyM ? ` (±${Math.round(sample.accuracyM)}m)` : "";
+    coordsEl.innerText = `${sample.longitude.toFixed(4)}, ${sample.latitude.toFixed(4)}${accStr}`;
+  }
+
+  if (followUser && map) {
+    map.setView([sample.latitude, sample.longitude]);
+  }
+
+  checkGeofences(sample.latitude, sample.longitude);
+}
+
+// ==========================================================================
+// REAL WALKING TOUR ROUTING (OSRM Leg Stitched)
+// ==========================================================================
+
+async function loadTourRouteLine(tourId) {
+  if (!tourLayerGroup) return;
+  tourLayerGroup.clearLayers();
+
+  try {
+    const res = await fetch(`${API_BASE}/routes/tour/${tourId}?locale=${currentLang}`);
+    if (res.ok) {
+      const data = await res.json();
+      const coords = data.geometry && data.geometry.coordinates;
+      if (coords && coords.length > 1) {
+        // GeoJSON uses [lon, lat], Leaflet uses [lat, lon]
+        const latLngs = coords.map(pt => [pt[1], pt[0]]);
+        const tourPolyline = L.polyline(latLngs, {
+          color: "#ff6b35",
+          weight: 5,
+          opacity: 0.85,
+          dashArray: "6, 8"
+        }).addTo(tourLayerGroup);
+
+        tourPolyline.bindPopup(`
+          <div style="font-family: 'Outfit', sans-serif;">
+            <strong style="color: #ff6b35;">🚶 ${data.tour_name}</strong><br>
+            Quãng đường thực tế: <strong>${data.total_distance_display}</strong><br>
+            Thời gian ước tính: <strong>${data.total_duration_display}</strong><br>
+            <em>(Tính toán qua OSRM Foot Engine Quận 4)</em>
+          </div>
+        `);
+      }
+    }
+  } catch (e) {
+    console.warn("Could not load dynamic tour route line:", e);
+  }
+}
+
+// ==========================================================================
+// POI FETCHING, SEARCH & RENDERING
+// ==========================================================================
 
 async function fetchPOIs() {
   try {
-    const res = await fetch(`${API_BASE}/pois?lang=${currentLang}`);
+    const res = await fetch(`${API_BASE}/pois/nearby?latitude=${userLocation.lat}&longitude=${userLocation.lng}&max_distance_meters=5000&lang=${currentLang}&limit=50`);
     if (res.ok) {
       const data = await res.json();
       poiDataList = Array.isArray(data) ? data : (data.items || []);
       renderPOIList(poiDataList);
       renderPOIsOnMap(poiDataList);
+      populateDirectionsDropdowns(poiDataList);
       populateQRModal(poiDataList);
     }
   } catch (err) {
@@ -423,6 +557,7 @@ function renderPOIsOnMap(pois) {
     const address = poi.address || "";
     const enterRadius = poi.radius_enter_m || poi.trigger_radius || 30;
     const exitRadius = poi.radius_exit_m || (enterRadius * 1.5) || 45;
+    const distStr = poi.distance_display || (poi.straight_line_distance_m ? `${Math.round(poi.straight_line_distance_m)} m` : "Gần bạn");
 
     const exitCircle = L.circle([lat, lng], {
       radius: exitRadius,
@@ -443,7 +578,7 @@ function renderPOIsOnMap(pois) {
     }).addTo(map);
     poiLayers.push(enterCircle);
 
-    const iconEmoji = poi.category === "food" ? "🍲" : (poi.category === "attraction" ? "🏛️" : "🚏");
+    const iconEmoji = poi.category === "food" ? "🍲" : (poi.category === "historical" ? "🏛️" : (poi.category === "culture" ? "⛩️" : "🌉"));
     const markerIcon = L.divIcon({
       className: "custom-poi-marker",
       html: `<div style="background:#ff6b35; color:white; border-radius:50%; width:32px; height:32px; display:flex; align-items:center; justify-content:center; border:2px solid white; box-shadow:0 2px 8px rgba(0,0,0,0.4); font-size:16px;">${iconEmoji}</div>`,
@@ -453,11 +588,16 @@ function renderPOIsOnMap(pois) {
 
     const marker = L.marker([lat, lng], { icon: markerIcon }).addTo(map);
     marker.bindPopup(`
-      <div style="font-family: 'Outfit', sans-serif;">
-        <h4 style="margin: 0; color: #ff6b35;">${codeName}</h4>
-        <p style="margin: 4px 0; font-size: 12px;">${address}</p>
-        <p style="margin: 4px 0; font-size: 11px; color: #00b4d8;">Bán kính kích hoạt: ${enterRadius}m</p>
-        <button onclick="playPoiNarration('${poiId}', 'MANUAL')" style="background:#ff6b35; color:white; border:none; padding:4px 8px; border-radius:4px; cursor:pointer; font-size:11px; font-weight:bold;">▶ Nghe Thuyết Minh</button>
+      <div style="font-family: 'Outfit', sans-serif; min-width: 190px;">
+        <h4 style="margin: 0; color: #ff6b35; font-size: 14px;">${codeName}</h4>
+        <p style="margin: 4px 0; font-size: 11px; color: #64748b;">${address}</p>
+        <div style="margin: 4px 0; font-size: 11px; color: #0284c7; font-weight: 700;">
+          📏 Khoảng cách thẳng: ${distStr}
+        </div>
+        <div style="display: flex; gap: 4px; margin-top: 8px;">
+          <button onclick="playPoiNarration('${poiId}', 'MANUAL')" style="flex: 1; background:#ff6b35; color:white; border:none; padding:5px 8px; border-radius:4px; cursor:pointer; font-size:11px; font-weight:bold;">▶ Nghe</button>
+          <button onclick="openDirectionsToPoi('${poiId}')" style="flex: 1; background:#0284c7; color:white; border:none; padding:5px 8px; border-radius:4px; cursor:pointer; font-size:11px; font-weight:bold;">🧭 Chỉ Đường</button>
+        </div>
       </div>
     `);
     poiLayers.push(marker);
@@ -469,18 +609,28 @@ function renderPOIList(pois) {
   if (!container) return;
   container.innerHTML = "";
 
+  if (pois.length === 0) {
+    container.innerHTML = `
+      <div style="text-align: center; padding: 2rem 1rem; color: #94a3b8; font-size: 0.85rem;">
+        🔍 Không tìm thấy điểm tham quan phù hợp.<br>Vui lòng thử từ khóa hoặc danh mục khác.
+      </div>
+    `;
+    return;
+  }
+
   pois.forEach(poi => {
     if (!poi || !poi.location || !poi.location.coordinates) return;
     const poiId = poi._id || poi.id;
     const codeName = poi.code || poi.name || "POI";
     const address = poi.address || "";
     const enterRadius = poi.radius_enter_m || poi.trigger_radius || 30;
+    const distStr = poi.distance_display || (poi.straight_line_distance_m ? `${Math.round(poi.straight_line_distance_m)} m` : null);
 
     const card = document.createElement("div");
     card.className = "poi-card";
     card.onclick = () => {
       const [lng, lat] = poi.location.coordinates;
-      map.setView([lat, lng], 17);
+      map.flyTo([lat, lng], 17, { duration: 0.8 });
       playPoiNarration(poiId, "MANUAL");
     };
 
@@ -491,14 +641,316 @@ function renderPOIList(pois) {
         <div class="poi-badge-cat">${poi.category || 'Điểm tham quan'}</div>
         <div class="poi-title">${codeName}</div>
         <div class="poi-desc">${address}</div>
-        <div class="poi-meta">
-          <span>🎯 Vào: ${enterRadius}m</span>
-          <button style="background:#ff6b35; color:white; border:none; padding:2px 8px; border-radius:4px; cursor:pointer; font-size:10px;" onclick="event.stopPropagation(); playPoiNarration('${poiId}', 'MANUAL')">▶ Nghe</button>
+        ${distStr ? `<div class="poi-dist-badge">📏 Cách bạn: ${distStr}</div>` : ''}
+        <div class="poi-meta" style="margin-top: 6px; display: flex; justify-content: space-between; align-items: center;">
+          <span style="font-size: 0.7rem; color: #94a3b8;">🎯 Vào: ${enterRadius}m</span>
+          <div style="display: flex; gap: 4px;">
+            <button class="btn-book-poi" onclick="event.stopPropagation(); openDirectionsToPoi('${poiId}')">🧭 Đường đi</button>
+            <button style="background:#ff6b35; color:white; border:none; padding:3px 8px; border-radius:4px; cursor:pointer; font-size:10px; font-weight: 700;" onclick="event.stopPropagation(); playPoiNarration('${poiId}', 'MANUAL')">▶ Nghe</button>
+          </div>
         </div>
       </div>
     `;
     container.appendChild(card);
   });
+}
+
+function updateUserLocation(lat, lng) {
+  userLocation = { lat, lng };
+  userMarker.setLatLng([lat, lng]);
+  document.getElementById("current-coords").innerText = `${lng.toFixed(4)}, ${lat.toFixed(4)}`;
+  if (followUser) {
+    map.setView([lat, lng]);
+  }
+  checkGeofences(lat, lng);
+}
+
+window.teleportTo = function(lng, lat, name) {
+  updateUserLocation(lat, lng);
+  map.flyTo([lat, lng], 17, { duration: 0.6 });
+};
+
+window.recenterMap = function() {
+  followUser = true;
+  map.flyTo([userLocation.lat, userLocation.lng], 16, { duration: 0.6 });
+};
+
+// ==========================================================================
+// REAL DIRECTIONS & ROUTE PREVIEW (OSRM Engine)
+// ==========================================================================
+
+function populateDirectionsDropdowns(pois) {
+  const originSelect = document.getElementById("dir-origin-select");
+  const destSelect = document.getElementById("dir-dest-select");
+  if (!destSelect || !originSelect) return;
+
+  // Clear existing POI options
+  const defaultDest = '<option value="">-- Chọn điểm đến --</option>';
+  destSelect.innerHTML = defaultDest;
+
+  // Preserve first two origin options
+  const origFirstTwo = `
+    <option value="current_gps">📍 Vị trí hiện tại (GPS của tôi)</option>
+    <option value="picked_map">📌 Bấm chọn điểm trên bản đồ</option>
+  `;
+  originSelect.innerHTML = origFirstTwo;
+
+  pois.forEach(p => {
+    const pId = p._id || p.id;
+    const pName = p.name || p.code || pId;
+
+    const optDest = document.createElement("option");
+    optDest.value = pId;
+    optDest.innerText = `${p.category === 'food' ? '🍲' : '🏛️'} ${pName}`;
+    destSelect.appendChild(optDest);
+
+    const optOrig = document.createElement("option");
+    optOrig.value = `poi:${pId}`;
+    optOrig.innerText = `🏛️ POI: ${pName}`;
+    originSelect.appendChild(optOrig);
+  });
+}
+
+window.toggleDirectionsPanel = function(forceState) {
+  const panel = document.getElementById("directions-panel");
+  if (!panel) return;
+  if (typeof forceState === "boolean") {
+    panel.style.display = forceState ? "flex" : "none";
+  } else {
+    panel.style.display = (panel.style.display === "none" || !panel.style.display) ? "flex" : "none";
+  }
+};
+
+window.setRoutingMode = function(mode) {
+  activeRoutingMode = mode;
+  document.getElementById("btn-mode-walking").classList.toggle("active", mode === "walking");
+  document.getElementById("btn-mode-driving").classList.toggle("active", mode === "driving");
+  // Recalculate if destination already selected
+  const destVal = document.getElementById("dir-dest-select").value;
+  if (destVal) {
+    calculateRoute();
+  }
+};
+
+window.handleOriginChange = function() {
+  const originVal = document.getElementById("dir-origin-select").value;
+  if (originVal === "picked_map") {
+    isPickingOriginOnMap = true;
+    alert("👉 Vui lòng bấm vào vị trí bất kỳ trên bản đồ để chọn điểm xuất phát!");
+  } else {
+    isPickingOriginOnMap = false;
+  }
+};
+
+window.openDirectionsToPoi = function(poiId) {
+  toggleDirectionsPanel(true);
+  const destSelect = document.getElementById("dir-dest-select");
+  if (destSelect) {
+    destSelect.value = poiId;
+    calculateRoute();
+  }
+};
+
+window.calculateRoute = async function() {
+  const originVal = document.getElementById("dir-origin-select").value;
+  const destPoiId = document.getElementById("dir-dest-select").value;
+
+  if (!destPoiId) {
+    alert("Vui lòng chọn điểm đến!");
+    return;
+  }
+
+  const payload = {
+    mode: activeRoutingMode,
+    locale: currentLang,
+    destination_poi_id: destPoiId
+  };
+
+  if (originVal === "current_gps") {
+    payload.origin = {
+      latitude: userLocation.lat,
+      longitude: userLocation.lng
+    };
+  } else if (originVal === "picked_map" && pickedOriginLocation) {
+    payload.origin = {
+      latitude: pickedOriginLocation.lat,
+      longitude: pickedOriginLocation.lng
+    };
+  } else if (originVal.startsWith("poi:")) {
+    payload.origin_poi_id = originVal.replace("poi:", "");
+  } else {
+    payload.origin = {
+      latitude: userLocation.lat,
+      longitude: userLocation.lng
+    };
+  }
+
+  const btnCalc = document.getElementById("btn-calc-route");
+  if (btnCalc) btnCalc.innerText = "⏳ Đang tính...";
+
+  try {
+    const res = await fetch(`${API_BASE}/routes/preview`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+
+    if (!res.ok) {
+      const err = await res.json();
+      alert(`Không thể tìm tuyến đường: ${err.detail || 'Lỗi hệ thống'}`);
+      return;
+    }
+
+    activeRouteResult = await res.json();
+    renderRouteOnMap(activeRouteResult);
+  } catch (err) {
+    console.error("Route calculation error:", err);
+    alert("Không thể kết nối đến hệ thống chỉ đường.");
+  } finally {
+    if (btnCalc) btnCalc.innerText = "⚡ Tìm Lộ Trình";
+  }
+};
+
+function renderRouteOnMap(routeData) {
+  if (!routeLayerGroup) return;
+  routeLayerGroup.clearLayers();
+
+  const coords = routeData.coordinates || (routeData.geometry && routeData.geometry.coordinates);
+  if (!coords || coords.length === 0) return;
+
+  // Leaflet uses [lat, lon], GeoJSON uses [lon, lat]
+  const latLngs = coords.map(pt => [pt[1], pt[0]]);
+
+  const polyline = L.polyline(latLngs, {
+    color: activeRoutingMode === "walking" ? "#0284c7" : "#10b981",
+    weight: 6,
+    opacity: 0.9,
+    lineJoin: "round"
+  }).addTo(routeLayerGroup);
+
+  // Fit bounds to entire route with padding
+  map.fitBounds(polyline.getBounds(), { padding: [60, 60] });
+  followUser = false;
+
+  // Update summary card UI
+  const card = document.getElementById("route-summary-card");
+  if (card) card.style.display = "flex";
+
+  document.getElementById("route-dist-text").innerText = routeData.distance_display;
+  document.getElementById("route-dur-text").innerText = routeData.duration_display;
+
+  // Straight line distance calculation for comparison
+  const origPt = latLngs[0];
+  const destPt = latLngs[latLngs.length - 1];
+  const straightM = calculateDistanceMeters(origPt[0], origPt[1], destPt[0], destPt[1]);
+  document.getElementById("route-straight-text").innerText = straightM < 1000 ? `${Math.round(straightM)} m` : `${(straightM / 1000).toFixed(1)} km`;
+
+  // Populate turn steps
+  const stepsList = document.getElementById("route-steps-list");
+  const stepCountSpan = document.getElementById("route-step-count");
+  if (stepsList) {
+    stepsList.innerHTML = "";
+    const steps = routeData.steps || [];
+    if (stepCountSpan) stepCountSpan.innerText = steps.length;
+
+    steps.forEach((s, idx) => {
+      const li = document.createElement("li");
+      li.className = "step-item";
+      li.innerHTML = `
+        <span style="color: #38bdf8; font-weight: 700;">${idx + 1}.</span>
+        <div style="flex: 1;">
+          <div>${s.instruction}</div>
+          <div style="font-size: 0.65rem; color: #94a3b8;">${s.distance_display} (~${s.duration_display})</div>
+        </div>
+      `;
+      stepsList.appendChild(li);
+    });
+  }
+}
+
+window.clearActiveRoute = function() {
+  if (routeLayerGroup) routeLayerGroup.clearLayers();
+  activeRouteResult = null;
+  const card = document.getElementById("route-summary-card");
+  if (card) card.style.display = "none";
+};
+
+window.openExternalGoogleMaps = function() {
+  const destPoiId = document.getElementById("dir-dest-select").value;
+  const targetPoi = poiDataList.find(p => (p._id || p.id) === destPoiId);
+  if (!targetPoi || !targetPoi.location) {
+    alert("Vui lòng chọn điểm đến!");
+    return;
+  }
+  const [destLon, destLat] = targetPoi.location.coordinates;
+  const travelMode = activeRoutingMode === "walking" ? "walking" : "driving";
+  const url = `https://www.google.com/maps/dir/?api=1&origin=${userLocation.lat},${userLocation.lng}&destination=${destLat},${destLon}&travelmode=${travelMode}`;
+  window.open(url, "_blank");
+};
+
+// ==========================================================================
+// POI SEARCH & FILTERING (Debounced 300ms)
+// ==========================================================================
+
+function setupSearchAndFilters() {
+  const searchInput = document.getElementById("poi-search-input");
+  const clearBtn = document.getElementById("btn-clear-search");
+
+  if (searchInput) {
+    searchInput.addEventListener("input", (e) => {
+      const val = e.target.value.trim();
+      if (clearBtn) clearBtn.style.display = val ? "block" : "none";
+
+      clearTimeout(searchDebounceTimer);
+      searchDebounceTimer = setTimeout(() => {
+        executePOISearch(val, currentCategoryFilter);
+      }, 300);
+    });
+  }
+}
+
+window.setCategoryFilter = function(cat, btnElement) {
+  currentCategoryFilter = cat;
+  document.querySelectorAll(".category-filter-chips .chip-btn").forEach(b => b.classList.remove("active"));
+  if (btnElement) btnElement.classList.add("active");
+
+  const query = document.getElementById("poi-search-input")?.value.trim() || "";
+  executePOISearch(query, cat);
+};
+
+window.clearSearch = function() {
+  const input = document.getElementById("poi-search-input");
+  const clearBtn = document.getElementById("btn-clear-search");
+  if (input) input.value = "";
+  if (clearBtn) clearBtn.style.display = "none";
+  executePOISearch("", currentCategoryFilter);
+};
+
+async function executePOISearch(query, category) {
+  try {
+    let url = "";
+    if (query) {
+      url = `${API_BASE}/pois/search?q=${encodeURIComponent(query)}&origin_lat=${userLocation.lat}&origin_lon=${userLocation.lng}&lang=${currentLang}&limit=30`;
+      if (category && category !== "all") {
+        url += `&category=${encodeURIComponent(category)}`;
+      }
+    } else {
+      url = `${API_BASE}/pois/nearby?latitude=${userLocation.lat}&longitude=${userLocation.lng}&max_distance_meters=5000&lang=${currentLang}&limit=50`;
+      if (category && category !== "all") {
+        url += `&category=${encodeURIComponent(category)}`;
+      }
+    }
+
+    const res = await fetch(url);
+    if (res.ok) {
+      const data = await res.json();
+      const list = Array.isArray(data) ? data : (data.items || []);
+      renderPOIList(list);
+      renderPOIsOnMap(list);
+    }
+  } catch (err) {
+    console.error("POI search failed:", err);
+  }
 }
 
 function updateUserLocation(lat, lng) {
@@ -599,7 +1051,12 @@ window.playPoiNarration = async function(poiId, triggerType = "MANUAL", consentT
     }
 
     // Grant successful! Play streaming audio
-    const streamUrl = grantData.stream_url.startsWith("http") ? grantData.stream_url : `http://localhost:8000${grantData.stream_url}`;
+    currentPlaybackId = grantData.playback_id || (`pb_${Date.now()}`);
+    currentActivePoiId = poiId;
+
+    const streamUrl = grantData.stream_url.startsWith("http")
+      ? grantData.stream_url
+      : (grantData.stream_url.startsWith("/") ? grantData.stream_url : `/${grantData.stream_url}`);
     audioElement.src = streamUrl;
     audioElement.play().then(() => {
       btnPlayPause.innerText = "⏸";
@@ -1006,6 +1463,36 @@ function setupEventListeners() {
     } else {
       audioElement.pause();
       btnPlayPause.innerText = "▶";
+    }
+  });
+
+  // BR-LISTEN-01: Enqueue narration_started when player genuinely starts playing
+  audioElement.addEventListener("playing", () => {
+    btnPlayPause.innerText = "⏸";
+    if (window.analyticsOutbox && currentPlaybackId) {
+      window.analyticsOutbox.enqueue({
+        event_type: "narration_started",
+        playback_id: currentPlaybackId,
+        poi_id: currentActivePoiId,
+        tour_id: activeTourId,
+        source: (triggerTypeLabel ? triggerTypeLabel.innerText.toLowerCase() : "manual"),
+        properties: { lang: currentLang }
+      });
+    }
+  });
+
+  // BR-LISTEN-01: Enqueue narration_completed when audio reaches end
+  audioElement.addEventListener("ended", () => {
+    btnPlayPause.innerText = "▶";
+    if (window.analyticsOutbox && currentPlaybackId) {
+      window.analyticsOutbox.enqueue({
+        event_type: "narration_completed",
+        playback_id: currentPlaybackId,
+        poi_id: currentActivePoiId,
+        tour_id: activeTourId,
+        source: (triggerTypeLabel ? triggerTypeLabel.innerText.toLowerCase() : "manual"),
+        properties: { lang: currentLang }
+      });
     }
   });
 

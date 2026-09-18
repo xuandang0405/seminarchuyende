@@ -16,6 +16,7 @@ export default function POIDetailModal({
   visible,
   onClose,
   onPlayAudio,
+  onDirections,
   currentLang = "vi",
 }) {
   const [menuItems, setMenuItems] = useState([]);
@@ -90,6 +91,20 @@ export default function POIDetailModal({
               <Text style={styles.playIcon}>▶</Text>
               <Text style={styles.playButtonText}>Nghe Thuyết Minh Âm Thanh</Text>
             </TouchableOpacity>
+
+            {/* Directions Button */}
+            {onDirections ? (
+              <TouchableOpacity
+                style={[styles.playButton, { backgroundColor: "#0284c7", marginTop: 8 }]}
+                onPress={() => {
+                  onClose();
+                  onDirections(poi);
+                }}
+              >
+                <Text style={styles.playIcon}>🧭</Text>
+                <Text style={styles.playButtonText}>Chỉ Đường Thực Tế (OSRM)</Text>
+              </TouchableOpacity>
+            ) : null}
 
             {/* Description */}
             <View style={styles.section}>

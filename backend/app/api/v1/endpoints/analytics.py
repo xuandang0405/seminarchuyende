@@ -1,15 +1,23 @@
 """Router for Analytics endpoints.
 
 F08 / S05 / S06 / S07 / S08 / SD11 / AD11 / SD12 / AD12 / SD13 / AD13.
-Implements Consent, Idempotent Event Batch Ingestion with per-event ACK, and Dashboard.
+Implements Consent, Idempotent Event Batch Ingestion with per-event ACK, and Admin Analytics.
 """
 
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Query, status
 
-from app.api.v1.endpoints.auth import get_current_user
+from app.api.v1.endpoints.auth import get_current_user, get_current_admin
+from app.schemas.device_session import (
+    EventBatchIn,
+    EventBatchResponse,
+    AnalyticsOverviewResponse,
+    TopPoiAnalyticsItem,
+    TourAnalyticsItem,
+)
 from app.services.analytics_service import analytics_service
+from app.services.session_service import session_service
 
 router = APIRouter(prefix="/analytics", tags=["Telemetry & Analytics"])
 
@@ -20,27 +28,14 @@ class ConsentRequest(BaseModel):
     scopes: Optional[List[str]] = Field(default=["events", "route_sampling"])
 
 
-class EventItem(BaseModel):
-    event_id: str
-    session_id: Optional[str] = None
-    poi_id: Optional[str] = None
-    event_type: str
-    occurred_at: Optional[Any] = None
-    properties: Optional[Dict[str, Any]] = Field(default_factory=dict)
-
-
-class EventBatchRequest(BaseModel):
-    events: List[EventItem]
-
-
 # =============================================================================
-# CONSENT (F08 / SD11)
+# CONSENT (F08 / SD11 / BR-CONSENT-01)
 # =============================================================================
 
 @router.post("/consent")
 async def update_consent(req: ConsentRequest):
-    """
-    Use Case F08: Tourist grants or revokes analytics consent.
+    """Tourist grants or revokes analytics consent.
+    
     Pseudonymous device_id is stored with granted scopes.
     """
     res = await analytics_service.set_device_consent(
@@ -57,31 +52,63 @@ async def update_consent(req: ConsentRequest):
 
 
 # =============================================================================
-# BATCH EVENT INGESTION (SD11 / AD11)
+# BATCH EVENT INGESTION WITH PER-ITEM ACK (SD11 / AD11 / BR-SYNC-01)
 # =============================================================================
 
-@router.post("/events/batch")
-async def ingest_events_batch(req: EventBatchRequest):
+@router.post("/events/batch", response_model=EventBatchResponse)
+async def ingest_events_batch(
+    req: EventBatchIn,
+    cookie_token: Optional[str] = Cookie(None, alias="tourvoice_device_token"),
+    header_token: Optional[str] = Header(None, alias="x-device-token"),
+):
+    """Sequence Diagram 11: Idempotent event batch ingestion with per-event ACK.
+    
+    Client only removes acknowledged event IDs (accepted or duplicate) from local outbox.
+    Device ID is securely inferred from device credential.
     """
-    Sequence Diagram 11: Idempotent event batch ingestion with per-event ACK.
-    Client only removes acknowledged event IDs from local SQLite outbox.
-    """
+    token = header_token or cookie_token
+    device_id = None
+    if token:
+        dev = await session_service.verify_device_token(token)
+        if dev:
+            device_id = dev["_id"]
+
     events_data = [e.model_dump() for e in req.events]
-    res = await analytics_service.ingest_events(events_data)
+    res = await analytics_service.ingest_events(events_data, inferred_device_id=device_id)
     return res
 
 
 # =============================================================================
-# DASHBOARD STATS (S05 / S06 / S07 / SD12 / SD13)
+# ADMIN ANALYTICS ENDPOINTS (Section 14 & 17)
 # =============================================================================
 
+@router.get("/overview", response_model=AnalyticsOverviewResponse)
+@router.get("/admin/overview", response_model=AnalyticsOverviewResponse)
+async def get_analytics_overview():
+    """System-wide analytics overview with distinct unique devices and non-zero math."""
+    return await analytics_service.get_overview()
+
+
+@router.get("/pois", response_model=List[TopPoiAnalyticsItem])
+@router.get("/admin/pois", response_model=List[TopPoiAnalyticsItem])
+async def get_analytics_pois(
+    limit: int = Query(10, ge=1, le=50)
+):
+    """Top POIs by listening activity and unique devices."""
+    return await analytics_service.get_top_pois(limit=limit)
+
+
+@router.get("/tours", response_model=List[TourAnalyticsItem])
+@router.get("/admin/tours", response_model=List[TourAnalyticsItem])
+async def get_analytics_tours():
+    """Tour usage statistics and completion rates."""
+    return await analytics_service.get_tours()
+
+
+# Legacy dashboard endpoint for admin portal
 @router.get("/dashboard")
 async def get_dashboard(current_user: dict = Depends(get_current_user)):
-    """
-    Use Cases S05, S06, S07, O10:
-    Returns system-wide aggregated metrics for Admin, or scoped metrics for Owner.
-    Calculates average listening time safely without division by zero.
-    """
+    """Returns overview stats for Admin or scoped stats for Owner."""
     role = current_user.get("role", "user")
     user_id = current_user["_id"]
     stats = await analytics_service.get_dashboard(actor_role=role, actor_id=user_id)
@@ -101,4 +128,3 @@ async def create_playback(req: Dict[str, Any]):
 async def record_playback_event(req: Dict[str, Any]):
     """Records audio playback progress event."""
     return {"status": "ok"}
-

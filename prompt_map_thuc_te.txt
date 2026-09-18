@@ -1,0 +1,548 @@
+# PROMPT CẬP NHẬT MODULE BẢN ĐỒ TƯƠNG TÁC, TÌM POI, CHỈ ĐƯỜNG VÀ TÍNH KHOẢNG CÁCH
+
+Sao chép toàn bộ nội dung từ “BẮT ĐẦU PROMPT” đến “KẾT THÚC PROMPT” và gửi cho AI đang code dự án. Gửi kèm repository cùng các prompt, tài liệu database và source sơ đồ đã có. Đây là yêu cầu cập nhật dự án hiện tại, không phải tạo một dự án độc lập.
+
+## BẮT ĐẦU PROMPT
+
+Bạn là kỹ sư full-stack chịu trách nhiệm hoàn thiện module bản đồ cho dự án **Hệ thống Thuyết minh Du lịch Tự động Đa ngôn ngữ**. Đây là sản phẩm dự kiến đưa cho người dùng thật, gồm web du khách và ứng dụng React Native, không phải giao diện minh họa. Hãy đọc repository, code hiện có, OpenAPI, database, use case, sequence, activity và ERD trước khi sửa. Sau đó trực tiếp viết code, migration/index, test và source code sơ đồ. Không chỉ trả kế hoạch, mock UI, dữ liệu hardcode hoặc nút bấm không gọi nghiệp vụ thật.
+
+Stack bắt buộc:
+
+- Web: React.js + TypeScript.
+- Mobile: React Native + TypeScript; nếu dự án đang dùng Expo thì phải dùng development build cho thư viện native cần thiết.
+- Backend: FastAPI, kiến trúc Routers/Controllers → Services → Repositories.
+- Database server: MongoDB.
+- Database local mobile: SQLite chỉ dùng cho cache/offline metadata, không thay MongoDB.
+- Bản đồ: giữ MapLibre GL JS trên web và MapLibre React Native trên mobile nếu repository/prompt gốc đã chọn chúng; đặt sau interface/adapter để đổi nguồn style/tile mà không viết lại nghiệp vụ.
+
+## 1. Tài liệu và quy tắc ưu tiên
+
+Đọc nếu được cung cấp:
+
+- `MASTER_PROMPT_TOUR_GUIDE.md`.
+- `UPDATE_PROMPT_FOCUSED_USE_CASES.md`.
+- `UPDATE_PROMPT_LOGIN_GOOGLE_SECURITY.md`.
+- `UPDATE_PROMPT_GUEST_TRIAL_PAYMENTS.md`.
+- Database/ERD, OpenAPI, use case, sequence, activity và code hiện tại.
+
+Giữ chính sách tài khoản/thanh toán đã chốt:
+
+- Khách chưa đăng ký vẫn được xem bản đồ, tìm POI, xem chi tiết công khai, xem POI gần và yêu cầu chỉ đường.
+- Không bắt đăng nhập chỉ để dùng bản đồ hoặc tìm đường.
+- Việc nghe thử, mua tour, phát audio và tải nội dung trả phí vẫn đi qua AccessService/entitlement như prompt thanh toán.
+- GPS không tự tiêu lượt nghe thử. Người dùng phải chủ động xác nhận nghe thử khi chưa mua.
+- Đồng ý dùng vị trí để hiển thị/chỉ đường không đồng nghĩa đồng ý tải lịch sử vị trí lên analytics.
+
+Nếu tài liệu và code khác nhau, lập bảng chênh lệch. Không giả định tính năng đã hoạt động chỉ vì có component, interface hoặc sơ đồ. Không tuyên bố đã test trên thiết bị nếu chỉ chạy unit test.
+
+## 2. Mục tiêu nghiệm thu
+
+Người dùng thật phải thực hiện được hành trình sau trên web và mobile:
+
+1. Mở ứng dụng bằng tài khoản khách hoặc tài khoản thường.
+2. Bản đồ tải được bằng cấu hình môi trường thật, có attribution đúng và không che bởi UI.
+3. Cho phép hoặc từ chối quyền vị trí một cách rõ ràng.
+4. Khi cho phép, thấy vị trí hiện tại cùng trạng thái độ chính xác và nút đưa camera về vị trí.
+5. Thấy marker POI đã công bố; pan/zoom, chọn marker, đóng/mở bottom sheet hoặc popup được.
+6. Tìm POI theo tên, tên bản dịch, địa chỉ, từ khóa và danh mục; chọn kết quả thì camera focus đúng marker.
+7. Xem POI gần nhất theo vị trí hiện tại hoặc tâm bản đồ khi không có GPS.
+8. Mở chi tiết POI, xem khoảng cách thẳng ước tính và yêu cầu chỉ đường.
+9. Chọn điểm xuất phát là vị trí hiện tại, một POI khác hoặc điểm chọn trên bản đồ; chọn điểm đến là POI.
+10. Chọn chế độ đi bộ; nếu dự án thật sự hỗ trợ và provider có profile thì mới thêm xe đạp/ô tô.
+11. Backend gọi routing provider, trả quãng đường, thời gian dự kiến, geometry và các bước hướng dẫn; client vẽ tuyến lên bản đồ.
+12. Theo dõi vị trí khi đang điều hướng, hiển thị tiến độ; yêu cầu tính lại tuyến khi lệch tuyến đủ ngưỡng, không gọi API liên tục theo từng GPS sample.
+13. Hủy điều hướng, đổi điểm đến hoặc quay lại POI mà không làm hỏng player/tour hiện tại.
+14. Mất mạng, provider lỗi, GPS kém, không có đường đi hoặc route cũ hết hạn đều có trạng thái rõ ràng và cách thử lại.
+15. Trên mobile, chức năng bản đồ, GPS và route phải được thử trên development build/emulator/thiết bị thật; không dùng Expo Go làm bằng chứng cho MapLibre Native.
+
+Không được coi tính năng hoàn thành nếu chỉ mở Google Maps/Apple Maps ngoài ứng dụng. Có thể cung cấp nút “Mở bằng ứng dụng bản đồ khác” như fallback, nhưng ứng dụng vẫn phải tự hiển thị tuyến, khoảng cách và trạng thái chỉ đường cơ bản.
+
+## 3. Phân biệt đúng ba loại khoảng cách
+
+Không dùng một biến `distance` mơ hồ cho mọi trường hợp. Tạo contract và nhãn UI rõ:
+
+1. `straight_line_distance_m`: khoảng cách địa lý trực tiếp giữa hai tọa độ, tính bằng Haversine hoặc geospatial query; dùng cho POI gần, sắp xếp nhanh và geofence. Đây không phải quãng đường người dùng phải đi.
+2. `route_distance_m`: chiều dài tuyến thực tế do routing engine trả về theo đường và mode; dùng trong màn hình chỉ đường.
+3. `route_duration_s`: thời gian ước tính của tuyến; không gọi là thời gian chính xác tuyệt đối.
+
+Quy tắc:
+
+- Khoảng cách người dùng → POI cập nhật ở client khi GPS thay đổi hợp lệ, không gọi server mỗi giây.
+- Tìm POI gần theo khu vực lớn hoặc phân trang dùng MongoDB geospatial query và index `2dsphere`.
+- Khoảng cách POI A ↔ POI B tính thẳng được bằng hàm thuần dùng chung hoặc backend. Khi người dùng yêu cầu “đường đi”, phải gọi routing engine để lấy `route_distance_m` và geometry.
+- Tổng chiều dài tour theo thứ tự POI là tổng các leg do routing engine trả về; không cộng khoảng cách thẳng rồi gọi là đường đi.
+- Hiển thị m dưới 1 km và km từ 1 km trở lên với quy tắc làm tròn thống nhất; nội bộ luôn lưu/trả đơn vị SI, không lưu chuỗi đã format.
+- Tọa độ API/kiểu nội bộ phải có tên `latitude` và `longitude`; khi chuyển GeoJSON hoặc routing provider phải map rõ thứ tự. MongoDB GeoJSON dùng `[longitude, latitude]`, tuyệt đối không đảo.
+
+Viết unit test bằng các cặp tọa độ biết trước để phát hiện đảo latitude/longitude, NaN, tọa độ ngoài miền và sai đơn vị.
+
+## 4. Bản đồ thật, nguồn tile/style và giấy phép
+
+Tạo `MapAdapter` cho web/mobile và cấu hình runtime:
+
+- `MAP_STYLE_URL` hoặc cấu hình tương đương.
+- Attribution text/link.
+- Default center/bounds cho Quận 4 và giới hạn zoom hợp lý.
+- Provider name, khả năng offline, giới hạn request và trạng thái cấu hình.
+
+Không hardcode token bí mật trong source hoặc `EXPO_PUBLIC_*`. Nếu tile/style provider cần public client token có giới hạn domain/app ID thì chỉ đưa token công khai đúng loại, hạn chế quyền/phạm vi và ghi hướng dẫn rotate; khóa server/routing/geocoding bí mật chỉ nằm backend.
+
+Không dùng `tile.openstreetmap.org` làm hạ tầng production/offline mặc định cho ứng dụng có người dùng trả tiền. OSM nói dịch vụ tile công cộng là best-effort, có thể chặn, yêu cầu attribution/caching/identification và không cho bulk download/offline. Chọn một provider cho phép tải và offline theo điều khoản hoặc tự host tile phù hợp. Không xóa attribution. Tham khảo: https://operations.osmfoundation.org/policies/tiles/
+
+Nếu dùng public OSM/Nominatim trong môi trường demo, phải ghi rõ giới hạn và không gọi autocomplete liên tục. Public Nominatim giới hạn sử dụng, yêu cầu nhận diện/attribution/cache và cấm autocomplete client-side. Search POI nội bộ của dự án không được phụ thuộc Nominatim. Tham khảo: https://operations.osmfoundation.org/policies/nominatim/
+
+MapLibre React Native cần native build; tài liệu Expo của MapLibre ghi rõ package không chạy trong Expo Go. Cấu hình plugin và rebuild đúng version đã khóa: https://maplibre.org/maplibre-react-native/docs/setup/expo/
+
+Tạo `docs/map-provider-decision.md` ghi:
+
+- Provider/style/tile/routing/geocoding đã chọn và lý do.
+- Môi trường local/demo/staging/production.
+- Attribution, license, quota, caching và offline có được phép không.
+- Chi phí/giới hạn đã biết và cách thay provider.
+- Tính năng nào đã test thật, tính năng nào mới dùng mock.
+
+Không dùng endpoint demo công cộng của routing engine như hạ tầng production. Với phạm vi đồ án, chọn một trong hai:
+
+- Routing provider có SLA/quota/điều khoản phù hợp, gọi qua backend adapter; hoặc
+- Tự host OSRM/Valhalla/GraphHopper cho vùng dữ liệu cần thiết và có quy trình cập nhật dữ liệu.
+
+Ưu tiên một provider hoạt động trước, không triển khai nhiều adapter nửa vời. Interface phải đủ nhỏ để thay provider sau này.
+
+## 5. Trải nghiệm bản đồ trên web và mobile
+
+### 5.1 Map/Home
+
+Phải có:
+
+- Bản đồ chiếm vùng hiển thị chính và responsive.
+- Current-location marker khác marker POI.
+- Marker POI có selected/nearby/visited/locked state dễ phân biệt nhưng không chỉ dựa vào màu.
+- Cluster marker khi mật độ cao; khi bấm cluster zoom/focus để thấy các điểm, không tải/render vô hạn marker DOM.
+- Nút định vị lại; compass; mức zoom phù hợp; attribution luôn nhìn thấy.
+- Bottom sheet mobile hoặc panel/popup web hiển thị tóm tắt POI được chọn, khoảng cách thẳng, trạng thái tour và các nút Chi tiết/Chỉ đường/Nghe.
+- Loading skeleton, lỗi style/tile, không có POI, không có mạng, thiếu quyền vị trí, GPS tắt và vị trí cũ.
+- Không reset camera về GPS sau mỗi update khi người dùng đang chủ động kéo bản đồ. Có state `follow_user`; pan thủ công tắt follow, nút recenter bật lại.
+- Bảo toàn selected POI/search/route hợp lý khi app background rồi foreground hoặc đổi orientation.
+
+### 5.2 Quyền và vị trí
+
+- Giải thích giá trị trước khi xin quyền; chỉ xin foreground trước. Background location chỉ xin khi tính năng auto narration/tour thực sự cần và sau khi người dùng bật tính năng đó.
+- Tách `permission_status`, `location_services_enabled`, `last_known_location`, `current_location`, `accuracy_m`, `captured_at`.
+- Không dùng sample quá cũ hoặc accuracy quá kém để kích hoạt geofence/chỉ đường mà không cảnh báo. Ngưỡng phải configurable và test.
+- Lọc update bất thường; throttle/debounce cập nhật UI và route. Không ghi setState nặng theo từng sample.
+- Khi từ chối quyền, người dùng vẫn tìm POI, chọn điểm xuất phát trên bản đồ hoặc chọn POI A.
+- Có hướng dẫn mở Settings khi quyền bị từ chối vĩnh viễn; không lặp popup xin quyền liên tục.
+- Không upload liên tục vị trí chính xác nếu không cần. Request routing chỉ gửi origin/destination cần thiết; analytics route tracking cần consent riêng và retention rõ ràng.
+
+Expo Location hỗ trợ đọc/poll/subscribe vị trí, nhưng phải kiểm tra quyền và vòng đời theo đúng version dự án: https://docs.expo.dev/versions/latest/sdk/location/
+
+### 5.3 Search POI
+
+Search chính là POI của hệ thống:
+
+- Tìm theo `name`, localizations, aliases/keywords, address, category/tags và mã POI công khai nếu có.
+- Chuẩn hóa dấu/case cho tiếng Việt nhưng vẫn hiển thị nguyên văn. Không làm mất khả năng tìm chuỗi có dấu.
+- Debounce khoảng 250–400 ms, hủy/ignore request cũ, minimum query length hợp lý và không gửi request khi chuỗi trống.
+- Kết quả có tên, loại, địa chỉ, khoảng cách thẳng nếu có origin, ảnh nhỏ và trạng thái tour.
+- Khi chọn kết quả: đóng keyboard, set selected POI, fit/fly camera, mở preview. Không chỉ chuyển sang trang chi tiết khiến người dùng mất ngữ cảnh bản đồ.
+- Search/filer theo category, đang mở nếu dữ liệu tin cậy, tour, bán kính và ngôn ngữ; không bịa giờ mở cửa.
+- Có recent searches local, xóa được; không gửi lịch sử tìm kiếm vào analytics khi chưa consent.
+- Search server có pagination/cursor và giới hạn; không trả toàn bộ POI.
+- Có cache ngắn cho truy vấn lặp nhưng không giữ kết quả đã unpublished quá lâu; response gắn dataset version/ETag khi phù hợp.
+- Trạng thái `is_active`, `deleted_at`, publish readiness và quyền nội dung phải được lọc tại backend, không chỉ frontend.
+
+External geocoding cho địa chỉ ngoài POI là chức năng tùy chọn. Chỉ thêm sau khi POI search hoàn chỉnh, qua `GeocodingProvider` backend có rate limit/cache, UI ghi rõ đó là kết quả địa chỉ ngoài hệ thống. Không tự nhập kết quả geocoding thành POI đã xác thực.
+
+### 5.4 Nearby POI
+
+- Endpoint nhận latitude, longitude, radius, category/tour/lang và cursor/limit.
+- Validate miền tọa độ, radius tối đa và limit; rate limit để chống quét dữ liệu.
+- MongoDB query chỉ POI active/published/not deleted, dùng GeoJSON Point + `2dsphere`; trả `straight_line_distance_m` đã kiểm tra.
+- Client có thể tính lại khoảng cách hiển thị từ vị trí mới, nhưng danh sách server vẫn là nguồn POI hợp lệ.
+- Nếu GPS không có, cho chọn “Tìm trong khu vực bản đồ này” bằng bbox/tâm camera; không âm thầm dùng tọa độ mặc định rồi nói là gần người dùng.
+
+MongoDB hỗ trợ GeoJSON, yêu cầu longitude trước latitude và dùng `2dsphere`/`$geoNear` cho truy vấn cầu: https://www.mongodb.com/docs/manual/geospatial-queries/
+
+### 5.5 Chỉ đường trong ứng dụng
+
+Tạo `RoutingProvider` ở backend với contract tối thiểu:
+
+```python
+class RoutingProvider(Protocol):
+    async def route(
+        self,
+        origin: Coordinate,
+        destination: Coordinate,
+        mode: TravelMode,
+        locale: str,
+        alternatives: bool = False,
+    ) -> RouteResult: ...
+```
+
+`RouteResult` phải chuẩn hóa, không để client phụ thuộc JSON provider:
+
+- `route_id` hoặc fingerprint.
+- `mode`.
+- `distance_m`.
+- `duration_s`.
+- GeoJSON `LineString` geometry với `[longitude, latitude]`.
+- Legs và steps đã lọc: distance, duration, instruction/maneuver, street name khi có.
+- snapped origin/destination và khoảng cách snap để cảnh báo nếu điểm bị đẩy quá xa.
+- provider/data version nếu có, `generated_at`, `expires_at` và warning.
+
+OSRM Route service có thể trả tuyến, distance, duration, geometry và steps; endpoint/option phải theo đúng version đã khóa: https://project-osrm.org/docs/v5.24.0/api/
+
+Quy tắc backend:
+
+- Client chỉ gửi origin/destination/mode/locale; backend tự validate POI đích nếu dùng POI ID.
+- Không nhận base URL/provider tùy ý từ client để tránh SSRF.
+- Timeout ngắn, retry giới hạn chỉ khi an toàn, circuit breaker đơn giản và lỗi máy đọc được.
+- Cache route theo tọa độ đã lượng tử hóa hợp lý + mode + provider/data version + TTL; không cache vô hạn tọa độ chính xác.
+- Rate limit theo guest/user/IP phù hợp; không để refresh GPS gọi provider liên tục.
+- Log request ID, latency, outcome; không log lịch sử tọa độ chính xác đầy đủ lâu dài hoặc query string chứa dữ liệu nhạy cảm.
+- API key/provider secret chỉ backend. Nếu provider yêu cầu call trực tiếp client, phải chứng minh token đó là public/restricted đúng cách; mặc định proxy route qua backend.
+- Không tự viết thuật toán Dijkstra trên toàn dữ liệu đường trong MongoDB. MongoDB lưu POI; routing engine chuyên dụng xử lý mạng đường.
+
+Quy tắc client điều hướng:
+
+- Vẽ `LineString` bằng layer native/web, không tạo hàng nghìn marker cho từng điểm route.
+- Fit bounds toàn tuyến với padding tránh panel/bottom sheet.
+- Hiển thị quãng đường, thời gian, mode và bước kế tiếp.
+- Theo dõi progress bằng phép chiếu/đo khoảng cách tới polyline ở client hoặc giải pháp đã test; không gọi route API mỗi GPS tick.
+- Re-route khi lệch khỏi tuyến vượt ngưỡng trong nhiều sample hợp lệ hoặc khi người dùng yêu cầu. Có cooldown tối thiểu, single-flight và hủy response cũ.
+- Khi destination/route request thay đổi, response cũ không được ghi đè route mới.
+- Nếu provider không tìm thấy tuyến, vẫn hiển thị marker đích và khoảng cách thẳng với thông báo “chưa tìm được đường đi”, không vẽ đường thẳng giả làm tuyến.
+- Route preview không tự bắt đầu background tracking. Người dùng bấm Bắt đầu; Hủy phải dừng subscription chỉ đường nhưng không làm hỏng LocationService dùng cho map/geofence.
+- Khi audio narration chạy, UI chỉ đường và audio dùng controller riêng, phối hợp audio focus/thông báo nhưng không tạo hai Location watcher nặng trùng nhau.
+- Nút mở ứng dụng bản đồ ngoài là fallback có URL/deep link encode và xác minh scheme, không thay luồng nội bộ.
+
+## 6. Khoảng cách giữa các POI và tuyến tour
+
+Bổ sung chức năng dễ hiểu:
+
+- Tại POI Detail: “Khoảng cách từ vị trí của tôi” nếu có GPS.
+- Cho chọn POI A và POI B để xem khoảng cách thẳng; nút “Tính đường đi” trả khoảng cách tuyến và thời gian đi bộ.
+- Tour Detail: hiện thứ tự POI, khoảng cách tuyến từng chặng và tổng ước tính nếu dữ liệu route sẵn sàng.
+- Admin Tour Editor: chọn/sắp POI, preview các leg trên map; khi đổi thứ tự, route summary cũ phải invalid và tính lại có debounce.
+- Không tính ma trận N×N mỗi lần mở màn hình. Với tour nhỏ, tính route theo thứ tự hiện tại; nếu cần table/matrix provider thì có giới hạn số điểm và cache.
+- Không lưu route geometry vĩnh viễn như sự thật nếu dữ liệu đường có thể đổi. Có thể cache với provider/data version/expiry; POI coordinate hoặc tour order đổi thì invalid.
+- Không để POI trùng tọa độ, POI bị unpublished hoặc coordinate lỗi làm crash toàn tuyến; chỉ rõ leg lỗi.
+
+## 7. Backend API
+
+Đối chiếu route hiện có trước khi đổi tên. Contract đề xuất:
+
+| Method/path | Chức năng |
+|---|---|
+| GET `/api/v1/map/config` | Cấu hình public đã lọc: style URL/token công khai nếu hợp lệ, attribution, bounds, capabilities |
+| GET `/api/v1/pois/search` | Search POI đã công bố theo query/filter/lang/origin/cursor |
+| GET `/api/v1/pois/nearby` | POI gần theo GeoJSON query, trả khoảng cách thẳng |
+| GET `/api/v1/pois/in-bounds` | POI trong bbox để tải theo viewport khi dữ liệu lớn |
+| GET `/api/v1/pois/{id}` | Chi tiết public, tọa độ và trạng thái truy cập nội dung |
+| POST `/api/v1/routes/preview` | Tạo route normalized từ origin đến POI/toạ độ cho guest/user |
+| POST `/api/v1/routes/tour-summary` | Route các leg theo thứ tự tour, giới hạn số điểm |
+| POST `/api/v1/admin/pois` và PATCH tương ứng | Admin chọn/sửa vị trí, validate GeoJSON, audit/version |
+
+Không bắt buộc tạo `/in-bounds` nếu dataset nhỏ và snapshot đã tối ưu. Hãy đo/giải thích lựa chọn; không tải lại toàn bộ POI mỗi lần pan.
+
+DTO phải có:
+
+- Kiểu Coordinate riêng ở boundary API (`latitude`, `longitude`) và mapper sang GeoJSON/provider.
+- Error envelope `{code, message, details, request_id}`.
+- Error codes ổn định: `LOCATION_REQUIRED`, `INVALID_COORDINATE`, `POI_NOT_FOUND`, `ROUTE_NOT_FOUND`, `ROUTING_TIMEOUT`, `ROUTING_UNAVAILABLE`, `MAP_PROVIDER_NOT_CONFIGURED`, `RATE_LIMITED`.
+- 400 cho tọa độ/query sai cú pháp; 404 POI/tuyến không có; 422 dữ liệu hợp lệ về JSON nhưng sai ràng buộc theo contract nếu quy ước dự án dùng vậy; 429 rate limit; 502/503 provider lỗi/không cấu hình; không trả 500 chung cho mọi tình huống.
+- OpenAPI và TypeScript types sinh/cập nhật; web/mobile dùng contract chung, không tự khai báo hai kiểu response khác nhau.
+
+## 8. MongoDB và dữ liệu POI
+
+Giữ collection `POI` và các collection hiện có. Không tạo collection `locations` chỉ để lặp tọa độ POI.
+
+Mỗi POI cần trường tương đương:
+
+```javascript
+{
+  _id: "poi_khanh_hoi",
+  location: {
+    type: "Point",
+    coordinates: [106.7031, 10.7568]
+  },
+  address: { /* cấu trúc hiện có */ },
+  category: "bus_stop",
+  tags: ["khanh hoi"],
+  geofence_radius_m: 30,
+  is_active: true,
+  deleted_at: null,
+  version: 3,
+  updated_at: ISODate("...")
+}
+```
+
+Không copy số minh họa trên thành dữ liệu production nếu chưa xác minh. Admin phải đặt pin/nhập tọa độ và preview trước khi lưu.
+
+Index bắt buộc sau khi audit dữ liệu:
+
+- `location: "2dsphere"`.
+- Index phục vụ active/published/category và truy vấn danh sách theo schema thật.
+- Search index phù hợp với cách triển khai: MongoDB text index có giới hạn hoặc Atlas Search nếu môi trường có. Không tuyên bố hỗ trợ fuzzy/diacritics nâng cao nếu engine chưa đáp ứng.
+- Unique slug/code nếu hệ thống dùng chúng, sau khi xử lý duplicate.
+
+Migration phải:
+
+1. Phát hiện format lat/lng cũ và ghi báo cáo bản ghi lỗi/mơ hồ.
+2. Chuyển sang GeoJSON `[longitude, latitude]` có kiểm tra miền.
+3. Không âm thầm đoán/đảo dữ liệu không xác định.
+4. Chỉ tạo `2dsphere` index sau khi dữ liệu không hợp lệ đã được xử lý/quarantine.
+5. Idempotent, có dry-run/report và rollback hợp lý; không drop collection.
+6. Cập nhật seed POI mẫu bằng tọa độ đã xác minh thủ công, ghi nguồn/ngày kiểm tra.
+
+Chỉ thêm collection `route_cache` nếu thực sự cần cache chia sẻ/persist qua worker. Nếu Redis/cache hiện có đáp ứng thì dùng nó. Nếu thêm `route_cache`, quy định fingerprint, origin/destination đã lượng tử hóa, mode, provider/data version, geometry, distance/duration, expiry và TTL index; không biến cache thành lịch sử di chuyển người dùng.
+
+## 9. Kiến trúc code dễ kiểm soát
+
+### Backend
+
+Tách nhỏ:
+
+- `api/routes/map.py`, `poi.py`, `routing.py` hoặc theo convention repo.
+- `services/poi_search_service.py`.
+- `services/geo_service.py`: validation, Haversine, mapping coordinate; hàm thuần có test.
+- `services/routing_service.py`: policy, cache, provider, normalization.
+- `repositories/poi_repository.py`: `$geoNear`/search/bounds.
+- `integrations/routing/base.py` và một adapter thật.
+- Pydantic request/response schemas, config và typed errors.
+
+Router không gọi MongoDB/provider trực tiếp. Repository không chứa quyết định UI/quota. Routing adapter không tự truy cập entitlement. Không tạo một `MapService` khổng lồ làm mọi thứ.
+
+### Web
+
+- `MapPage`, `MapView`, `PoiLayer`, `RouteLayer`, `SearchPanel`, `PoiPreview`, `NavigationPanel`.
+- Hook/service tách biệt: location, camera/follow state, POI query, route query.
+- TanStack Query quản lý server state; không copy toàn bộ kết quả vào global store.
+- Cleanup map listeners/AbortController khi unmount hoặc query thay đổi.
+
+### Mobile
+
+- `LocationService`: quyền, foreground/background watchers và normalized samples.
+- `MapAdapter`/map components: render/camera/layers, không chứa routing HTTP.
+- `PoiSearchController` hoặc hooks.
+- `NavigationController`: state machine `idle → previewing → ready → navigating → rerouting → arrived/cancelled/error`.
+- `RouteRepository`/API client.
+- Dùng một location stream được multiplex cho map/geofence/navigation thay vì tạo watcher không kiểm soát.
+- Cleanup task/subscription khi logout, hủy route, unmount hoặc app lifecycle yêu cầu; background tracking chỉ khi có use case và permission phù hợp.
+
+Code có comment giải thích quyết định khó, không comment lặp lại câu lệnh. Không tạo abstraction “enterprise” dư thừa; ưu tiên module nhỏ, type rõ và test được.
+
+## 10. Hiệu năng, độ tin cậy và bảo mật
+
+- Không render lại toàn bộ map theo từng GPS sample; dùng memo/layer source thích hợp.
+- Cluster hoặc viewport query khi POI tăng; đặt giới hạn marker/response.
+- Search có debounce, abort/stale guard; route request có single-flight/idempotent semantics phù hợp.
+- Cache hợp lý nhưng không cho dữ liệu unpublished tồn tại mãi. Route cache có TTL.
+- Provider có timeout, circuit breaker đơn giản, metrics latency/error/rate-limit và readiness không làm lộ secret.
+- Validate bbox: min/max/order/diện tích; validate radius/limit/mode/coordinates để chống request tốn tài nguyên.
+- Không cho client chọn provider URL, style URL tùy ý qua query.
+- Sanitize text hiển thị từ POI/provider; không render HTML instruction tùy ý.
+- Map token/key không commit. `.env.example` có tên biến và giải thích; production missing config không được fallback im lặng sang mock.
+- Mock route chỉ ở local/test, có nhãn rõ. Không vẽ đường thẳng rồi ghi là tuyến đường thật.
+- Crash map/style không làm crash toàn app; có error boundary/fallback và retry.
+- Theo dõi network online/offline; không spam retry khi mất mạng.
+- Accessibility: nút có label, kết quả search dùng được bằng keyboard trên web, marker/POI có đường truy cập qua danh sách, không buộc người khiếm thị thao tác marker nhỏ.
+
+## 11. Offline
+
+Phù hợp hệ thống offline hiện có:
+
+- POI snapshot/tour snapshot và route preview gần nhất có thể cache theo version/expiry.
+- Offline map chỉ được gọi là hoàn thành nếu style, sprite, glyph và tile của vùng đã tải thực sự hiển thị ở airplane mode sau restart app.
+- Chỉ tải offline bằng provider/nguồn có điều khoản cho phép. Public `tile.openstreetmap.org` cấm offline/prefetch; không dùng nó cho offline pack.
+- Gói offline có bounds, min/max zoom, estimated/actual bytes, trạng thái staging/active/error, provider/style version.
+- Tải có cancel/resume/retry, giới hạn vùng/zoom/dung lượng; kiểm tra free space trước; không cho người dùng vô tình tải cả thành phố ở zoom cực cao.
+- Route offline đầy đủ chỉ tuyên bố nếu có routing data/engine offline đã triển khai và test. Nếu chưa có, hiển thị route đã cache hoặc “Cần mạng để tính đường mới”; không giả route bằng đường thẳng.
+- Quyền tải full tour/offline vẫn theo entitlement/payment prompt. Map công khai và POI công khai không bị khóa sai bởi paywall, nhưng media trả phí vẫn bảo vệ.
+
+## 12. Analytics và riêng tư vị trí
+
+- Map, search, location và routing hoạt động khi người dùng từ chối analytics.
+- Chỉ gửi event tối thiểu khi consent: search submitted/selected, POI selected, route requested/started/completed/cancelled, provider outcome; ưu tiên ID và bucket, không gửi raw GPS trace không cần thiết.
+- Nếu thu tuyến đã đi/heatmap, cần consent riêng, pseudonymous ID, sampling interval, precision reduction, retention và xóa dữ liệu rõ ràng.
+- Guest/user/payment identity không tự động liên kết với raw location history chỉ vì người dùng mua tour.
+- Không gọi dữ liệu pseudonymous là ẩn danh tuyệt đối.
+- Không log access token, provider secret, raw continuous GPS hoặc địa chỉ cá nhân trong error logs.
+
+## 13. Use case bắt buộc cập nhật
+
+Giữ và mở rộng use case hiện có:
+
+- T01 — Xem và tương tác bản đồ.
+- T02 — Cấp quyền/lấy vị trí hiện tại.
+- T03 — Tìm kiếm và lọc POI.
+- T04 — Xem POI gần và khoảng cách thẳng.
+- T05 — Xem chi tiết POI/chọn POI trên bản đồ.
+- T09 — GPS/geofence và narration; cập nhật để dùng chung LocationService nhưng không bị logic route làm phát audio sai.
+- T12/T13 — Xem/bắt đầu tour; hiển thị thứ tự POI và route leg.
+- F01/F02/F06 — Chế độ bản đồ/gói offline/sử dụng offline.
+- C01/C02/C15 — Admin tạo/sửa vị trí POI và preview/sắp tuyến tour.
+
+Bổ sung mã mới sau khi kiểm tra catalog để không trùng, ví dụ:
+
+- T14 — Yêu cầu chỉ đường đến POI.
+- T15 — Bắt đầu/theo dõi/hủy điều hướng.
+- T16 — So sánh khoảng cách POI A–B.
+- T17 — Mở chỉ đường bằng ứng dụng ngoài như fallback.
+
+Nếu catalog đã có chức năng tương đương dưới mã khác thì tái sử dụng và ghi mapping, không tạo ID trùng nghĩa.
+
+Mỗi Focused Use Case phải có:
+
+- Goal, actor, trigger.
+- Preconditions và postconditions.
+- Success guarantee và minimum guarantee.
+- Main flow với Step ID ổn định, tách hành động Actor/System.
+- Alternate/exception: từ chối quyền, GPS tắt, vị trí cũ/kém, không có kết quả, provider timeout/rate limit, không tìm được đường, mất mạng, response cũ, đổi destination, lệch tuyến, tới nơi và hủy.
+- Business rule IDs `BR-MAP-*`, `BR-GEO-*`, `BR-ROUTE-*`, `BR-PRIVACY-*`.
+- Screen, API, service, collection/index, test và diagram mapping.
+
+## 14. Bắt buộc cập nhật code vẽ sơ đồ
+
+Mỗi thay đổi làm đổi hành vi nghiệp vụ phải cập nhật **source code sơ đồ**, không chỉ xuất ảnh. Nếu thay đổi chỉ CSS/refactor không đổi nghiệp vụ, ghi “No semantic diagram change” kèm lý do thay vì tạo sơ đồ giả.
+
+Tối thiểu bàn giao:
+
+### Use Case Diagram
+
+- Actor Tourist/Guest/User/Admin.
+- External actors: Location Services, Map/Tile Provider, Routing Provider; chỉ đưa actor ngoài hệ thống thực sự tương tác.
+- T01–T05 và T14–T17 hoặc ID đã remap.
+- Quan hệ include/extend đúng nghĩa; không vẽ “Login” là include của xem bản đồ/chỉ đường vì guest được dùng.
+
+### Sequence Diagram
+
+1. `SD-MAP-01` — Mở map, tải config/style và POI.
+2. `SD-MAP-02` — Xin quyền và subscribe vị trí.
+3. `SD-MAP-03` — Search POI với debounce/cancel/stale response.
+4. `SD-MAP-04` — Nearby POI qua FastAPI → Service → Repository → MongoDB `$geoNear`.
+5. `SD-MAP-05` — Route preview qua backend → cache → RoutingProvider → normalized result.
+6. `SD-MAP-06` — Navigation progress và re-route có threshold/cooldown/single-flight.
+7. `SD-MAP-07` — Admin đặt pin/sửa tọa độ và invalid route cache/version.
+8. Cập nhật SD04 GPS hiện có để thể hiện LocationService dùng chung và không gọi routing mỗi sample.
+
+Mỗi sequence tối đa khoảng 5 participant theo chiều ngang; chia sơ đồ nếu cần. UI không được gọi MongoDB/provider secret trực tiếp.
+
+### Activity Diagram
+
+1. `AD-MAP-01` — Khởi động map và lỗi cấu hình/network.
+2. `AD-MAP-02` — Quyền vị trí cho phép/từ chối/tắt GPS/chọn origin thủ công.
+3. `AD-MAP-03` — Tìm POI/chọn kết quả/không có kết quả.
+4. `AD-MAP-04` — Xem khoảng cách thẳng hoặc yêu cầu đường thực tế.
+5. `AD-MAP-05` — Route preview → bắt đầu → bám tuyến/lệch tuyến → reroute → đến nơi/hủy/lỗi.
+6. `AD-MAP-06` — Tải/dùng bản đồ offline theo capability và license provider.
+7. Cập nhật activity GPS/geofence/tour hiện có khi flow bị ảnh hưởng.
+
+### ERD/Database Diagram
+
+- Cập nhật code Eraser/DBML/Mermaid/PlantUML hiện có cho `POI.location` GeoJSON, `2dsphere` index và các field map/tour liên quan.
+- Chỉ thêm `route_cache` nếu code thật dùng; nếu không thêm collection thì ERD ghi thay đổi field/index, không bịa bảng.
+- Ghi reference logic, cardinality và indexes; MongoDB không tự tạo foreign key.
+- Cập nhật SQLite local diagram cho offline map metadata nếu schema local thay đổi.
+
+Đặt source tại `docs/diagrams/` theo convention repo, ví dụ `.puml` và `.eraser`. Chạy PlantUML/Eraser-compatible validation nếu công cụ có. Nếu không render được, kiểm tra tĩnh và nói rõ, không tuyên bố ảnh đã render. Cập nhật `docs/traceability/map-routing-matrix.md` với:
+
+`UC/BR → màn hình → API → service → repository/provider → collection/index/local table → sequence → activity → test`.
+
+## 15. Kiểm thử bắt buộc
+
+### Unit
+
+- Haversine với dữ liệu chuẩn; meter/km; hai điểm trùng nhau; tọa độ gần nhau; đảo lat/lng; miền không hợp lệ.
+- GeoJSON mapper luôn `[longitude, latitude]`.
+- Location sample validation: age, accuracy, outlier, debounce.
+- Route normalizer của provider: geometry, distance/duration, no route, malformed response.
+- Navigation state machine và re-route guard/cooldown.
+- Search normalization tiếng Việt có dấu/không dấu theo khả năng đã công bố.
+
+### Repository/API integration
+
+- `2dsphere` index tồn tại; `$geoNear` trả đúng thứ tự và đơn vị.
+- POI unpublished/deleted không xuất hiện trong search/nearby/bounds.
+- Radius/bbox/limit/tọa độ xấu bị chặn.
+- Search pagination, localization/fallback và stale dataset.
+- Routing adapter timeout, rate limit, invalid provider response, cache hit/miss/expiry.
+- Guest được route; không thể chọn URL provider tùy ý; secret không xuất hiện response/log.
+- Response cũ không ghi đè route/query mới.
+
+### Web/mobile component và E2E
+
+- Map loading/error/empty, cluster, marker select, search → focus, recenter/follow behavior.
+- Permission allow/deny/permanently deny, GPS off, no current location, last-known stale.
+- Route line vẽ đúng, fit bounds có padding, summary đúng đơn vị.
+- Route not found không vẽ đường thẳng giả.
+- Start/cancel/reroute/arrive và background/foreground cleanup.
+- Audio đang phát không bị tạo thêm player/location watcher khi navigation bắt đầu.
+- Paywall không chặn map/search/route nhưng vẫn chặn audio premium.
+- Accessibility cơ bản và responsive.
+
+### Thiết bị và provider thật
+
+- Android emulator/thiết bị thật và iOS simulator/device nếu nhóm có khả năng; ghi rõ nền tảng chưa test.
+- Development build, không chỉ Expo Go.
+- GPS mock route và ít nhất một thử nghiệm di chuyển thực tế có kiểm soát.
+- Test endpoint provider sandbox/dev hoặc self-host thật; fixture/mock cho CI.
+- Airplane mode sau restart để xác minh đúng mức offline đã công bố.
+- Kiểm tra hiệu năng với số POI mục tiêu, không chỉ 3 marker seed.
+
+Không chạy tải nặng vào public OSM/Nominatim/routing demo. Không tuyên bố production-ready nếu chưa có provider/key/terms/quota/monitoring phù hợp.
+
+## 16. Acceptance criteria định lượng
+
+Chốt con số qua config và ghi lý do; mặc định khởi đầu có thể dùng:
+
+- Search debounce 300 ms.
+- Kết quả search/nearby tối đa 20 mỗi trang.
+- Nearby radius mặc định 2 km, maximum do backend cấu hình.
+- GPS sample cho geofence/navigation chỉ dùng khi age/accuracy nằm trong ngưỡng đã chốt; UI vẫn có thể hiển thị last-known kèm nhãn.
+- Re-route không sớm hơn một cooldown đã cấu hình và chỉ sau nhiều sample cho thấy lệch tuyến; không hardcode một sample duy nhất.
+- Route provider timeout và retry giới hạn, không retry vô hạn.
+- Route cache TTL có tài liệu; POI coordinate/tour order/provider data version đổi thì invalid.
+
+Không coi các giá trị trên là chân lý. Đưa vào typed config, test boundary và đo trên Quận 4/thiết bị mục tiêu. Ghi quyết định cuối trong `docs/map-routing-config.md`.
+
+## 17. Thứ tự triển khai
+
+1. Audit repo và lập `docs/feature-integration-matrix.md` cho map; tìm mock, route chết, hardcode, đảo tọa độ, key lộ và đường truy cập bypass.
+2. Chốt provider/style/tile/routing, license/quota/offline và khóa version.
+3. Chuẩn hóa Coordinate/GeoJSON, migration/index `2dsphere`, seed có kiểm chứng.
+4. Hoàn thiện API POI search/nearby/bounds và test backend.
+5. Làm map spike trên web và mobile development build: style, marker, GPS, line route.
+6. Nối search, selected POI, camera state, nearby và detail.
+7. Xây RoutingProvider/backend cache/normalizer và route preview.
+8. Xây NavigationController, progress/reroute/cancel/arrive, phối hợp geofence/audio.
+9. Nối tour leg/distance và Admin map picker/route preview.
+10. Hoàn thiện offline đúng capability/provider.
+11. Cập nhật UC, sequence, activity, ERD và traceability theo code thật.
+12. Chạy unit/integration/E2E/device tests, ghi kết quả và giới hạn.
+
+Mỗi giai đoạn phải giao code chạy được theo vertical slice; không code tất cả UI trước rồi để backend/provider giả đến cuối.
+
+## 18. Bàn giao cuối cùng
+
+- Code web, mobile, FastAPI, repositories/providers và migration/index.
+- `.env.example`, tài liệu provider, license/attribution/quota/offline và hướng dẫn thay provider.
+- Docker/config local cho routing self-host nếu chọn; không bắt nhóm tự suy đoán lệnh import dữ liệu.
+- OpenAPI và TypeScript client types cập nhật.
+- Source Use Case, Sequence, Activity, ERD cùng traceability/changelog.
+- Test report: lệnh, kết quả, platform/provider thật đã test, phần chưa test và lý do.
+- Hướng dẫn chạy trên máy thật: backend LAN/HTTPS URL, map style, native build, permission và dữ liệu seed.
+- Demo script: guest mở map → cấp/từ chối location → search POI → chọn marker → nearby → khoảng cách thẳng → route thực tế → bắt đầu → giả lập lệch tuyến/re-route → đến nơi → mở chi tiết/nghe theo quyền → offline/error fallback.
+
+Trong báo cáo cuối, liệt kê chính xác:
+
+1. File đã thêm/sửa.
+2. API và database/index đã thay đổi.
+3. Use case/BR/sequence/activity/ERD đã cập nhật.
+4. Test đã chạy và kết quả.
+5. Provider/map/routing/offline nào đang hoạt động thật.
+6. Giới hạn còn lại; không che bằng mock hoặc tuyên bố quá mức.
+
+**Tiêu chí hoàn thành quan trọng nhất: bản đồ phải là một chức năng xuyên suốt có dữ liệu POI thật, vị trí thật, tìm kiếm thật, khoảng cách đúng loại, tuyến đường do routing engine thật trả về và hành vi nhất quán trên web/mobile. Mọi thay đổi nghiệp vụ phải đi kèm code ứng dụng, kiểm thử và source code sơ đồ liên quan.**
+
+## KẾT THÚC PROMPT

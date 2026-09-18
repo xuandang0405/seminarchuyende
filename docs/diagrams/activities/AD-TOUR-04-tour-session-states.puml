@@ -1,0 +1,49 @@
+@startuml AD-TOUR-04-tour-session-states
+skinparam style strictuml
+title AD-TOUR-04: Vòng đời Phiên Tham Quan Tour (Tour Session States)
+
+start
+:Người dùng bấm "Bắt Đầu Tour";
+:Client sinh idempotency_key (UUID);
+:Gửi POST /api/v1/tour-sessions;
+
+if (Đã tồn tại session với idempotency_key này?) then (có)
+    :Trả về session đang hoạt động hiện tại (Tránh tạo 2 tour trùng);
+else (không)
+    :Tạo bản ghi mới trong collection tour_sessions;
+    :Đặt status = "active";
+    :Khởi tạo completed_poi_ids = [];
+endif
+
+while (Tour đang ở trạng thái active?) is (có)
+    if (Du khách ghé thăm và nghe thuyết minh tại 1 điểm POI?) then (có)
+        :Gửi PATCH /api/v1/tour-sessions/{id} với completed_poi_id;
+        :Cập nhật completed_poi_ids ($addToSet);
+        :Cập nhật last_activity_at;
+    else (không)
+    endif
+
+    if (Du khách đã ghé thăm tất cả các điểm trong tour?) then (đã xong)
+        :Gửi PATCH /api/v1/tour-sessions/{id} với status="completed";
+        :Máy chủ đánh dấu status = "completed";
+        :Ghi nhận tour_sessions_completed trong Analytics;
+        stop
+    else (chưa xong)
+    endif
+
+    if (Du khách bấm nút "Dừng / Hủy Tour"?) then (hủy)
+        :Gửi PATCH /api/v1/tour-sessions/{id} với status="cancelled";
+        :Máy chủ đánh dấu status = "cancelled";
+        stop
+    else (tiếp tục)
+    endif
+
+    if (Không có hoạt động trong 60 phút?) then (quá hạn)
+        :Worker đánh dấu status = "abandoned" (Bỏ dở);
+        stop
+    else (bình thường)
+    endif
+endwhile (kết thúc)
+
+stop
+@enduml

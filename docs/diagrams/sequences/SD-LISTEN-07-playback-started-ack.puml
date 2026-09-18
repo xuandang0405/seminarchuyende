@@ -1,0 +1,68 @@
+@startuml SD-LISTEN-07-playback-started-ack
+skinparam style strictuml
+autonumber
+title SD-LISTEN-07: Cấp quyền Playback -> Âm thanh phát thực sự -> Sự kiện narration_started -> Tính lượt nghe Idempotent
+
+actor "Du khách" as User
+participant "Audio Player UI" as Player
+participant "FastAPI Analytics Router" as Router
+participant "AnalyticsIngestionService" as Svc
+participant "AnalyticsRepository" as Repo
+database "MongoDB\n(analytics_events &\npoi_daily_metrics)" as DB
+
+User -> Player : Chọn điểm đến & Bấm ▶ Nghe
+activate Player
+Player -> Router : POST /api/v1/playback-grants (poi_id, tour_id, source="manual")
+activate Router
+Router --> Player : 200 OK {playback_id: "pb_abc123", stream_url: "..."}
+deactivate Router
+
+Player -> Player : audio.play()
+note over Player
+  Chỉ khi player kích hoạt sự kiện onplaying
+  (đã buffer dữ liệu và thực sự phát âm thanh)
+  mới phát sinh event narration_started.
+end note
+Player -> Player : onplaying event fired!
+
+Player -> Router : POST /api/v1/analytics/events/batch\n{events: [{event_id: "ev_1", event_type: "narration_started", playback_id: "pb_abc123", poi_id: "poi_1"}]}
+activate Router
+
+Router -> Svc : ingest_events(events)
+activate Svc
+
+Svc -> Repo : ingest_events_batch(events)
+activate Repo
+
+Repo -> DB : insert_one(event_doc)
+activate DB
+DB --> Repo : inserted
+deactivate DB
+
+== Kiểm tra tính Idempotent của lượt nghe (BR-LISTEN-01) ==
+Repo -> DB : find_one({playback_id: "pb_abc123", event_type: "narration_started", _id: {$ne: "ev_1"}})
+activate DB
+DB --> Repo : null (Chưa từng có sự kiện start nào trước đó cho playback_id này)
+deactivate DB
+
+Repo -> DB : update_one(\n  {_id: "poi_1_2026-09-19"},\n  {$inc: {listen_started_count: 1}, $addToSet: {unique_device_ids: device_id}},\n  upsert=True\n)
+activate DB
+DB --> Repo : updated (+1 lượt nghe)
+deactivate DB
+
+Repo --> Svc : {acks: [{event_id: "ev_1", status: "accepted"}]}
+deactivate Repo
+Svc --> Router : EventBatchResponse
+deactivate Svc
+Router --> Player : 200 OK {acks: [{event_id: "ev_1", status: "accepted"}]}
+deactivate Router
+
+Player -> Player : Xóa event ev_1 khỏi Local Outbox
+
+== Trường hợp Pause / Resume hoặc Retry ==
+User -> Player : Bấm Pause rồi Resume
+note over Player
+  Pause / Resume không cấp playback_id mới.
+  Sự kiện narration_resumed KHÔNG làm tăng listen_started_count.
+end note
+@enduml

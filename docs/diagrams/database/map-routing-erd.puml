@@ -1,0 +1,97 @@
+@startuml map-routing-erd
+title Sơ đồ Thực thể Dữ liệu (ERD) - Mô-đun Bản đồ & Tuyến đường Thực tế (MongoDB Collections)
+
+entity "pois" as POI {
+  * _id : string <<PK>>
+  --
+  * code : string <<unique>>
+  * name : string
+  * description : string
+  * category : string
+  * address : string
+  * location : GeoJSON Point { type: "Point", coordinates: [longitude, latitude] }
+  * trigger_radius : float (mét)
+  * radius_enter_m : float (mét)
+  * radius_exit_m : float (mét)
+  * cooldown_seconds : int
+  * audio_priority : int
+  * is_active : boolean
+  * content_version : int
+  * updated_at : datetime
+}
+
+entity "poi_localizations" as POILoc {
+  * _id : string <<PK>>
+  --
+  * poi_id : string <<FK -> pois._id>>
+  * lang : string ("vi", "en", "ko", "ja", "fr")
+  * name : string
+  * description : string
+  * audio_url : string
+  * audio_asset_id : string
+  * audio_duration_ms : int
+  * is_published : boolean
+}
+
+entity "tours" as Tour {
+  * _id : string <<PK>>
+  --
+  * code : string <<unique>>
+  * title : string
+  * description : string
+  * poi_ids : array[string] <<ordered references -> pois._id>>
+  * estimated_duration_minutes : int
+  * is_active : boolean
+  * version : int
+  * created_at : datetime
+  * updated_at : datetime
+}
+
+entity "route_cache" as RouteCache {
+  * _id : ObjectId <<PK>>
+  --
+  * fingerprint : string <<UK - SHA256>>
+  * origin : array[float] [lon, lat]
+  * destination : array[float] [lon, lat]
+  * mode : string ("walking" | "driving")
+  * locale : string ("vi" | "en")
+  * route : object (RouteResultDTO)
+    - route_distance_m : float
+    - route_duration_s : float
+    - geometry : GeoJSON LineString
+    - steps : array[RouteStepDTO]
+  * expires_at : datetime <<TTL Index (24h)>>
+  * created_at : datetime
+}
+
+entity "guest_sessions" as Session {
+  * _id : string <<PK>>
+  --
+  * current_tour_id : string <<FK -> tours._id>>
+  * current_poi_id : string <<FK -> pois._id>>
+  * last_location : GeoJSON Point
+  * lang : string
+  * created_at : datetime
+}
+
+POI ||--o{ POILoc : "poi_id"
+Tour ||--o{ POI : "chứa danh sách poi_ids"
+Session ||--o| Tour : "tour đang tham gia"
+Session ||--o| POI : "POI hiện tại"
+RouteCache ..> POI : "tối ưu hóa lộ trình nối các POI"
+
+note right of POI
+  <b>Indexes:</b>
+  - 2dsphere: location ("2dsphere")
+  - compound: { is_active: 1, category: 1 }
+  - text search: { name: "text", description: "text", address: "text" }
+end note
+
+note right of RouteCache
+  <b>Indexes:</b>
+  - unique: { fingerprint: 1 }
+  - TTL: { expires_at: 1 } (expireAfterSeconds: 0)
+  - index: { mode: 1, created_at: -1 }
+end note
+
+@enduml

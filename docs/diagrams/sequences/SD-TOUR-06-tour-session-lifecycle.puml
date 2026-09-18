@@ -1,0 +1,76 @@
+@startuml SD-TOUR-06-tour-session-lifecycle
+skinparam style strictuml
+autonumber
+title SD-TOUR-06: Khởi tạo Tour Session Idempotent -> Tiến độ -> Hoàn thành / Hủy
+
+actor "Du khách" as User
+participant "Client Web / App" as Client
+participant "TourSessionRouter" as Router
+participant "TourSessionService" as Svc
+participant "TourSessionRepository" as Repo
+database "MongoDB\n(tour_sessions)" as DB
+
+User -> Client : Bấm "Bắt Đầu Tour"
+activate Client
+
+Client -> Router : POST /api/v1/tour-sessions\n{tour_id, idempotency_key: "tour_start_uuid_123"}
+activate Router
+
+Router -> Svc : start_tour_session(device_id, tour_id, key)
+activate Svc
+
+Svc -> Repo : start_session(idempotency_key)
+activate Repo
+Repo -> DB : find_one({idempotency_key: "tour_start_uuid_123"})
+activate DB
+alt Double click / Retry với cùng key
+    DB --> Repo : existing_tour_session
+    Repo --> Svc : existing_tour_session
+    Svc --> Router : 200 OK (tour_session_id cũ)
+else Bắt đầu mới
+    DB --> Repo : null
+    deactivate DB
+    Repo -> DB : insert_one({tour_session_id, tour_id, status: "active", completed_poi_ids: []})
+    activate DB
+    DB --> Repo : created
+    deactivate DB
+    Repo --> Svc : new_tour_session
+end
+deactivate Repo
+
+Svc --> Router : TourSessionResponse
+deactivate Svc
+Router --> Client : 201 Created (tour_session_id)
+deactivate Router
+
+== Cập nhật tiến độ khi ghé thăm POI ==
+User -> Client : Nghe xong thuyết minh tại trạm 1
+Client -> Router : PATCH /api/v1/tour-sessions/{id}\n{completed_poi_id: "poi_ben_nha_rong", current_stop_index: 1}
+activate Router
+Router -> Repo : update_progress(session_id, poi_id)
+activate Repo
+Repo -> DB : update_one({_id: id}, {$addToSet: {completed_poi_ids: poi_id}, $set: {last_activity_at: now}})
+activate DB
+DB --> Repo : updated
+deactivate DB
+Repo --> Router : updated_doc
+deactivate Repo
+Router --> Client : 200 OK
+deactivate Router
+
+== Kết thúc hoặc Hủy Tour ==
+alt Đi qua tất cả các điểm trong tour
+    Client -> Router : PATCH /api/v1/tour-sessions/{id} {status: "completed"}
+    activate Router
+    Router -> Repo : update_one({_id: id}, {$set: {status: "completed", ended_at: now}})
+    Router --> Client : 200 OK {status: "completed"}
+    deactivate Router
+else Người dùng bấm "Dừng Tour"
+    Client -> Router : PATCH /api/v1/tour-sessions/{id} {status: "cancelled"}
+    activate Router
+    Router -> Repo : update_one({_id: id}, {$set: {status: "cancelled", ended_at: now}})
+    Router --> Client : 200 OK {status: "cancelled"}
+    deactivate Router
+end
+deactivate Client
+@enduml

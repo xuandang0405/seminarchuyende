@@ -1,0 +1,58 @@
+@startuml AD-DEPLOY-02-deploy-rollback
+title AD-DEPLOY-02: Quy trình Tự Động Hóa Triển Khai & Khôi Phục Khẩn Cấp (Deploy & Rollback Pipeline)
+
+start
+
+partition "1. Chuẩn Bị & Đóng Gói Tại Local" {
+    :Chạy script kiểm tra Build Guard (assert-no-client-localhost.mjs);
+    if (Phát hiện chuỗi localhost trong mã nguồn client?) then (Có lỗi)
+        :Hủy quy trình deploy & Báo lỗi cho lập trình viên;
+        stop
+    endif
+    
+    :Build Web Client với mode production;
+    :Tạo tarball bản phát hành mới: tourvoice_release_<timestamp>.tar.gz
+    (Loại bỏ hoàn toàn git, node_modules, cache, file .env thật);
+    :Chuyển file nén lên máy chủ qua SCP / Rsync;
+}
+
+partition "2. Triển Khai Trên Máy Chủ (Host)" {
+    :Giải nén vào thư mục release mới: /opt/tour-guide/releases/<timestamp>;
+    :Gắn symlink file .env bảo mật (/opt/tour-guide/shared/.env);
+    :Gắn symlink thư mục lưu trữ persistent storage;
+    
+    :Kiểm tra cú pháp cấu hình Nginx (nginx -t);
+    if (Cấu hình Nginx hợp lệ?) then (Hợp lệ)
+        :Nạp lại cấu hình Nginx (systemctl reload nginx);
+    else (Lỗi cú pháp)
+        :Giữ nguyên cấu hình Nginx cũ;
+        :Báo lỗi và dừng quy trình;
+        stop
+    endif
+
+    :Chuyển đổi symlink phiên bản hiện tại (/opt/tour-guide/current -> release mới);
+    :Khởi động lại backend service (systemctl restart tour-guide-api);
+}
+
+partition "3. Kiểm Thử Khói & Cơ Chế Khôi Phục (Smoke Test & Rollback)" {
+    :Chạy script kiểm thử khói tự động (smoke-test.sh):
+    - GET /api/v1/health
+    - OPTIONS /api/v1/auth/login (CORS headers)
+    - GET /client/ (Static status)
+    - Quét nội dung admin.js (chắc chắn không có localhost:8000);
+
+    if (Tất cả 5 bài kiểm tra đều ĐẠT?) then (Thành công)
+        :Ghi nhận phiên bản release ổn định mới;
+        :Kết thúc quy trình triển khai an toàn;
+        stop
+    else (Thất bại)
+        :Kích hoạt kịch bản khôi phục khẩn cấp (rollback.sh);
+        :Trỏ ngược symlink /opt/tour-guide/current về release liền trước;
+        :Khởi động lại backend service;
+        :Bảo lưu toàn bộ nhật ký lỗi (error logs) để phân tích;
+        :Gửi cảnh báo tới quản trị viên;
+        stop
+    endif
+}
+
+@enduml
