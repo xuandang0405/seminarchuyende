@@ -21,6 +21,10 @@ from app.db.collections import (
     COLLECTION_TOUR_SESSIONS,
     COLLECTION_POI,
     COLLECTION_TOURS,
+    COLLECTION_ORDERS,
+    COLLECTION_ADMIN_USERS,
+    COLLECTION_AUTH_IDENTITIES,
+    COLLECTION_GUEST_SESSIONS,
 )
 from app.repositories.base import BaseRepository
 
@@ -187,13 +191,15 @@ class AnalyticsRepository(BaseRepository):
             # =================================================================
             # IDEMPOTENT BUSINESS METRICS COUNTING (BR-LISTEN-01 / BR-LISTEN-02)
             # =================================================================
-            if event_type == "narration_started" and poi_id and playback_id:
+            if event_type in ("narration_started", "audio_play") and poi_id:
                 # Check if this playback_id has already been counted as started
-                prior_start = await self.collection.find_one({
-                    "playback_id": playback_id,
-                    "event_type": "narration_started",
-                    "_id": {"$ne": event_id}
-                })
+                prior_start = None
+                if playback_id:
+                    prior_start = await self.collection.find_one({
+                        "playback_id": playback_id,
+                        "event_type": {"$in": ["narration_started", "audio_play"]},
+                        "_id": {"$ne": event_id}
+                    })
                 if not prior_start:
                     # First genuine start for this playback -> increment listen_started_count
                     await self._increment_poi_metrics(
@@ -205,13 +211,15 @@ class AnalyticsRepository(BaseRepository):
                         device_id=device_id
                     )
 
-            elif event_type == "narration_completed" and poi_id and playback_id:
+            elif event_type in ("narration_completed", "audio_completed") and poi_id:
                 # Check if this playback_id has already been counted as completed
-                prior_complete = await self.collection.find_one({
-                    "playback_id": playback_id,
-                    "event_type": "narration_completed",
-                    "_id": {"$ne": event_id}
-                })
+                prior_complete = None
+                if playback_id:
+                    prior_complete = await self.collection.find_one({
+                        "playback_id": playback_id,
+                        "event_type": {"$in": ["narration_completed", "audio_completed"]},
+                        "_id": {"$ne": event_id}
+                    })
                 if not prior_complete:
                     await self._increment_poi_metrics(
                         poi_id=poi_id,
@@ -222,7 +230,7 @@ class AnalyticsRepository(BaseRepository):
                         device_id=device_id
                     )
 
-            elif event_type == "narration_progress" and poi_id:
+            elif event_type in ("narration_progress", "audio_progress") and poi_id:
                 # Clamp delta_ms to max 15s to prevent absurd listening times
                 props = ev.get("properties") or {}
                 raw_delta = props.get("delta_ms", 0)
@@ -333,7 +341,7 @@ class AnalyticsRepository(BaseRepository):
                 "total_ms": {"$sum": "$listened_ms"}
             }}
         ]
-        agg_res = await self.poi_daily_col.aggregate(pipeline).to_list(length=1)
+        agg_res = await self.aggregate_to_list(self.poi_daily_col, pipeline, length=1)
         totals = agg_res[0] if agg_res else {"total_started": 0, "total_completed": 0, "total_ms": 0}
 
         listen_started = totals.get("total_started", 0)
@@ -350,8 +358,54 @@ class AnalyticsRepository(BaseRepository):
         )
         total_listening_minutes = round(total_ms / (1000.0 * 60.0), 1)
 
-        # 7. Total active POIs for legacy dashboard compatibility
+        # 7. Orders & Ticket Sales Revenue
+        orders_col = self.db[COLLECTION_ORDERS]
+        paid_orders = await orders_col.find({"status": "paid"}).to_list(1000)
+        total_revenue_vnd = sum(int(o.get("amount_vnd") or 0) for o in paid_orders)
+        paid_orders_count = len(paid_orders)
+        total_orders_count = await orders_col.count_documents({})
+        pending_orders_count = await orders_col.count_documents({"status": {"$in": ["pending", "pending_payment"]}})
+
+        # Revenue breakdown by tour
+        tour_rev_map: Dict[str, Dict[str, Any]] = {}
+        for o in paid_orders:
+            tid = o.get("tour_id") or "tour_standard"
+            amt = int(o.get("amount_vnd") or 0)
+            if tid not in tour_rev_map:
+                tour_rev_map[tid] = {
+                    "tour_id": tid,
+                    "title": o.get("tour_title_snapshot") or tid,
+                    "paid_orders": 0,
+                    "revenue_vnd": 0
+                }
+            tour_rev_map[tid]["paid_orders"] += 1
+            tour_rev_map[tid]["revenue_vnd"] += amt
+        revenue_by_tour = list(tour_rev_map.values())
+
+        # 8. Registered users & guests stats
+        total_registered_users = await self.db[COLLECTION_ADMIN_USERS].count_documents({"role": "user"})
+        auth_identities_count = await self.db[COLLECTION_AUTH_IDENTITIES].count_documents({})
+        effective_registered_users = max(total_registered_users, auth_identities_count, unique_accounts_count)
+        total_guest_sessions = await self.db[COLLECTION_GUEST_SESSIONS].count_documents({})
+        if total_guest_sessions == 0 and unique_devices_count > 0:
+            total_guest_sessions = max(0, unique_devices_count - effective_registered_users)
+
+        # 9. POIs, Tours, and QR Scans
         total_pois = await self.db[COLLECTION_POI].count_documents({"deleted_at": None})
+        total_tours = await self.db[COLLECTION_TOURS].count_documents({"deleted_at": None})
+        total_qr_scans = await self.collection.count_documents({"event_type": {"$in": ["qr_scanned", "qr_scan"]}})
+
+        # 10. Language distribution
+        lang_pipeline = [
+            {"$match": {"locale": {"$ne": None}}},
+            {"$group": {"_id": "$locale", "count": {"$sum": 1}}},
+            {"$sort": {"count": -1}},
+            {"$limit": 6}
+        ]
+        lang_agg = await self.aggregate_to_list(self.collection, lang_pipeline, length=6)
+        popular_languages = [{"code": item["_id"], "count": item["count"]} for item in lang_agg]
+        if not popular_languages:
+            popular_languages = [{"code": "vi", "count": max(listen_started, 1)}]
 
         return {
             "active_visitor_sessions_now": active_sessions_now,
@@ -369,6 +423,17 @@ class AnalyticsRepository(BaseRepository):
             "total_listening_time_minutes": total_listening_minutes,
             "total_listen_hours": round(total_ms / (1000 * 3600), 2),
             "total_active_pois": total_pois,
+            "total_pois_count": total_pois,
+            "total_tours_count": total_tours,
+            "total_qr_scans": total_qr_scans,
+            "total_revenue_vnd": total_revenue_vnd,
+            "total_orders_count": total_orders_count,
+            "paid_orders_count": paid_orders_count,
+            "pending_orders_count": pending_orders_count,
+            "total_registered_users": effective_registered_users,
+            "total_guest_sessions": total_guest_sessions,
+            "revenue_by_tour": revenue_by_tour,
+            "popular_languages": popular_languages,
             "total_audio_plays": listen_started,
             "data_freshness_watermark": now.isoformat(),
             "updated_at": now.isoformat(),
@@ -399,7 +464,7 @@ class AnalyticsRepository(BaseRepository):
             }},
             {"$sort": {"plays": -1}}
         ]
-        agg_res = await self.poi_daily_col.aggregate(pipeline).to_list(length=100)
+        agg_res = await self.aggregate_to_list(self.poi_daily_col, pipeline, length=100)
 
         total_plays = sum(item["plays"] for item in agg_res)
         total_ms = sum(item["listened_ms"] for item in agg_res)
@@ -419,8 +484,12 @@ class AnalyticsRepository(BaseRepository):
             ]
         }
 
-    async def get_admin_top_pois(self, limit: int = 10) -> List[Dict[str, Any]]:
-        """Returns top POIs ranked by listen_started_count with device count."""
+    async def get_admin_top_pois(self, limit: int = 100) -> List[Dict[str, Any]]:
+        """Returns all POIs ranked by listen_started_count with device count and completion rates."""
+        # 1. Fetch all active POIs
+        all_pois = await self.db[COLLECTION_POI].find({"deleted_at": None}).to_list(500)
+
+        # 2. Aggregate metrics from analytics_poi_daily_metrics
         pipeline = [
             {"$group": {
                 "_id": "$poi_id",
@@ -428,36 +497,52 @@ class AnalyticsRepository(BaseRepository):
                 "listen_completed": {"$sum": "$listen_completed_count"},
                 "total_ms": {"$sum": "$listened_ms"},
                 "all_devices": {"$push": "$unique_device_ids"}
-            }},
-            {"$sort": {"listen_started": -1}},
-            {"$limit": limit}
+            }}
         ]
-        agg_res = await self.poi_daily_col.aggregate(pipeline).to_list(length=limit)
-
-        result: List[Dict[str, Any]] = []
+        agg_res = await self.aggregate_to_list(self.poi_daily_col, pipeline, length=500)
+        metrics_by_poi = {}
         for item in agg_res:
-            pid = item["_id"]
-            poi_doc = await self.db[COLLECTION_POI].find_one({"_id": pid})
-            poi_name = poi_doc.get("name", pid) if poi_doc else pid
-            poi_cat = poi_doc.get("category") if poi_doc else None
-
-            # Flatten device IDs set
             dev_set = set()
             for dev_list in item.get("all_devices", []):
                 if isinstance(dev_list, list):
                     dev_set.update(dev_list)
+            metrics_by_poi[item["_id"]] = {
+                "started": item.get("listen_started", 0),
+                "completed": item.get("listen_completed", 0),
+                "total_ms": item.get("total_ms", 0),
+                "devices": len(dev_set)
+            }
+
+        # 3. Assemble full list for all POIs
+        result: List[Dict[str, Any]] = []
+        for p in all_pois:
+            pid = p["_id"]
+            name = p.get("name", pid)
+            cat = p.get("category", "sightseeing")
+            m = metrics_by_poi.get(pid, {"started": 0, "completed": 0, "total_ms": 0, "devices": 0})
+            started = m["started"]
+            completed = m["completed"]
+            total_sec = round(m["total_ms"] / 1000.0, 1)
+            comp_rate = round((completed / started * 100.0), 1) if started > 0 else 0.0
+            avg_duration = round((m["total_ms"] / 1000.0) / started, 1) if started > 0 else 0.0
 
             result.append({
                 "poi_id": pid,
-                "name": poi_name,
-                "category": poi_cat,
-                "listen_started_count": item.get("listen_started", 0),
-                "listen_completed_count": item.get("listen_completed", 0),
-                "unique_devices": len(dev_set),
-                "total_listened_seconds": round(item.get("total_ms", 0) / 1000.0, 1)
+                "name": name,
+                "poi_name": name,
+                "category": cat,
+                "listen_started_count": started,
+                "listen_completed_count": completed,
+                "unique_devices": m["devices"],
+                "total_listened_seconds": total_sec,
+                "completion_rate_percent": comp_rate,
+                "avg_listen_duration_seconds": avg_duration,
+                "total_listen_minutes": round(total_sec / 60.0, 1)
             })
 
-        return result
+        # Sort by listen_started_count descending, then by name
+        result.sort(key=lambda x: (x["listen_started_count"], x["listen_completed_count"]), reverse=True)
+        return result[:limit]
 
     async def get_admin_tours_analytics(self) -> List[Dict[str, Any]]:
         """Returns tour usage analytics by tour."""
@@ -475,7 +560,7 @@ class AnalyticsRepository(BaseRepository):
             }},
             {"$sort": {"total_sessions": -1}}
         ]
-        agg_res = await self.tour_sessions_col.aggregate(pipeline).to_list(length=20)
+        agg_res = await self.aggregate_to_list(self.tour_sessions_col, pipeline, length=20)
 
         result: List[Dict[str, Any]] = []
         for item in agg_res:

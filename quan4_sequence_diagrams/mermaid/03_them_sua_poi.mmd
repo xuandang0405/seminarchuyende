@@ -3,10 +3,28 @@
 sequenceDiagram
     autonumber
     participant Web as Web Admin
+    participant AI as Gemini AI
     participant Router as POI Router
     participant Service as POI Service
     participant Repo as Content Repository
     participant DB as MongoDB
+
+    opt Sử dụng Trợ Lý Gemini AI khi Tạo hoặc Sửa POI (Tùy Chọn)
+        alt Tạo mới POI: Tự nhận diện & điền thông tin
+            Web->>AI: POST /api/v1/ai/poi-assistant (Tên quán, gợi ý)
+            AI-->>Web: 200 OK (Tên chuẩn, mô tả 3-5 câu, địa chỉ, GPS, đặc sản)
+            Web->>Web: Tự động điền đầy đủ vào form
+        else Sửa/Tối ưu POI: Viết lại mô tả hoặc soạn thuyết minh
+            Web->>AI: POST /api/v1/ai/refine-description (Tên, mô tả, tông điệu)
+            AI-->>Web: 200 OK (Mô tả đã tối ưu, tiêu đề gợi ý)
+            Web->>Web: Cập nhật nội dung mô tả mới vào form
+        else Soạn thuyết minh GPS âm thanh
+            Web->>AI: POST /api/v1/ai/generate-narration (Tên, danh mục, thời tiết)
+            AI-->>Web: 200 OK (Kịch bản thuyết minh GPS 80-120 từ)
+            Web->>Web: Điền kịch bản vào ô mô tả để chuẩn bị phát Google TTS
+        end
+    end
+
     Web->>Router: Gửi POI cùng version và mã yêu cầu
     Router->>Router: Xác thực phiên và kiểm tra dữ liệu đầu vào
     Router->>Service: Thêm hoặc sửa POI với danh tính người thực hiện
@@ -46,3 +64,20 @@ sequenceDiagram
         Service-->>Router: Kết quả lỗi phù hợp
         Router-->>Web: Giữ form và cho phép gửi lại cùng mã yêu cầu
     end
+
+    %% Nhánh nghiệp vụ: Xóa POI và tự động xóa dây chuyền mã QR (Cascading Deletion)
+    opt Admin thực hiện Xóa POI
+        Web->>Router: DELETE /api/v1/pois/{poi_id}
+        Router->>Service: soft_delete_poi(poi_id)
+        Service->>Repo: Cập nhật deleted_at và is_active=False
+        Repo->>DB: update_one({_id: poi_id}, {$set: {deleted_at: now, is_active: false}})
+        DB-->>Repo: POI đã được đánh dấu xóa
+        Service->>Repo: Kích hoạt xóa dây chuyền mã QR liên quan
+        Repo->>DB: delete_many({poi_id: poi_id}) trong collection qr_codes
+        DB-->>Repo: Toàn bộ mã QR của POI đã bị xóa vĩnh viễn
+        Repo-->>Service: Hoàn tất xóa POI và toàn bộ QR code
+        Service-->>Router: 204 No Content
+        Router-->>Web: 204 No Content
+        Web->>Web: Cập nhật giao diện: POI và toàn bộ mã QR liên quan biến mất ngay lập tức
+    end
+

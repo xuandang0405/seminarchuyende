@@ -19,8 +19,8 @@ const FORBIDDEN_PROD_HOSTNAMES = [
 ];
 
 export function resolveMobileApiBaseUrl() {
-  // Check explicit environment variable (e.g. from .env.production or EAS build)
-  const envUrl = process.env.EXPO_PUBLIC_API_BASE_URL?.trim();
+  // Check explicit environment variable (e.g. from .env, .env.production or EAS build)
+  const envUrl = (process.env.EXPO_PUBLIC_API_BASE_URL || process.env.EXPO_PUBLIC_API_URL)?.trim();
   const isProduction = process.env.NODE_ENV === "production";
 
   if (envUrl) {

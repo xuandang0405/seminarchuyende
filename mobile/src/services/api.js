@@ -26,13 +26,14 @@ export const api = {
   async getPOIs({ lang = "vi", category = null, search = null, limit = 50 } = {}) {
     try {
       const params = new URLSearchParams({ lang, limit: String(limit) });
-      if (category) params.append("category", category);
-      if (search) params.append("search", search);
+      if (category && category !== "all") params.append("category", category);
+      if (search && search.trim()) params.append("search", search.trim());
 
       const res = await fetch(`${API_BASE_URL}/pois?${params.toString()}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
-      return (data || []).map((poi) => ({
+      const rawList = Array.isArray(data) ? data : (data?.items || []);
+      return rawList.map((poi) => ({
         ...poi,
         audio_url: this.resolveUrl(poi.audio_url),
         images: (poi.images || []).map((img) => this.resolveUrl(img)),
@@ -46,18 +47,19 @@ export const api = {
   /**
    * GET /api/v1/pois/nearby - Geospatial 2dsphere search.
    */
-  async getNearbyPOIs({ lat, lng, radius_meters = 500, lang = "vi" }) {
+  async getNearbyPOIs({ lat, lng, radius_meters = 1000, lang = "vi" }) {
     try {
       const params = new URLSearchParams({
-        lat: String(lat),
-        lng: String(lng),
-        radius_meters: String(radius_meters),
+        latitude: String(lat),
+        longitude: String(lng),
+        max_distance_meters: String(radius_meters),
         lang,
       });
       const res = await fetch(`${API_BASE_URL}/pois/nearby?${params.toString()}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
-      return (data || []).map((poi) => ({
+      const rawList = Array.isArray(data) ? data : (data?.items || []);
+      return rawList.map((poi) => ({
         ...poi,
         audio_url: this.resolveUrl(poi.audio_url),
       }));
@@ -86,7 +88,9 @@ export const api = {
    */
   async searchPOIs({ query, category = null, originLat = null, originLon = null, lang = "vi", limit = 20 }) {
     try {
-      const params = new URLSearchParams({ q: query, lang, limit: String(limit) });
+      const cleanQ = query ? query.trim() : "";
+      if (!cleanQ) return [];
+      const params = new URLSearchParams({ q: cleanQ, lang, limit: String(limit) });
       if (category && category !== "all") params.append("category", category);
       if (originLat != null) params.append("origin_lat", String(originLat));
       if (originLon != null) params.append("origin_lon", String(originLon));
@@ -94,7 +98,8 @@ export const api = {
       const res = await fetch(`${API_BASE_URL}/pois/search?${params.toString()}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
-      return (data || []).map((poi) => ({
+      const rawList = Array.isArray(data) ? data : (data?.items || []);
+      return rawList.map((poi) => ({
         ...poi,
         audio_url: this.resolveUrl(poi.audio_url),
         images: (poi.images || []).map((img) => this.resolveUrl(img)),

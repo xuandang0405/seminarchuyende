@@ -15,17 +15,27 @@ class TourService:
         tours = await tour_repo.list_public_tours(skip=skip, limit=limit)
         results = []
         for t in tours:
+            price = t.get("price_amount", t.get("price_vnd", 0))
+            is_paid = t.get("is_paid", price > 0)
+            is_purchasable = t.get("is_purchasable", t.get("for_sale", True))
             results.append({
-                "id": t["_id"],
-                "_id": t["_id"],
-                "code": t.get("code") or t["_id"],
-                "title": t["name"],
-                "name": t["name"],
+                "id": str(t["_id"]),
+                "_id": str(t["_id"]),
+                "code": t.get("code") or str(t["_id"]),
+                "title": t.get("name", t.get("title", "")),
+                "name": t.get("name", t.get("title", "")),
                 "description": t.get("description", ""),
                 "localizations": t.get("localizations", {}),
                 "poi_count": len(t.get("poi_ids", [])),
                 "poi_ids": t.get("poi_ids", []),
                 "stops": [{"poi_id": pid, "stop_order": i + 1} for i, pid in enumerate(t.get("poi_ids", []))],
+                "price_amount": price,
+                "price_vnd": price,
+                "currency": t.get("currency", "VND"),
+                "is_paid": is_paid,
+                "for_sale": is_purchasable,
+                "is_purchasable": is_purchasable,
+                "is_active": t.get("is_active", True),
                 "version": t.get("version", 1),
             })
         return results
@@ -35,31 +45,51 @@ class TourService:
         if not tour:
             return None
 
-        # Fetch ordered POIs
+        # Fetch ordered POIs with single batch query
+        poi_ids = tour.get("poi_ids", [])
         ordered_pois = []
-        for pid in tour.get("poi_ids", []):
-            p = await poi_repo.get_public_by_id(pid)
-            if p:
-                ordered_pois.append({
-                    "id": p["_id"],
-                    "_id": p["_id"],
-                    "name": p.get("name"),
-                    "category": p.get("category"),
-                    "address": p.get("address"),
-                    "location": p.get("location"),
-                    "images": p.get("images", []),
-                })
+        if poi_ids:
+            cursor = poi_repo.collection.find({
+                "_id": {"$in": poi_ids},
+                "is_active": True,
+                "deleted_at": None,
+            })
+            poi_docs = await cursor.to_list(length=len(poi_ids))
+            poi_map = {str(p["_id"]): p for p in poi_docs}
+            for pid in poi_ids:
+                p = poi_map.get(str(pid))
+                if p:
+                    ordered_pois.append({
+                        "id": str(p["_id"]),
+                        "_id": str(p["_id"]),
+                        "name": p.get("name"),
+                        "category": p.get("category"),
+                        "address": p.get("address"),
+                        "location": p.get("location"),
+                        "images": p.get("images", []),
+                    })
+
+        price = tour.get("price_amount", tour.get("price_vnd", 0))
+        is_paid = tour.get("is_paid", price > 0)
+        is_purchasable = tour.get("is_purchasable", tour.get("for_sale", True))
 
         return {
-            "id": tour["_id"],
-            "_id": tour["_id"],
-            "code": tour.get("code") or tour["_id"],
-            "title": tour["name"],
-            "name": tour["name"],
+            "id": str(tour["_id"]),
+            "_id": str(tour["_id"]),
+            "code": tour.get("code") or str(tour["_id"]),
+            "title": tour.get("name", tour.get("title", "")),
+            "name": tour.get("name", tour.get("title", "")),
             "description": tour.get("description", ""),
             "localizations": tour.get("localizations", {}),
             "pois": ordered_pois,
             "stops": [{"poi_id": pid, "stop_order": i + 1} for i, pid in enumerate(tour.get("poi_ids", []))],
+            "price_amount": price,
+            "price_vnd": price,
+            "currency": tour.get("currency", "VND"),
+            "is_paid": is_paid,
+            "for_sale": is_purchasable,
+            "is_purchasable": is_purchasable,
+            "is_active": tour.get("is_active", True),
             "version": tour.get("version", 1),
         }
 
@@ -69,15 +99,29 @@ class TourService:
         for pid in poi_ids:
             exists = await poi_repo.get_by_id(pid)
             if not exists:
+                exists = await poi_repo.get_public_by_id(pid)
+            if not exists:
                 return {"success": False, "error": f"POI '{pid}' không tồn tại."}
 
         tour_id = f"tour_{uuid.uuid4().hex[:12]}"
+        code = payload.get("code") or f"TOUR_{uuid.uuid4().hex[:8].upper()}"
+        price = payload.get("price_amount", payload.get("price_vnd", 0))
+        is_paid = payload.get("is_paid", price > 0)
+        is_purchasable = payload.get("is_purchasable", payload.get("for_sale", True))
+
         doc = {
             "_id": tour_id,
+            "code": code,
             "name": payload["name"],
             "description": payload.get("description", ""),
             "localizations": payload.get("localizations", {}),
             "poi_ids": poi_ids,
+            "price_amount": price,
+            "price_vnd": price,
+            "currency": payload.get("currency", "VND"),
+            "is_paid": is_paid,
+            "is_purchasable": is_purchasable,
+            "for_sale": is_purchasable,
             "is_active": payload.get("is_active", True),
             "created_by": created_by,
         }

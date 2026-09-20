@@ -1,0 +1,43 @@
+@startuml
+!theme plain
+skinparam defaultFontName "Arial"
+skinparam packageStyle rectangle
+
+title Sơ Đồ Use Case: Quản Trị POI Với Bản Đồ Tương Tác, GPS Thật & Google TTS (C01, C02, C10, C11)
+
+actor "Quản Trị Viên\n(Admin)" as Admin #AliceBlue
+actor "Chủ Quán / Đối Tác\n(POI Owner)" as Owner #MistyRose
+
+rectangle "Phân Hệ Quản Lý POI & Âm Thanh (React Admin + FastAPI)" {
+  usecase "C01: Thêm Địa Điểm (POI) Mới" as UC_AddPOI
+  usecase "C02: Chỉnh Sửa Địa Điểm (POI)" as UC_EditPOI
+  
+  usecase "C01.1: Chọn Vị Trí Trên Bản Đồ\n(Interactive Leaflet Map Picker)" as UC_MapPicker
+  usecase "C01.2: Bắt GPS Thật 100% Của Máy\n(Device Geolocation)" as UC_RealGPS
+  
+  usecase "C11: Đọc Chuẩn Google TTS\n(Text-to-Speech từ mô tả)" as UC_GoogleTTS
+  usecase "C12: Tự Động Dịch 6 Thứ Tiếng & Đồng Bộ TTS\n(Auto Multilingual: VI, EN, FR, JA, KO, ZH)" as UC_MultilingualTTS
+  usecase "C10: Tải Lên / Thu Âm Giọng Đọc\n(Microphone Recording / Upload)" as UC_AudioUpload
+  
+  usecase "C03: Bật/Tắt Công Bố (Readiness Gate)" as UC_ToggleActive
+}
+
+Admin --> UC_AddPOI
+Admin --> UC_EditPOI
+Admin --> UC_ToggleActive
+Admin --> UC_MultilingualTTS
+Owner --> UC_EditPOI
+
+UC_AddPOI ..> UC_MapPicker : <<include>>
+UC_AddPOI ..> UC_RealGPS : <<extends>>
+UC_AddPOI ..> UC_GoogleTTS : <<extends>>
+UC_AddPOI ..> UC_MultilingualTTS : <<extends>>
+UC_AddPOI ..> UC_AudioUpload : <<extends>>
+
+UC_EditPOI ..> UC_MapPicker : <<include>>
+UC_EditPOI ..> UC_RealGPS : <<extends>>
+UC_EditPOI ..> UC_GoogleTTS : <<extends>>
+UC_EditPOI ..> UC_MultilingualTTS : <<extends>>
+UC_EditPOI ..> UC_AudioUpload : <<extends>>
+
+@enduml

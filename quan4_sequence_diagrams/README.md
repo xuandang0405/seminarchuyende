@@ -18,7 +18,7 @@ Mỗi file Eraser có comment giải thích giả định và mức chi tiết. 
 |---|---|---|---|
 | 01 | Mở ứng dụng và nạp nội dung đa ngôn ngữ | H | T01, T03, T05, T07, F07 |
 | 02 | Đăng nhập qua ba lớp FastAPI | H | U01 |
-| 03 | Admin thêm hoặc sửa POI và tạo yêu cầu audio | H | C01, C02, C04 |
+| 03 | Admin thêm/sửa POI, trợ lý Gemini 3.6 AI (tự điền/tối ưu mô tả/soạn audio) & tạo audio | H, Code | C01, C02, C04, C14 |
 | 04 | Tự động thuyết minh khi đến gần POI | H | T02, T04, T09, N01, N02 |
 | 05 | Quét QR để nghe thuyết minh | G | T11, N01 |
 | 06 | Tải và kích hoạt gói offline | H | F02, F03, F04, F05, F06 |
@@ -30,7 +30,7 @@ Mỗi file Eraser có comment giải thích giả định và mức chi tiết. 
 | 12 | Worker tổng hợp dữ liệu cho dashboard | H | S05, S06, S07 |
 | 13 | Admin hoặc chủ quán xem thống kê đúng phạm vi | H | O10, S05, S06, S07 |
 | 14 | Chọn tour và bắt đầu hoặc kết thúc chuyến đi | G | T12, T13, C15, S08 |
-| 15 | AI gợi ý mô tả với kiểm tra quyền và hạn mức | H | C14, O04 |
+| 15 | AI gợi ý mô tả, kịch bản thuyết minh & bản địa hóa 6 ngôn ngữ qua Gemini 3.6 | H, Code | C14, O04 |
 
 H: mô hình hóa từ chức năng và luồng trong HTML, có thêm chi tiết thiết kế để làm rõ tính đúng đắn.
 G: QR và tour thuộc mô tả ban đầu; HTML và ERD trước chưa mô tả đầy đủ dữ liệu/API của chúng.

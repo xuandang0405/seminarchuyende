@@ -5,10 +5,30 @@ skinparam shadowing false
 skinparam defaultFontName "Arial"
 
 participant "Web" as Web Admin
+participant "AI" as Gemini AI
 participant "Router" as POI Router
 participant "Service" as POI Service
 participant "Repo" as Content Repository
 participant "DB" as MongoDB
+
+opt Sử dụng Trợ Lý Gemini AI khi Tạo hoặc Sửa POI (Tùy Chọn)
+    alt Trường hợp Tạo mới POI: Tự nhận diện & điền thông tin
+        Web -> AI: POST /api/v1/ai/poi-assistant (Tên địa điểm, gợi ý địa chỉ/danh mục)
+        AI -> AI: Gemini 3.6 Flash phân tích di tích/quán ăn Quận 4 & ước lượng GPS
+        AI -->> Web: 200 OK (Tên chuẩn, mô tả 3-5 câu, địa chỉ, category, tọa độ, đặc sản)
+        Web -> Web: Tự động điền đầy đủ vào form Tạo POI
+    else Trường hợp Sửa/Tối ưu POI: Viết lại mô tả hoặc soạn thuyết minh
+        Web -> AI: POST /api/v1/ai/refine-description (Tên POI, mô tả hiện tại, tông điệu)
+        AI -> AI: Gemini trau chuốt văn phong du lịch sinh động, giàu hình ảnh & cảm xúc
+        AI -->> Web: 200 OK (Mô tả đã tối ưu, tiêu đề gợi ý, điểm nổi bật)
+        Web -> Web: Cập nhật nội dung mô tả mới vào form
+    else Soạn thuyết minh GPS âm thanh
+        Web -> AI: POST /api/v1/ai/generate-narration (Tên, danh mục, thời tiết, ngôn ngữ)
+        AI -->> Web: 200 OK (Kịch bản thuyết minh GPS 80-120 từ)
+        Web -> Web: Điền kịch bản vào ô mô tả để chuẩn bị phát Google TTS
+    end
+end
+
 Web -> Router: Gửi POI cùng version và mã yêu cầu
 Router -> Router: Xác thực phiên và kiểm tra dữ liệu đầu vào
 Router -> Service: Thêm hoặc sửa POI với danh tính người thực hiện
@@ -48,4 +68,19 @@ Repo- -> Service: Báo chưa hoàn tất thao tác
 Service- -> Router: Kết quả lỗi phù hợp
 Router- -> Web: Giữ form và cho phép gửi lại cùng mã yêu cầu
 end
+
+opt Nhánh xóa POI và tự động xóa dây chuyền mã QR
+Web -> Router: Yêu cầu xóa POI (DELETE /api/v1/pois/{poi_id})
+Router -> Service: Chuyển yêu cầu xóa POI
+Service -> Repo: Đánh dấu xóa POI (deleted_at, is_active=False)
+Repo -> DB: Cập nhật POI thành trạng thái đã xóa
+DB- -> Repo: Xác nhận đã cập nhật POI
+Service -> Repo: Kích hoạt xóa toàn bộ mã QR của POI (Collection: qr_codes)
+Repo -> DB: Xóa vĩnh viễn các bản ghi QR thuộc POI
+DB- -> Repo: Xác nhận các mã QR đã bị xóa
+Service- -> Router: Hoàn tất xóa POI và mã QR
+Router- -> Web: 204 No Content
+Web -> Web: Ẩn POI và đồng bộ loại bỏ toàn bộ mã QR liên quan
+end
 @enduml
+

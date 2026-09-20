@@ -17,6 +17,7 @@ export default function POIDetailModal({
   onClose,
   onPlayAudio,
   onDirections,
+  onPlanRoute,
   currentLang = "vi",
 }) {
   const [menuItems, setMenuItems] = useState([]);
@@ -102,7 +103,21 @@ export default function POIDetailModal({
                 }}
               >
                 <Text style={styles.playIcon}>🧭</Text>
-                <Text style={styles.playButtonText}>Chỉ Đường Thực Tế (OSRM)</Text>
+                <Text style={styles.playButtonText}>Chỉ Đường Từ Vị Trí Hiện Tại</Text>
+              </TouchableOpacity>
+            ) : null}
+
+            {/* Route Planning Button */}
+            {onPlanRoute ? (
+              <TouchableOpacity
+                style={[styles.playButton, { backgroundColor: "#0f766e", marginTop: 8 }]}
+                onPress={() => {
+                  onClose();
+                  onPlanRoute(poi);
+                }}
+              >
+                <Text style={styles.playIcon}>🗺️</Text>
+                <Text style={styles.playButtonText}>Tìm Đường Từ POI Này Đi Nơi Khác</Text>
               </TouchableOpacity>
             ) : null}
 

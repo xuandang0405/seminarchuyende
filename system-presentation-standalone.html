@@ -2462,13 +2462,13 @@ sequenceDiagram
         S_NEARBY["get_nearby_pois(lat, lng, radius)"]
         S_ONE["get_poi_by_id(poi_id)"]
         S_CREATE["create_poi(data)"]
-        S_UPDATE["update_poi(poi_id, data)\\n+ cleanup orphan images"]
-        S_DELETE["delete_poi(poi_id)\\n+ cascade delete"]
+        S_DELETE["delete_poi(poi_id)\\n+ cascade delete poi_localizations & qr_codes"]
     end
 
     subgraph DB["MongoDB Collections"]
         COL_POI[("POI\\nname, description, category,\\nlocation, images, audio_status,\\ngeofence_radius, audio_priority")]
         COL_LOC[("poi_localizations\\npoi_id, lang, name,\\ndescription, audio_url, updated_at")]
+        COL_QR[("qr_codes\\ncode, poi_id, location_desc,\\nis_active, created_at")]
     end
 
     subgraph Hydration["load-all & nearby Hydration\\n?lang=xx"]
@@ -2488,7 +2488,9 @@ sequenceDiagram
     R_UPDATE --> S_UPDATE --> COL_POI
     R_DELETE --> S_DELETE
     S_DELETE --> COL_POI
-    S_DELETE -->|"cascade"| COL_LOC`
+    S_DELETE -->|"cascade"| COL_LOC
+    S_DELETE -->|"cascade delete QR"| COL_QR`
+
             },
             'audio-tts': {
                 title: 'Audio TTS Pipeline',

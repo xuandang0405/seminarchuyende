@@ -1,0 +1,69 @@
+@startuml SD-REACT-ADMIN-TOUR-PRICING-RECONCILE
+title SD-REACT-ADMIN-TOUR-PRICING-RECONCILE: Quản Lý Giá Vé Tour & Đối Soát Thanh Toán
+caption Tương tác: React Web Admin (Vite + TypeScript) -> FastAPI (Payment/Tour Services) -> Cổng VietQR & MongoDB
+
+autonumber
+skinparam shadowing false
+skinparam defaultFontName "Arial"
+skinparam defaultFontSize 12
+
+actor "Quản Trị Viên" as Admin
+participant "React Web Admin\n(apps/web-admin)" as AdminUI
+participant "Tour / Payment Router\n(FastAPI)" as APIRouter
+participant "Tour & Payment Service\n(FastAPI Backend)" as Service
+participant "Order / Payment Repo\n(FastAPI Backend)" as Repo
+participant "MongoDB 7.0\n(orders, tours)" as MongoDB
+participant "Cổng Thanh Toán VietQR / payOS\n(Payment Gateway)" as Gateway
+
+== Giai Đoạn 1: Thiết Lập Giá Vé Tour ==
+Admin -> AdminUI: Chọn tab "Lộ Trình Tour" -> Bấm "Chỉnh Sửa Giá Vé"
+AdminUI --> Admin: Mở Modal thiết lập (is_paid=True, price=150000, for_sale=True)
+Admin -> AdminUI: Bấm "Lưu Thay Đổi"
+AdminUI -> APIRouter: PUT /api/v1/tours/{tour_id}/pricing\n{"is_paid": true, "price_vnd": 150000, "for_sale": true}
+APIRouter -> Service: update_tour_pricing(tour_id, is_paid=True, price_vnd=150000, for_sale=True)
+Service -> Repo: update_tour(tour_id, {"is_paid": true, "price_vnd": 150000, "for_sale": true})
+Repo -> MongoDB: update_one({"_id": tour_id}, {"$set": {...}})
+MongoDB --> Repo: modified_count=1
+Service --> APIRouter: 200 OK (Tour Updated)
+APIRouter --> AdminUI: 200 OK
+AdminUI --> Admin: Cập nhật huy hiệu "150.000 đ | 🟢 Đang mở bán vé"
+
+== Giai Đoạn 2: Quản Lý Đơn Hàng & Đối Soát Thanh Toán (Reconciliation - P06) ==
+Admin -> AdminUI: Mở trang "Đơn Hàng & Vé" (/orders)
+AdminUI -> APIRouter: GET /api/v1/payments/admin/orders?status=pending\n(Header: Authorization Bearer Admin Token)
+APIRouter -> Service: list_all_orders_admin(status_filter="pending")
+Service -> Repo: list_orders(status="pending")
+Repo -> MongoDB: find({"status": "pending"}).sort("created_at", -1)
+MongoDB --> Repo: Danh sách các đơn hàng đang chờ
+Repo --> Service: List[Order]
+Service --> APIRouter: 200 OK
+APIRouter --> AdminUI: Trả về JSON danh sách đơn hàng
+AdminUI --> Admin: Hiển thị bảng đơn hàng (Đơn #ORD-001 đang pending)
+
+Admin -> AdminUI: Bấm nút "Đối Soát" trên đơn hàng #ORD-001
+AdminUI -> APIRouter: POST /api/v1/payments/admin/orders/ORD-001/reconcile
+APIRouter -> Service: reconcile_order(order_id="ORD-001", is_admin=True)
+
+Service -> Repo: get_order("ORD-001")
+Repo -> MongoDB: find_one({"_id": "ORD-001"})
+MongoDB --> Repo: Order Document (transaction_id, provider="vietqr", amount=150000)
+Repo --> Service: Order
+
+Service -> Gateway: Gọi API tra cứu trạng thái giao dịch thực tế (payOS / VietQR Open Banking API)
+Gateway --> Service: {"status": "PAID", "paid_amount": 150000, "bank_ref": "FT240918001"}
+
+alt Cổng Thanh Toán Xác Nhận Đã Nhận Tiền
+    Service -> Service: Cấp mã vé điện tử E-Ticket (qr_claim_code)\nCập nhật trạng thái "paid"
+    Service -> Repo: update_order_paid("ORD-001", bank_ref="FT240918001", reconciled=True)
+    Repo -> MongoDB: update_one({"_id": "ORD-001"}, {"$set": {"status": "paid", "reconciled_at": now()}})
+    MongoDB --> Repo: modified_count=1
+    Service --> APIRouter: 200 OK {"status": "paid", "message": "Đối soát thành công. Đã cấp vé điện tử."}
+    APIRouter --> AdminUI: 200 OK
+    AdminUI --> Admin: Hiển thị thông báo "🟢 Đã đối soát thành công! Đơn chuyển sang Đã Thanh Toán"
+else Giao Dịch Chưa Chuyển Khoản Hoặc Thất Bại
+    Service --> APIRouter: 200 OK {"status": "pending", "message": "Giao dịch chưa hoàn tất trên hệ thống ngân hàng."}
+    APIRouter --> AdminUI: 200 OK
+    AdminUI --> Admin: Cảnh báo "Chưa nhận được thanh toán từ ngân hàng"
+end
+
+@enduml

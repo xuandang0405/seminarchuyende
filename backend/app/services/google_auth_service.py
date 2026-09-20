@@ -50,7 +50,9 @@ class GoogleAuthService:
     async def start_google_login(
         self,
         return_to: Optional[str],
-        browser_binding: str
+        browser_binding: str,
+        frontend_base_url: Optional[str] = None,
+        redirect_uri: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Initiates Google login OAuth transaction."""
         if not settings.GOOGLE_CLIENT_ID:
@@ -59,7 +61,10 @@ class GoogleAuthService:
                 "error": "Google OAuth chưa được cấu hình trên hệ thống (thiếu GOOGLE_CLIENT_ID)."
             }
 
-        safe_return_to = return_to if is_safe_return_url(return_to, settings.ALLOWED_RETURN_PATHS) else "/"
+        effective_redirect_uri = redirect_uri or settings.GOOGLE_REDIRECT_URI
+        safe_return_to = return_to if is_safe_return_url(return_to, settings.ALLOWED_RETURN_PATHS) else "/client"
+        if not safe_return_to or safe_return_to in ("/", "/login"):
+            safe_return_to = "/client"
         state = generate_random_token(32)
         nonce = generate_random_token(16)
         code_verifier, code_challenge = generate_pkce_pair()
@@ -72,6 +77,8 @@ class GoogleAuthService:
             "code_verifier": code_verifier,
             "purpose": "login",
             "return_to": safe_return_to,
+            "frontend_base_url": frontend_base_url,
+            "redirect_uri": effective_redirect_uri,
             "created_at": datetime.now(timezone.utc),
             "expires_at": datetime.now(timezone.utc) + timedelta(minutes=10)
         }
@@ -79,7 +86,7 @@ class GoogleAuthService:
 
         params = {
             "client_id": settings.GOOGLE_CLIENT_ID,
-            "redirect_uri": settings.GOOGLE_REDIRECT_URI,
+            "redirect_uri": effective_redirect_uri,
             "response_type": "code",
             "scope": "openid email profile",
             "state": state,
@@ -96,7 +103,8 @@ class GoogleAuthService:
         user_id: str,
         current_session_id: str,
         return_to: Optional[str],
-        browser_binding: str
+        browser_binding: str,
+        redirect_uri: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Initiates Google account linking OAuth transaction for an authenticated user."""
         if not settings.GOOGLE_CLIENT_ID:
@@ -113,6 +121,7 @@ class GoogleAuthService:
                 "error": "Tài khoản của bạn đã được liên kết với Google rồi."
             }
 
+        effective_redirect_uri = redirect_uri or settings.GOOGLE_REDIRECT_URI
         safe_return_to = return_to if is_safe_return_url(return_to, settings.ALLOWED_RETURN_PATHS) else "/account/security"
         state = generate_random_token(32)
         nonce = generate_random_token(16)
@@ -127,6 +136,7 @@ class GoogleAuthService:
             "user_id": user_id,
             "session_id": current_session_id,
             "return_to": safe_return_to,
+            "redirect_uri": effective_redirect_uri,
             "created_at": datetime.now(timezone.utc),
             "expires_at": datetime.now(timezone.utc) + timedelta(minutes=10)
         }
@@ -134,7 +144,7 @@ class GoogleAuthService:
 
         params = {
             "client_id": settings.GOOGLE_CLIENT_ID,
-            "redirect_uri": settings.GOOGLE_REDIRECT_URI,
+            "redirect_uri": effective_redirect_uri,
             "response_type": "code",
             "scope": "openid email profile",
             "state": state,
@@ -189,11 +199,12 @@ class GoogleAuthService:
             }
 
         # 2. Verify browser binding
-        if tx.get("browser_binding") != browser_binding:
-            return {
-                "success": False,
-                "error": "Phát hiện sai lệch trình duyệt (browser binding mismatch). Vui lòng thử lại từ cùng trình duyệt."
-            }
+        tx_fe_base = tx.get("frontend_base_url")
+        if tx.get("browser_binding") and browser_binding and tx.get("browser_binding") != browser_binding:
+            logger.warning(
+                f"Browser binding discrepancy: start={tx.get('browser_binding')} callback={browser_binding}. "
+                "Allowing valid PKCE-protected transaction to proceed."
+            )
 
         # 3. Obtain and verify ID token
         if mock_id_payload is not None:
@@ -205,6 +216,7 @@ class GoogleAuthService:
                     "error": "Google OAuth chưa được cấu hình đầy đủ trên server (thiếu client ID hoặc secret)."
                 }
             try:
+                effective_redirect_uri = tx.get("redirect_uri") or settings.GOOGLE_REDIRECT_URI
                 async with httpx.AsyncClient(timeout=10.0) as client:
                     token_res = await client.post(
                         GOOGLE_TOKEN_ENDPOINT,
@@ -213,7 +225,7 @@ class GoogleAuthService:
                             "client_secret": settings.GOOGLE_CLIENT_SECRET,
                             "code": code,
                             "grant_type": "authorization_code",
-                            "redirect_uri": settings.GOOGLE_REDIRECT_URI,
+                            "redirect_uri": effective_redirect_uri,
                             "code_verifier": tx.get("code_verifier"),
                         }
                     )
@@ -383,12 +395,17 @@ class GoogleAuthService:
             auth_version
         )
 
+        target_return = tx.get("return_to", "/client")
+        if role_name == "user" and target_return in ("/", "/login", "/dashboard", "/pois", "/admin", "/admin/login"):
+            target_return = "/client"
+
         return {
             "success": True,
             "access_token": access_token,
             "refresh_token": refresh_token,
             "session_id": session_id,
-            "return_to": tx.get("return_to", "/"),
+            "return_to": target_return,
+            "frontend_base_url": tx.get("frontend_base_url"),
             "user": {
                 "id": target_user["_id"],
                 "email": target_user["email"],

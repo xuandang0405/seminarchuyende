@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { StatusBar } from "expo-status-bar";
 import { StyleSheet, View, Alert } from "react-native";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import MapScreen from "./src/screens/MapScreen";
 import QRScanScreen from "./src/screens/QRScanScreen";
@@ -8,6 +9,7 @@ import OfflineScreen from "./src/screens/OfflineScreen";
 import AuthWelcomeModal from "./src/components/AuthWelcomeModal";
 
 import { narrationController } from "./src/services/NarrationController";
+import { tourSessionService } from "./src/services/TourSessionService";
 
 export default function App() {
   const [currentScreen, setCurrentScreen] = useState("map"); // "map" | "qr" | "offline"
@@ -88,38 +90,44 @@ export default function App() {
   };
 
   return (
-    <View style={styles.container}>
-      <StatusBar style="light" />
+    <SafeAreaProvider>
+      <View style={styles.container}>
+        <StatusBar style="light" />
 
-      {currentScreen === "map" && (
-        <MapScreen
-          session={session}
-          onNavigateQR={() => setCurrentScreen("qr")}
-          onNavigateOffline={() => setCurrentScreen("offline")}
-          onOpenAuth={() => setShowAuthModal(true)}
+        {currentScreen === "map" && (
+          <MapScreen
+            session={session}
+            onNavigateQR={() => setCurrentScreen("qr")}
+            onNavigateOffline={() => setCurrentScreen("offline")}
+            onOpenAuth={() => setShowAuthModal(true)}
+          />
+        )}
+
+        {currentScreen === "qr" && (
+          <QRScanScreen
+            onBack={() => setCurrentScreen("map")}
+            onPlayAudio={(poi) => {
+              narrationController.requestNarration(poi, "qr");
+              setCurrentScreen("map");
+            }}
+            onStartTour={async (tour) => {
+              await tourSessionService.startTour(tour);
+              setCurrentScreen("map");
+            }}
+          />
+        )}
+
+        {currentScreen === "offline" && (
+          <OfflineScreen onBack={() => setCurrentScreen("map")} session={session} />
+        )}
+
+        <AuthWelcomeModal
+          visible={showAuthModal}
+          onClose={() => setShowAuthModal(false)}
+          onSuccess={handleAuthSuccess}
         />
-      )}
-
-      {currentScreen === "qr" && (
-        <QRScanScreen
-          onBack={() => setCurrentScreen("map")}
-          onPlayAudio={(poi) => {
-            narrationController.requestNarration(poi, "qr");
-            setCurrentScreen("map");
-          }}
-        />
-      )}
-
-      {currentScreen === "offline" && (
-        <OfflineScreen onBack={() => setCurrentScreen("map")} session={session} />
-      )}
-
-      <AuthWelcomeModal
-        visible={showAuthModal}
-        onClose={() => setShowAuthModal(false)}
-        onSuccess={handleAuthSuccess}
-      />
-    </View>
+      </View>
+    </SafeAreaProvider>
   );
 }
 

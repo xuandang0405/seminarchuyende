@@ -60,11 +60,34 @@ class TourUpdate(BaseModel):
 
 
 class TourPricingUpdateRequest(BaseModel):
-    price_amount: int = Field(..., ge=0, description="Giá bán mới của tour (VND)")
+    price_amount: Optional[int] = Field(None, ge=0, description="Giá bán mới của tour (VND)")
+    price_vnd: Optional[int] = Field(None, ge=0)
     currency: str = Field(default="VND")
-    is_purchasable: bool = Field(default=True, description="Mở bán hoặc đóng bán")
+    is_purchasable: Optional[bool] = Field(None, description="Mở bán hoặc đóng bán")
+    for_sale: Optional[bool] = None
+    is_paid: Optional[bool] = None
     preview_enabled: bool = Field(default=True, description="Cho phép nghe thử")
     preview_poi_ids: Optional[List[str]] = Field(default=None, description="Danh sách POI nghe thử")
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_pricing_fields(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if "price_amount" not in data and "price_vnd" in data:
+                data["price_amount"] = data["price_vnd"]
+            if "price_amount" not in data and data.get("is_paid") is False:
+                data["price_amount"] = 0
+            if data.get("price_amount") is None:
+                data["price_amount"] = 0
+
+            if "is_purchasable" not in data:
+                if "for_sale" in data:
+                    data["is_purchasable"] = data["for_sale"]
+                elif "is_paid" in data:
+                    data["is_purchasable"] = data["is_paid"]
+                else:
+                    data["is_purchasable"] = True
+        return data
 
 
 class TourResponse(TourBase):

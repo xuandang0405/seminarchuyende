@@ -1,0 +1,64 @@
+@startuml SD-MOBILE-REACT-NATIVE-GPS-NARRATION
+title SD-MOBILE-REACT-NATIVE-GPS-NARRATION: Định Vị GPS Thực Tế, Geofence & Phát Thuyết Minh
+caption Luồng: React Native Mobile Client -> GeofenceEngine -> NarrationController -> FastAPI Playback Grant -> Local Audio
+
+autonumber
+skinparam shadowing false
+skinparam defaultFontName "Arial"
+skinparam defaultFontSize 12
+
+actor "Du Khách" as Tourist
+participant "GPS Chipset / OS\n(Location Provider)" as GPS
+participant "LocationService\n(React Native / Expo)" as LocService
+participant "GeofenceEngine\n(mobile/src/services)" as GeoEngine
+participant "NarrationController\n(mobile/src/services)" as NarrationCtrl
+participant "Local Audio Player\n(Expo-AV / File Cache)" as AudioPlayer
+participant "FastAPI Backend\n(/api/v1/playback-grants)" as BackendAPI
+participant "MongoDB 7.0\n(orders, entitlements)" as MongoDB
+
+== Giai Đoạn 1: Định Vị GPS & Lọc Độ Chính Xác ==
+GPS -> LocService: Cung cấp mẫu tọa độ {latitude: 10.7629, longitude: 106.7025, accuracy: 8.5m}
+LocService -> LocService: Kiểm tra sai số (accuracy <= 35m) -> HỢP LỆ
+LocService -> GeoEngine: onLocationUpdate({lat, lng, accuracy})
+
+== Giai Đoạn 2: Xử Lý Bán Kính Geofence & Debounce ==
+GeoEngine -> GeoEngine: Tính khoảng cách Haversine tới các POI Quận 4\nKhoảng cách tới Bến Nhà Rồng: 22m <= Bán kính kích hoạt (30m)
+GeoEngine -> GeoEngine: Kiểm tra Cooldown (POI chưa được kích hoạt trong 5 phút qua)
+GeoEngine -> GeoEngine: Chờ Debounce (Giữ vững vị trí trong vùng >= 3 giây)
+
+alt Du khách chỉ đi ngang qua (< 3s) hoặc sai số lớn
+    GeoEngine -> GeoEngine: Bỏ qua, tiếp tục theo dõi tọa độ tiếp theo
+else Đủ điều kiện kích hoạt địa điểm
+    GeoEngine -> NarrationCtrl: triggerNarration(poi_ben_nha_rong, trigger="gps_geofence")
+end
+
+== Giai Đoạn 3: Xin Quyền Phát Thuyết Minh (Playback Grant & Trial Consent) ==
+NarrationCtrl -> BackendAPI: POST /api/v1/playback-grants/request\n{poi_id: "poi_ben_nha_rong", trigger_type: "gps_geofence", lang: "vi"}
+BackendAPI -> MongoDB: Kiểm tra quyền truy cập (Entitlement) hoặc Lượt nghe thử (Trial Playback)
+
+alt Du Khách Đã Mua Vé Tour Hoặc POI Miễn Phí
+    MongoDB --> BackendAPI: Entitlement Hợp Lệ (paid_ticket_active=True)
+    BackendAPI --> NarrationCtrl: 200 OK {grant_status: "granted", audio_url: "/storage/audio/ben_nha_rong.mp3"}
+else Chưa Mua Vé nhưng Còn Lượt Nghe Thử (Trial Consent)
+    alt Chưa có User Consent
+        BackendAPI --> NarrationCtrl: 403 Forbidden {error_code: "TRIAL_CONSENT_REQUIRED"}
+        NarrationCtrl --> Tourist: Hiển thị Alert: "🎁 Bạn có 1 lượt nghe thử miễn phí cho địa điểm này. Kích hoạt ngay?"
+        Tourist -> NarrationCtrl: Bấm "Đồng ý nghe thử"
+        NarrationCtrl -> BackendAPI: POST /api/v1/playback-grants/request\n{poi_id, user_consent_trial: true}
+        BackendAPI -> MongoDB: Ghi nhận tiêu thụ 1 lượt nghe thử
+        BackendAPI --> NarrationCtrl: 200 OK {grant_status: "granted_trial", audio_url: "/storage/audio/..."}
+    end
+else Đã Dùng Hết Lượt Nghe Thử & Chưa Mua Vé
+    BackendAPI --> NarrationCtrl: 403 Forbidden {error_code: "TOUR_PURCHASE_REQUIRED"}
+    NarrationCtrl --> Tourist: Hiển thị Alert: "🔒 Vui lòng mua tour để mở khóa toàn bộ bài thuyết minh"
+end
+
+== Giai Đoạn 4: Tải & Phát Audio Trên Thiết Bị ==
+opt Đã Được Cấp Quyền Phát (Grant Granted)
+    NarrationCtrl -> AudioPlayer: loadAsync(audio_url, shouldPlay=True)
+    AudioPlayer -> AudioPlayer: Phát âm thanh thuyết minh qua loa ngoài / tai nghe
+    AudioPlayer --> Tourist: Du khách lắng nghe bài giới thiệu địa danh
+    NarrationCtrl -> NarrationCtrl: Đẩy sự kiện "narration_started" vào AnalyticsOutbox cục bộ
+end
+
+@enduml

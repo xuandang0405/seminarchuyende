@@ -86,6 +86,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         if (!res.ok) {
           setAccessToken(null);
+          tokenRef.current = null;
+          if (typeof window !== 'undefined' && window.localStorage) {
+            localStorage.removeItem('token');
+            localStorage.removeItem('admin_token');
+          }
           setUser(null);
           return null;
         }
@@ -94,6 +99,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const newToken = data.access_token;
         setAccessToken(newToken);
         tokenRef.current = newToken;
+        if (typeof window !== 'undefined' && window.localStorage) {
+          localStorage.setItem('token', newToken);
+          localStorage.setItem('admin_token', newToken);
+        }
 
         // Also fetch user profile /me
         const meRes = await fetch(apiUrl('/auth/me'), {
@@ -161,6 +170,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const loginWithData = useCallback((token: string, userProfile: UserProfile) => {
     setAccessToken(token);
     tokenRef.current = token;
+    if (typeof window !== 'undefined' && window.localStorage) {
+      localStorage.setItem('token', token);
+      localStorage.setItem('admin_token', token);
+    }
     setUser(userProfile);
     setStatus('authenticated');
   }, []);
@@ -173,10 +186,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         credentials: 'include',
       });
     } catch (e) {
-      console.warn('Logout request failed:', e);
+      console.error('Logout error:', e);
     } finally {
       setAccessToken(null);
       tokenRef.current = null;
+      if (typeof window !== 'undefined' && window.localStorage) {
+        localStorage.removeItem('token');
+        localStorage.removeItem('admin_token');
+      }
       setUser(null);
       setStatus('anonymous');
     }

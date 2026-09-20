@@ -10,7 +10,13 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.tourvoice.district4",
       "infoPlist": {
+        "UIBackgroundModes": [
+          "location",
+          "audio"
+        ],
         "NSLocationWhenInUseUsageDescription": "TourVoice cần quyền truy cập vị trí của bạn để tự động thuyết minh khi bạn đến gần các điểm ẩm thực và di tích Quận 4.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "TourVoice cần quyền truy cập vị trí liên tục để tự động thuyết minh các điểm ẩm thực và di tích khi bạn di chuyển, kể cả khi màn hình tắt.",
+        "NSLocationAlwaysUsageDescription": "TourVoice cần vị trí của bạn để tự động phát thuyết minh audio khi bạn đi dạo qua các điểm di tích Quận 4.",
         "NSCameraUsageDescription": "TourVoice cần quyền camera để quét mã QR dán tại các quán ăn và điểm tham quan."
       },
       "config": {
@@ -26,6 +32,11 @@
       "permissions": [
         "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_LOCATION",
+        "FOREGROUND_SERVICE_MEDIA_PLAYBACK",
+        "WAKE_LOCK",
         "CAMERA"
       ],
       "config": {
@@ -46,7 +57,8 @@
         {
           "cameraPermission": "Cho phép TourVoice quét mã QR tại các quán ăn."
         }
-      ]
+      ],
+      "expo-audio"
     ]
   }
 }

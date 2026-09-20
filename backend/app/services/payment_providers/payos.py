@@ -49,7 +49,7 @@ class PayOSProvider(PaymentProvider):
 
         amount = int(order["amount_vnd"])
         description = f"Tour {order['_id']}"[:25]
-        ret_url = return_url or f"{settings.PUBLIC_WEB_URL}/client/index.html"
+        ret_url = return_url or f"{settings.PUBLIC_WEB_URL}/admin/orders"
         cancel_url = ret_url
 
         req_data = {

@@ -1,12 +1,15 @@
 @startuml deployment-architecture
-title Sơ đồ Kiến trúc Triển khai (Deployment & Network Architecture) - TourVoice Quận 4
+title Sơ đồ Kiến trúc Triển khai Hệ thống (Deployment & Network Architecture) - TourVoice Quận 4
+caption Chuẩn hóa: Frontend React (Admin Vite & Mobile Expo) + Backend FastAPI (Router -> Service -> Repository) + MongoDB
 
 skinparam packageStyle rectangle
 skinparam shadowing false
 skinparam defaultFontName "Arial"
+skinparam defaultFontSize 12
 
-actor "Du khách / Quản trị viên\n(Trình duyệt Web)" as WebUser
-actor "Du khách Mobile\n(Thiết bị thật iOS/Android)" as MobileUser
+actor "Quản Trị Viên / Chủ Quán\n(React Web Admin - TypeScript + Vite)" as AdminUser
+actor "Du Khách Mobile\n(React Native App - Expo / iOS & Android)" as MobileUser
+actor "Du Khách Web\n(Web Tourist Client PWA)" as WebTourist
 
 cloud "Internet Công Cộng (Public Network)" as PublicNet {
   node "HTTPS (Port 443) / HTTP (Port 80)" as Ingress
@@ -14,53 +17,74 @@ cloud "Internet Công Cộng (Public Network)" as PublicNet {
 
 node "Máy Chủ VPS (1.55.58.251 / tour.quan4.vn)" {
   
-  package "DMZ / Tầng Đảo Nghịch (Reverse Proxy)" {
+  package "DMZ / Tầng Đảo Nghịch (Reverse Proxy & Static Hosting)" {
     component "Nginx Web Server\n(Port 80 / 443)" as Nginx
-    folder "Static Assets\n(/client, /admin, /storage)" as StaticAssets
+    folder "React Web-Admin Bundle\n(apps/web-admin/dist - /admin, /web-admin)" as ReactAdminDist
+    folder "Web Tourist Assets\n(frontend/client - /client)" as WebClientAssets
+    folder "Media Audio Storage\n(/storage/audio - MP3 files)" as MediaStorage
   }
 
-  package "Mạng Nội Bộ Biệt Lập (Private Network / Docker Bridge)" {
-    component "FastAPI Backend Server\n(Uvicorn - 127.0.0.1:8000)" as FastAPI
-    database "MongoDB 7.0\n(ReplicaSet rs0 - Port 27017)" as MongoDB
-    database "Redis 7.2\n(Cache & Queue - Port 6379)" as Redis
-    component "OSRM Routing Engine\n(Open Source Routing)" as OSRM
+  package "Tầng Ứng Dụng Backend (FastAPI Server - Port 8000)" {
+    component "FastAPI Application (Uvicorn)" as FastAPI {
+      port "API Router Layer\n(/api/v1/auth, /pois, /tours, /payments...)" as RouterLayer
+      component "Domain Service Layer\n(POI, Tour, Narration, Payment, Analytics)" as ServiceLayer
+      component "Repository Layer\n(BaseRepository, POIRepo, AnalyticsRepo...)" as RepoLayer
+    }
+  }
+
+  package "Tầng Cơ Sở Dữ Liệu & Hàng Đợi (Private Network)" {
+    database "MongoDB 7.0 ReplicaSet\n(rs0 - Port 27017)\n[Collections: pois, tours, orders, analytics...]" as MongoDB
+    database "Redis 7.2\n(Cache, Token Blacklist, Rate Limiting)" as Redis
+    component "OSRM Routing Engine\n(Bản đồ đường bộ Quận 4)" as OSRM
   }
 }
 
-cloud "Dịch vụ Bên Thứ Ba (External APIs)" {
+cloud "Dịch vụ Bên Thứ Ba (External Cloud Services)" {
   [Google OAuth 2.0 / OIDC] as GoogleAuth
   [Cổng Thanh Toán VietQR / payOS] as VietQR
   [OpenStreetMap / CartoDB CDN] as OSM_CDN
+  [Microsoft Edge-TTS / AI Service] as EdgeTTS
 }
 
-WebUser --> Ingress : Truy cập cùng Origin (Same-Origin)
-MobileUser --> Ingress : Gọi API qua HTTPS Domain
+' Client Connections
+AdminUser --> Ingress : Truy cập Cổng Quản trị React (Same-Origin /admin)
+MobileUser --> Ingress : Gọi API qua HTTPS Domain (/api/v1/...)
+WebTourist --> Ingress : Truy cập Cổng Du khách (/client)
 
 Ingress --> Nginx : Port 80/443
 
-Nginx --> StaticAssets : Phục vụ trực tiếp HTML/JS/CSS
-Nginx --> FastAPI : Proxy Pass /api/v1/ (giữ nguyên path)
-Nginx ..> FastAPI : Chuyển tiếp X-Forwarded-For, X-Forwarded-Proto
+Nginx --> ReactAdminDist : Phục vụ trực tiếp React SPA Bundle (/admin)
+Nginx --> WebClientAssets : Phục vụ HTML/CSS/JS Du khách (/client)
+Nginx --> MediaStorage : Phục vụ luồng Audio MP3 tĩnh (/storage)
+Nginx --> FastAPI : Proxy Pass /api/v1/ (giữ nguyên URI và Headers)
 
-FastAPI --> MongoDB : Truy vấn POI, Tour, Session, Payment
-FastAPI --> Redis : Quản lý Token Blacklist & Rate Limit
-FastAPI --> OSRM : Tính cự ly đường bộ & lộ trình turn-by-turn
+' Internal FastAPI Architecture
+RouterLayer --> ServiceLayer : DTO Validation & Dependency Injection
+ServiceLayer --> RepoLayer : Business Rules Enforcement (Readiness Gate, Grants)
+RepoLayer --> MongoDB : Truy vấn & Transaction (ACID)
+ServiceLayer --> Redis : Token Whitelist / Blacklist & Cooldown
+ServiceLayer --> OSRM : Tính khoảng cách & cự ly đường bộ
 
-FastAPI --> GoogleAuth : Xác thực Token OAuth
-FastAPI --> VietQR : Tạo link thanh toán VietQR
-WebUser ..> OSM_CDN : Tải bản đồ nền CartoDB
+' External Integrations
+ServiceLayer --> GoogleAuth : Xác thực Google ID Token & Lấy UserInfo
+ServiceLayer --> VietQR : Tạo link mã QR thanh toán hóa đơn
+ServiceLayer --> EdgeTTS : Sinh file thuyết minh âm thanh tự động
+MobileUser ..> OSM_CDN : Tải bản đồ nền Vector / Raster Tiles
+AdminUser ..> OSM_CDN : Tải bản đồ nền tương tác Leaflet
 
 note right of Nginx
-  <b>Same-Origin Architecture:</b>
-  - Frontend gọi: <code>/api/v1/auth/login</code>
-  - Trình duyệt KHÔNG phát sinh CORS preflight
-  - Triệt tiêu 100% lỗi Private Network Access (loopback blocked)
+  <b>Kiến Trúc Same-Origin:</b>
+  - React Web Admin gọi relative <code>/api/v1/...</code>
+  - Không phát sinh lỗi CORS Preflight
+  - Không vi phạm Private Network Access (PNA loopback)
 end note
 
-note right of MongoDB
-  <b>Bảo mật Hệ thống:</b>
-  - MongoDB và Redis KHÔNG mở cổng ra Internet
-  - Uvicorn bind 127.0.0.1 hoặc Docker network nội bộ
+note bottom of MobileUser
+  <b>React Native Mobile Features:</b>
+  - LocationService (GPS thực tế, lọc sai số >35m)
+  - GeofenceEngine (Bán kính vào/ra, Debounce 3s, Cooldown 5m)
+  - NarrationController (Cấp quyền nghe thử Trial & Quản lý vé Tour)
+  - AnalyticsOutbox (Lưu ngoại tuyến & Gửi batch kèm per-item ACK)
 end note
 
 @enduml

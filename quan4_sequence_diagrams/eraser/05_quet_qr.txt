@@ -31,10 +31,11 @@ alt [label: "Có mạng"] {
     App > Audio: Yêu cầu nghe chủ động với nguồn QR
   }
   else [label: "Trường hợp còn lại"] {
-    alt [label: "QR bị vô hiệu hoặc không tìm thấy"] {
-      API --> App: Không có POI khả dụng
-      App --> User: Thông báo không thể dùng mã QR này
+    alt [label: "QR bị vô hiệu, bị xóa theo POI hoặc không tìm thấy"] {
+      API --> App: 404 Mã QR không tồn tại hoặc POI đã bị xóa
+      App --> User: Thông báo mã QR không tồn tại hoặc địa điểm đã bị xóa
     }
+
     else [label: "Lỗi mạng khi tra cứu"] {
       API --> App: Yêu cầu không hoàn tất
       App --> User: Thông báo lỗi và lựa chọn nội dung đã tải nếu có

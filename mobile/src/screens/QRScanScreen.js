@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, Alert } from "react-native";
 import { Camera, CameraView } from "expo-camera";
 import { api } from "../services/api";
 
-export default function QRScanScreen({ onBack, onPlayAudio }) {
+export default function QRScanScreen({ onBack, onPlayAudio, onStartTour }) {
   const [hasPermission, setHasPermission] = useState(null);
   const [scanned, setScanned] = useState(false);
 
@@ -18,18 +18,91 @@ export default function QRScanScreen({ onBack, onPlayAudio }) {
     if (scanned) return;
     setScanned(true);
 
-    // Extract QR code ID from tourguide://qr/<id> or direct ID
-    let qrId = data;
-    if (data.includes("tourguide://qr/")) {
-      qrId = data.replace("tourguide://qr/", "").trim();
-    }
-
     try {
-      const result = await api.resolveQR(qrId, "vi");
-      if (result && result.poi) {
+      let tourId = null;
+      let poiId = null;
+      let qrCode = (data || "").trim();
+
+      // Check if scanned data is a Tour or POI URL / Scheme
+      if (qrCode.includes("type=tour") || qrCode.includes("tourguide://tour/")) {
+        const match = qrCode.match(/id=([^&]+)/) || qrCode.match(/tour=([^&]+)/) || qrCode.match(/tourguide:\/\/tour\/([^\/\?]+)/);
+        if (match) tourId = match[1];
+      } else if (qrCode.includes("type=poi") || qrCode.includes("tourguide://poi/")) {
+        const match = qrCode.match(/id=([^&]+)/) || qrCode.match(/poi=([^&]+)/) || qrCode.match(/tourguide:\/\/poi\/([^\/\?]+)/);
+        if (match) poiId = match[1];
+      } else if (qrCode.includes("tourguide://qr/")) {
+        qrCode = qrCode.replace("tourguide://qr/", "").trim();
+      } else if (qrCode.includes("qr=")) {
+        const match = qrCode.match(/qr=([^&]+)/);
+        if (match) qrCode = match[1];
+      }
+
+      // If directly a Tour URL / ID
+      if (tourId) {
+        const tourDetail = await api.getTourDetail(tourId, "vi");
+        if (tourDetail) {
+          Alert.alert(
+            "Tuyến Tour Quận 4",
+            `Đã nhận diện tuyến tour: ${tourDetail.name || tourDetail.title}\n(${tourDetail.pois?.length || 0} điểm dừng)`,
+            [
+              {
+                text: "Bắt Đầu Tour",
+                onPress: () => {
+                  if (onStartTour) onStartTour(tourDetail);
+                  onBack();
+                },
+              },
+              { text: "Đóng", onPress: () => setScanned(false), style: "cancel" },
+            ]
+          );
+          return;
+        }
+      }
+
+      // If directly a POI URL / ID
+      if (poiId) {
+        const poiDetail = await api.getPOIDetail(poiId, "vi");
+        if (poiDetail) {
+          Alert.alert(
+            "Điểm Tham Quan",
+            `Đã nhận diện: ${poiDetail.name || poiDetail.code}`,
+            [
+              {
+                text: "Nghe Thuyết Minh",
+                onPress: () => {
+                  if (onPlayAudio) onPlayAudio(poiDetail, "qr");
+                  onBack();
+                },
+              },
+              { text: "Đóng", onPress: () => setScanned(false), style: "cancel" },
+            ]
+          );
+          return;
+        }
+      }
+
+      // Otherwise resolve via QR service API
+      const result = await api.resolveQR(qrCode, "vi");
+      if (result && (result.target_type === "tour" || result.tour)) {
+        const tour = result.tour;
         Alert.alert(
-          "Quét Thành Công!",
-          `Đã nhận diện: ${result.poi.code}`,
+          "Tuyến Tour Quận 4",
+          `Đã nhận diện tuyến tour: ${tour?.name || result.tour_id || "Khám phá Quận 4"}\n(${tour?.pois?.length || 0} điểm dừng)`,
+          [
+            {
+              text: "Bắt Đầu Tour",
+              onPress: () => {
+                if (onStartTour) onStartTour(tour || { _id: result.tour_id });
+                onBack();
+              },
+            },
+            { text: "Đóng", onPress: () => setScanned(false), style: "cancel" },
+          ]
+        );
+      } else if (result && result.poi) {
+        Alert.alert(
+          "Điểm Tham Quan",
+          `Đã nhận diện: ${result.poi.name || result.poi.code}`,
           [
             {
               text: "Nghe Thuyết Minh",
@@ -38,6 +111,7 @@ export default function QRScanScreen({ onBack, onPlayAudio }) {
                 onBack();
               },
             },
+            { text: "Đóng", onPress: () => setScanned(false), style: "cancel" },
           ]
         );
       } else {

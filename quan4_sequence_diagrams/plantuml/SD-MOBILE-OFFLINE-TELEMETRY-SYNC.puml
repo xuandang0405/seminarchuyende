@@ -1,0 +1,71 @@
+@startuml SD-MOBILE-OFFLINE-TELEMETRY-SYNC
+title SD-MOBILE-OFFLINE-TELEMETRY-SYNC: Tải Gói Offline & Đồng Bộ Viễn Trắc Per-Item ACK
+caption Luồng: React Native Mobile Client -> OfflinePackService / AnalyticsOutbox -> FastAPI Ingestion -> MongoDB
+
+autonumber
+skinparam shadowing false
+skinparam defaultFontName "Arial"
+skinparam defaultFontSize 12
+
+actor "Du Khách" as Tourist
+participant "OfflineScreen\n(React Native UI)" as UI
+participant "OfflinePackService\n(mobile/src/services)" as OfflineSvc
+participant "AnalyticsOutbox\n(mobile/src/services)" as Outbox
+participant "Local Storage / SQLite\n(AsyncStorage on Device)" as LocalDB
+participant "Analytics API Router\n(FastAPI Backend)" as APIRouter
+participant "Analytics Domain Service\n(FastAPI Backend)" as AnalyticsSvc
+participant "Analytics Repository\n(FastAPI Backend)" as AnalyticsRepo
+participant "MongoDB 7.0\n(analytics_events, daily_metrics)" as MongoDB
+
+== Giai Đoạn 1: Tải Gói Dữ Liệu Ngoại Tuyến (Offline Package) ==
+Tourist -> UI: Chọn "Tải Gói Du Lịch Ngoại Tuyến Quận 4"
+UI -> OfflineSvc: downloadOfflinePackage("pack_quan4_full")
+OfflineSvc -> APIRouter: GET /api/v1/offline-packages/quan4/manifest
+APIRouter --> OfflineSvc: 200 OK {version: "2026.09.1", pois_count: 15, audio_files: [...]}
+
+loop Từng tệp âm thanh và ảnh di tích
+    OfflineSvc -> APIRouter: GET /storage/audio/poi_xxx.mp3
+    APIRouter --> OfflineSvc: Dữ liệu nhị phân file âm thanh
+    OfflineSvc -> LocalDB: Lưu file vào thư mục tài liệu cục bộ (FileSystem.documentDirectory)
+end
+
+OfflineSvc -> LocalDB: Lưu bản ghi Metadata & Danh sách POI ngoại tuyến
+LocalDB --> OfflineSvc: Hoàn tất lưu trữ
+OfflineSvc --> UI: 100% Đã tải xong
+UI --> Tourist: Thông báo "Gói ngoại tuyến đã sẵn sàng. Bạn có thể nghe thuyết minh khi mất sóng!"
+
+== Giai Đoạn 2: Ghi Nhận Sự Kiện Viễn Trắc Ngoại Tuyến ==
+Tourist -> UI: Nghe thuyết minh trong lúc thiết bị ngắt kết nối Internet
+UI -> Outbox: enqueueEvent("narration_started", {playback_id, poi_id, duration_ms: 0})
+Outbox -> LocalDB: Lưu sự kiện vào hàng đợi Outbox với trạng thái PENDING
+LocalDB --> Outbox: Đã lưu an toàn trên ổ đĩa
+
+== Giai Đoạn 3: Đồng Bộ Lên Máy Chủ Khi Có Mạng (Batch Ingestion With Per-Item ACK) ==
+Outbox -> Outbox: Phát hiện mạng Internet đã phục hồi (NetInfo state = connected)
+Outbox -> LocalDB: Đọc các sự kiện chưa gửi (PENDING batch, tối đa 50 events)
+LocalDB --> Outbox: List[Event: {event_id: "evt_001", client_ts, playback_id...}]
+
+Outbox -> APIRouter: POST /api/v1/analytics/events/batch\n(Headers: x-device-token: "tok_xxx")\n{"events": [{event_id: "evt_001", ...}, {event_id: "evt_002", ...}]}
+APIRouter -> AnalyticsSvc: ingest_events(batch_events, inferred_device_id)
+
+AnalyticsSvc -> AnalyticsRepo: ingest_events_batch(events)
+
+loop Từng sự kiện trong Batch (Xử lý Bất biến & Chống trùng lặp)
+    AnalyticsRepo -> MongoDB: Kiểm tra sự kiện đã tồn tại theo event_id chưa
+    alt Sự kiện Mới
+        AnalyticsRepo -> MongoDB: insert_one(event_doc)\nCập nhật cộng dồn metrics ngày (listen_started_count)
+        AnalyticsRepo -> AnalyticsRepo: Đánh dấu ACK: "accepted"
+    else Sự kiện Đã Tồn Tại Trước Đó (Duplicate)
+        AnalyticsRepo -> AnalyticsRepo: Bỏ qua không cộng dồn lần 2\nĐánh dấu ACK: "duplicate"
+    end
+end
+
+AnalyticsRepo --> AnalyticsSvc: {processed_count: 2, ack_results: [{"event_id": "evt_001", "status": "accepted"}, {"event_id": "evt_002", "status": "duplicate"}]}
+AnalyticsSvc --> APIRouter: EventBatchResponse
+APIRouter --> Outbox: 200 OK (Per-item ACK list)
+
+Outbox -> LocalDB: Xóa các sự kiện có status là "accepted" hoặc "duplicate" khỏi Outbox
+LocalDB --> Outbox: Outbox sạch sẽ, không thất thoát và không gửi trùng lặp
+Outbox --> UI: Đồng bộ hoàn tất!
+
+@enduml

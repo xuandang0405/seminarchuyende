@@ -25,6 +25,9 @@ class POIBase(BaseModel):
     images: List[str] = Field(default_factory=list)
     trigger_radius: float = Field(default=30.0, ge=5.0, le=500.0)
     audio_priority: int = Field(default=1, ge=1, le=100)
+    audio_url: Optional[str] = None
+    audio_duration_ms: Optional[int] = 0
+    auto_translate: Optional[bool] = Field(default=False, description="Automatically translate to 6 languages and generate Google TTS")
     owner_id: Optional[str] = None
     source_lang: str = Field(default="vi")
     activation_requested: bool = Field(default=False)
@@ -35,6 +38,7 @@ class POICreate(POIBase):
 
 
 class POIUpdate(BaseModel):
+    id: Optional[str] = None
     name: Optional[str] = None
     description: Optional[str] = None
     category: Optional[str] = None
@@ -43,8 +47,12 @@ class POIUpdate(BaseModel):
     images: Optional[List[str]] = None
     trigger_radius: Optional[float] = Field(None, ge=5.0, le=500.0)
     audio_priority: Optional[int] = Field(None, ge=1, le=100)
+    audio_url: Optional[str] = None
+    audio_duration_ms: Optional[int] = None
     owner_id: Optional[str] = None
-    expected_version: Optional[int] = Field(1, description="Optimistic concurrency control version")
+    expected_version: Optional[int] = Field(None, description="Optimistic concurrency control version")
+    auto_translate: Optional[bool] = Field(default=True, description="Automatically translate to 6 languages and generate Google TTS")
+    translations: Optional[Dict[str, Any]] = None
 
 
 class POIPublicResponse(BaseModel):
@@ -64,6 +72,7 @@ class POIPublicResponse(BaseModel):
     is_fallback: bool = False
     version: int = 1
     available_languages: Optional[List[str]] = None
+    translations: Optional[Dict[str, Any]] = None
 
 
 class POIAdminResponse(BaseModel):
@@ -93,7 +102,7 @@ POIResponse = POIAdminResponse
 
 
 class POINearbyQuery(BaseModel):
-    longitude: float
-    latitude: float
-    max_distance_meters: float = 1000.0
+    longitude: float = Field(..., ge=-180.0, le=180.0, description="Longitude in degrees")
+    latitude: float = Field(..., ge=-90.0, le=90.0, description="Latitude in degrees")
+    max_distance_meters: float = Field(default=1000.0, ge=1.0, le=50000.0, description="Max search radius in meters")
     category: Optional[str] = None

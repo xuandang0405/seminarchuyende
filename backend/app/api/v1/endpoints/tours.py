@@ -14,18 +14,30 @@ router = APIRouter(prefix="/tours", tags=["Tours"])
 
 
 class TourCreateRequest(BaseModel):
+    code: Optional[str] = None
     name: str = Field(..., min_length=2)
     description: Optional[str] = ""
     localizations: Optional[Dict[str, Any]] = Field(default_factory=dict)
     poi_ids: List[str] = Field(..., min_length=1, description="Ordered list of POI IDs")
+    price_amount: int = Field(default=0, ge=0)
+    price_vnd: Optional[int] = Field(default=None, ge=0)
+    currency: str = Field(default="VND")
+    is_paid: Optional[bool] = None
+    is_purchasable: bool = Field(default=True)
     is_active: bool = Field(default=True)
 
 
 class TourUpdateRequest(BaseModel):
+    code: Optional[str] = None
     name: Optional[str] = None
     description: Optional[str] = None
     localizations: Optional[Dict[str, Any]] = None
     poi_ids: Optional[List[str]] = None
+    price_amount: Optional[int] = Field(None, ge=0)
+    price_vnd: Optional[int] = Field(None, ge=0)
+    currency: Optional[str] = None
+    is_paid: Optional[bool] = None
+    is_purchasable: Optional[bool] = None
     is_active: Optional[bool] = None
     expected_version: Optional[int] = None
 
@@ -64,6 +76,7 @@ async def create_tour(
 
 
 @router.patch("/{tour_id}")
+@router.put("/{tour_id}")
 async def update_tour(
     tour_id: str,
     req: TourUpdateRequest,

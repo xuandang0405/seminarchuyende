@@ -1,0 +1,50 @@
+@startuml
+!theme plain
+autonumber
+skinparam defaultFontName "Arial"
+skinparam BoxPadding 10
+skinparam ParticipantPadding 10
+
+title Sequence Diagram: Du Khách Trải Nghiệm (/client/) - Auth Gate, Real GPS & Đa Ngôn Ngữ (T01, T04, T05)
+
+actor "Khách Du Lịch" as Tourist
+participant "React Client Web\n(/client/)" as ClientApp
+participant "Trình Duyệt\n(GPS Geolocation)" as BrowserGPS
+participant "FastAPI Server\n(/api/v1)" as Backend
+participant "MongoDB Atlas" as DB
+participant "Audio Engine\n(HTML5 Audio)" as AudioPlayer
+
+== 1. Cổng Bảo Vệ Auth Gate ==
+Tourist -> ClientApp: Truy cập http://1.55.58.251:8000/client/
+ClientApp -> ClientApp: Kiểm tra trạng thái người dùng (user == null)
+ClientApp -> Tourist: Hiển thị Auth Gate Modal (Đăng Nhập / Đăng Ký / Khách)
+Tourist -> ClientApp: Nhập thông tin & bấm "Đăng Nhập" (hoặc chọn "Khách Vãng Lai")
+ClientApp -> Backend: POST /api/v1/auth/login
+Backend --> ClientApp: { access_token, user: { role: 'tourist' } }
+ClientApp -> ClientApp: Lưu session & Đóng Auth Gate Modal
+
+== 2. Bật Bản Đồ & Theo Dõi GPS Thực Tế ==
+ClientApp -> BrowserGPS: navigator.geolocation.watchPosition({ enableHighAccuracy: true })
+BrowserGPS --> ClientApp: Tọa độ liên tục [lat, lon], độ chính xác ±12m
+ClientApp -> ClientApp: Vẽ điểm GPS xanh đập nhịp & vòng tròn bán kính sai số
+
+ClientApp -> Backend: GET /api/v1/pois?lang=vi
+Backend -> DB: find({ is_active: true })
+DB --> Backend: 10 POIs Quận 4
+Backend --> ClientApp: Danh sách địa điểm + tọa độ + audio_url
+ClientApp -> ClientApp: Ghim 10 POI lên bản đồ & tính khoảng cách thời gian thực
+
+== 3. Chuyển Đổi Đa Ngôn Ngữ (VI, EN, FR, JA, KO, ZH) ==
+Tourist -> ClientApp: Chọn ngôn ngữ (Ví dụ: English 🇬🇧 / 日本語 🇯🇵 / 한국어 🇰🇷)
+ClientApp -> ClientApp: Dịch toàn bộ giao diện sang ngôn ngữ đã chọn qua I18N
+ClientApp -> Backend: GET /api/v1/pois?lang={selected_lang}
+Backend --> ClientApp: Tên POI, mô tả đã dịch và file audio đúng ngôn ngữ:\n/storage/audio/{poi_id}_{selected_lang}.mp3
+ClientApp -> ClientApp: Cập nhật tiêu đề, mô tả và chuyển đường dẫn âm thanh tương ứng
+
+== 4. Tự Động Kích Hoạt Thuyết Minh Theo Đúng Ngôn Ngữ ==
+Tourist -> Tourist: Đi bộ đến Bến Nhà Rồng (Khoảng cách <= 30m)
+ClientApp -> ClientApp: Kiểm tra distance <= trigger_radius
+ClientApp -> AudioPlayer: playAudio(poi.translations[lang].audio_url || "/storage/audio/{id}_{lang}.mp3")
+AudioPlayer -> Tourist: Âm thanh thuyết minh tự động cất lên bằng đúng ngôn ngữ du khách đã chọn!
+
+@enduml

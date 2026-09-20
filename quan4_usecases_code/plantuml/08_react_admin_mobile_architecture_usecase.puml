@@ -1,0 +1,103 @@
+@startuml 08_react_admin_mobile_architecture_usecase
+title Sơ đồ Use Case Hệ Thống TourVoice Quận 4 (React Admin + React Native Mobile + FastAPI)
+caption Kiến trúc: Frontend React (Admin & Mobile) | Backend: FastAPI (Router -> Service -> Repository) | Database: MongoDB
+
+left to right direction
+skinparam shadowing false
+skinparam packageStyle rectangle
+skinparam backgroundColor white
+skinparam defaultFontName "Arial"
+skinparam defaultFontSize 12
+skinparam usecaseBackgroundColor #FFFFFF
+skinparam usecaseBorderColor #334155
+skinparam ArrowColor #475569
+skinparam actorBorderColor #334155
+
+actor "Quản Trị Viên (Admin)" as Admin #E0E7FF
+actor "Chủ Quán (POI Owner)" as Owner #F3E8FF
+actor "Du Khách (Tourist)" as Tourist #DCFCE7
+
+actor "Dịch Vụ AI & TTS (Edge-TTS)" as TTS <<external>> #F1F5F9
+actor "Cổng Thanh Toán (VietQR / payOS)" as VietQR <<external>> #F1F5F9
+actor "Dịch Vụ GPS Thiết Bị" as GPS <<external>> #F1F5F9
+actor "Google OAuth 2.0" as Google <<external>> #F1F5F9
+
+rectangle "TourVoice Backend (FastAPI + MongoDB)" as System {
+  
+  package "Cổng Quản Trị & Vận Hành (React Web Admin)" as AdminPortal #EFF6FF {
+    usecase "UC-ADM-01: Quản lý Địa điểm & Tọa độ (POI CRUD)" as UC_POI_CRUD
+    usecase "UC-ADM-02: Tạo Giọng Đọc Thuyết Minh Tự Động (Edge-TTS)" as UC_TTS_GEN
+    usecase "UC-ADM-03: Kích hoạt Công bố & Kiểm tra Cổng Readiness Gate" as UC_GATE
+    usecase "UC-ADM-04: Quản lý Tuyến Tour, Thứ tự Điểm dừng & Giá vé" as UC_TOUR_PRICE
+    usecase "UC-ADM-05: Quản lý & In Mã QR Thuyết Minh" as UC_QR_MGMT
+    usecase "UC-ADM-06: Kiểm duyệt Hồ sơ Đăng ký Chủ quán" as UC_MOD_OWNER
+    usecase "UC-ADM-07: Kiểm duyệt Đề xuất Nội dung & Món ăn" as UC_MOD_CONTENT
+    usecase "UC-ADM-08: Xem Báo Cáo Viễn Trắc & Thống Kê Thời Gian Thực" as UC_ANALYTICS_DASH
+    usecase "UC-ADM-09: Quản lý Đơn Hàng & Đối Soát Thanh Toán (Reconciliation)" as UC_RECONCILE
+    usecase "UC-ADM-10: Tra cứu Nhật ký Hoạt động (Audit Logs)" as UC_AUDIT
+  }
+
+  package "Cổng Thông Tin Chủ Quán (React Owner Portal)" as OwnerPortal #FAF5FF {
+    usecase "UC-OWN-01: Đăng ký Hồ sơ Kinh doanh & Địa điểm Quán" as UC_OWNER_REG
+    usecase "UC-OWN-02: Quản lý Thực đơn & Món ăn Đặc sản" as UC_OWNER_MENU
+    usecase "UC-OWN-03: Gửi Đề xuất Cập nhật Nội dung Chờ duyệt" as UC_OWNER_SUBMIT
+    usecase "UC-OWN-04: Xem Thống kê Lượt nghe & Du khách Riêng của Quán" as UC_OWNER_STATS
+  }
+
+  package "Ứng Dụng Khách Tham Quan (React Native Mobile App)" as MobileApp #F0FDF4 {
+    usecase "UC-TOU-01: Nhận diện GPS Thực tế & Kích hoạt Geofence Tự động" as UC_GPS_GEOFENCE
+    usecase "UC-TOU-02: Phát Thuyết Minh & Xin Cấp Quyền Nghe Thử (Trial Consent)" as UC_TRIAL_PLAY
+    usecase "UC-TOU-03: Mua Vé Tour Có Phí Qua VietQR & Nhận Vé E-Ticket" as UC_BUY_TICKET
+    usecase "UC-TOU-04: Quét Mã QR Tại Điểm Để Nghe Thuyết Minh Trực Tiếp" as UC_SCAN_QR
+    usecase "UC-TOU-05: Điều Hướng Dẫn Đường Theo Tuyến Tour (Turn-by-turn)" as UC_NAV_TOUR
+    usecase "UC-TOU-06: Tải Gói Dữ Liệu Ngoại Tuyến (Offline Package)" as UC_OFFLINE_PACK
+    usecase "UC-TOU-07: Đồng Bộ Hàng Đợi Viễn Trắc (Telemetry Outbox Sync)" as UC_SYNC_OUTBOX
+    usecase "UC-TOU-08: Tùy Chọn Quyền Riêng Tư & Đồng Ý Thống Kê (Consent)" as UC_CONSENT
+    usecase "UC-TOU-09: Đăng Nhập Tài Khoản Bằng Google OAuth 2.0" as UC_GOOGLE_AUTH
+  }
+}
+
+' Admin Connections
+Admin --> UC_POI_CRUD
+Admin --> UC_TTS_GEN
+Admin --> UC_GATE
+Admin --> UC_TOUR_PRICE
+Admin --> UC_QR_MGMT
+Admin --> UC_MOD_OWNER
+Admin --> UC_MOD_CONTENT
+Admin --> UC_ANALYTICS_DASH
+Admin --> UC_RECONCILE
+Admin --> UC_AUDIT
+
+' Owner Connections
+Owner --> UC_OWNER_REG
+Owner --> UC_OWNER_MENU
+Owner --> UC_OWNER_SUBMIT
+Owner --> UC_OWNER_STATS
+
+' Tourist Connections
+Tourist --> UC_GPS_GEOFENCE
+Tourist --> UC_TRIAL_PLAY
+Tourist --> UC_BUY_TICKET
+Tourist --> UC_SCAN_QR
+Tourist --> UC_NAV_TOUR
+Tourist --> UC_OFFLINE_PACK
+Tourist --> UC_SYNC_OUTBOX
+Tourist --> UC_CONSENT
+Tourist --> UC_GOOGLE_AUTH
+
+' External Service Relations
+UC_TTS_GEN ..> TTS : <<invoke>>
+UC_BUY_TICKET ..> VietQR : <<generate QR & webhook>>
+UC_RECONCILE ..> VietQR : <<server-to-server check>>
+UC_GPS_GEOFENCE ..> GPS : <<listen stream & accuracy>>
+UC_GOOGLE_AUTH ..> Google : <<verify ID token>>
+
+' Internal Use Case Inclusions & Extensions
+UC_POI_CRUD ..> UC_GATE : <<include>>
+UC_TRIAL_PLAY ..> UC_GPS_GEOFENCE : <<extend>>\n[khi du khách vào bán kính POI]
+UC_TRIAL_PLAY ..> UC_BUY_TICKET : <<extend>>\n[hết lượt nghe thử miễn phí]
+UC_NAV_TOUR ..> UC_GPS_GEOFENCE : <<include>>
+UC_SYNC_OUTBOX ..> UC_CONSENT : <<condition>>\n[du khách đã cấp quyền viễn trắc]
+
+@enduml

@@ -22,6 +22,10 @@ class MenuService:
         actor_id: str,
         actor_role: str
     ) -> Dict[str, Any]:
+        # Enforce RBAC: only admins or POI owners can manage menu items
+        if actor_role not in ("super_admin", "admin", "poi_owner"):
+            return {"success": False, "error": "Bạn không có quyền thêm món vào thực đơn."}
+
         poi = await poi_repo.get_by_id(poi_id)
         if not poi:
             return {"success": False, "error": "Địa điểm không tồn tại."}
@@ -55,6 +59,10 @@ class MenuService:
         actor_role: str,
         expected_version: Optional[int] = None
     ) -> Dict[str, Any]:
+        # Enforce RBAC: only admins or POI owners can manage menu items
+        if actor_role not in ("super_admin", "admin", "poi_owner"):
+            return {"success": False, "error": "Bạn không có quyền chỉnh sửa món ăn này."}
+
         item = await menu_repo.get_by_id_active(item_id)
         if not item:
             return {"success": False, "error": "Món ăn không tồn tại."}
@@ -87,6 +95,10 @@ class MenuService:
         return {"success": True, "item": updated}
 
     async def delete_menu_item(self, item_id: str, actor_id: str, actor_role: str) -> Dict[str, Any]:
+        # Enforce RBAC: only admins or POI owners can manage menu items
+        if actor_role not in ("super_admin", "admin", "poi_owner"):
+            return {"success": False, "error": "Bạn không có quyền xóa món ăn này."}
+
         item = await menu_repo.get_by_id_active(item_id)
         if not item:
             return {"success": False, "error": "Món ăn không tồn tại."}

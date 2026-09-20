@@ -19,9 +19,9 @@ sequenceDiagram
             App->>Cache: Lưu ánh xạ và dữ liệu theo chính sách cache
             App->>Audio: Yêu cầu nghe chủ động với nguồn QR
         else Trường hợp còn lại
-            alt QR bị vô hiệu hoặc không tìm thấy
-                API-->>App: Không có POI khả dụng
-                App-->>User: Thông báo không thể dùng mã QR này
+            alt QR bị vô hiệu, bị xóa theo POI hoặc không tìm thấy
+                API-->>App: 404 Không tìm thấy mã QR (đã thu hồi hoặc POI đã bị xóa)
+                App-->>User: Thông báo: Mã QR này không còn tồn tại hoặc địa điểm đã bị xóa khỏi hệ thống
             else Lỗi mạng khi tra cứu
                 API-->>App: Yêu cầu không hoàn tất
                 App-->>User: Thông báo lỗi và lựa chọn nội dung đã tải nếu có

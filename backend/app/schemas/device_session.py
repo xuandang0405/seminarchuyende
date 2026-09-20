@@ -196,6 +196,17 @@ class AnalyticsOverviewResponse(BaseModel):
     listen_completion_rate_percent: float
     average_listening_time_seconds: float
     total_listening_time_minutes: float
+    total_revenue_vnd: int = 0
+    total_orders_count: int = 0
+    paid_orders_count: int = 0
+    pending_orders_count: int = 0
+    total_registered_users: int = 0
+    total_guest_sessions: int = 0
+    total_pois_count: int = 0
+    total_tours_count: int = 0
+    total_qr_scans: int = 0
+    revenue_by_tour: List[Dict[str, Any]] = Field(default_factory=list)
+    popular_languages: List[Dict[str, Any]] = Field(default_factory=list)
     data_freshness_watermark: datetime
     timezone: str = "Asia/Ho_Chi_Minh"
 
@@ -203,11 +214,15 @@ class AnalyticsOverviewResponse(BaseModel):
 class TopPoiAnalyticsItem(BaseModel):
     poi_id: str
     name: str
+    poi_name: Optional[str] = None
     category: Optional[str] = None
-    listen_started_count: int
-    listen_completed_count: int
-    unique_devices: int
-    total_listened_seconds: float
+    listen_started_count: int = 0
+    listen_completed_count: int = 0
+    unique_devices: int = 0
+    total_listened_seconds: float = 0.0
+    completion_rate_percent: float = 0.0
+    avg_listen_duration_seconds: float = 0.0
+    total_listen_minutes: float = 0.0
 
 
 class TourAnalyticsItem(BaseModel):

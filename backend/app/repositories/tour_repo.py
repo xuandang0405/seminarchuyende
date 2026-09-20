@@ -8,7 +8,7 @@ CRITICAL INVARIANT:
 
 from typing import Any, Dict, List, Optional
 from datetime import datetime, timezone
-from app.repositories.base import BaseRepository
+from app.repositories.base import BaseRepository, build_id_filter, serialize_mongo_doc
 from app.db.collections import COLLECTION_TOURS
 
 
@@ -21,14 +21,18 @@ class TourRepository(BaseRepository):
             "is_active": True,
             "deleted_at": None,
         }).skip(skip).limit(limit).sort("created_at", -1)
-        return await cursor.to_list(length=limit)
+        items = await cursor.to_list(length=limit)
+        return [serialize_mongo_doc(it) for it in items]
 
     async def get_public_tour(self, tour_id: str) -> Optional[Dict[str, Any]]:
-        return await self.collection.find_one({
-            "_id": tour_id,
-            "is_active": True,
-            "deleted_at": None,
-        })
+        query = build_id_filter(tour_id)
+        query["is_active"] = True
+        query["deleted_at"] = None
+        doc = await self.collection.find_one(query)
+        return serialize_mongo_doc(doc)
+
+    async def find_by_id(self, tour_id: str) -> Optional[Dict[str, Any]]:
+        return await self.get_by_id(tour_id)
 
     async def create_tour(self, doc: Dict[str, Any]) -> Dict[str, Any]:
         now = datetime.now(timezone.utc)
@@ -38,7 +42,7 @@ class TourRepository(BaseRepository):
         doc.setdefault("updated_at", now)
         doc.setdefault("deleted_at", None)
         await self.collection.insert_one(doc)
-        return doc
+        return serialize_mongo_doc(doc)
 
     async def update_tour(
         self,
@@ -49,11 +53,12 @@ class TourRepository(BaseRepository):
         now = datetime.now(timezone.utc)
         update_fields["updated_at"] = now
 
-        query: Dict[str, Any] = {"_id": tour_id, "deleted_at": None}
+        query: Dict[str, Any] = build_id_filter(tour_id)
+        query["deleted_at"] = None
         if expected_version is not None:
             query["version"] = expected_version
 
-        return await self.collection.find_one_and_update(
+        res = await self.collection.find_one_and_update(
             query,
             {
                 "$set": update_fields,
@@ -61,17 +66,22 @@ class TourRepository(BaseRepository):
             },
             return_document=True
         )
+        return serialize_mongo_doc(res)
 
     async def soft_delete(self, tour_id: str) -> bool:
         now = datetime.now(timezone.utc)
+        query = build_id_filter(tour_id)
+        query["deleted_at"] = None
         res = await self.collection.update_one(
-            {"_id": tour_id, "deleted_at": None},
+            query,
             {"$set": {
                 "deleted_at": now,
                 "is_active": False,
                 "updated_at": now,
             }}
         )
+        return res.modified_count > 0
+
     async def update_tour_pricing(
         self,
         tour_id: str,
@@ -92,14 +102,17 @@ class TourRepository(BaseRepository):
         if preview_poi_ids is not None:
             update_fields["preview_poi_ids"] = preview_poi_ids
 
-        return await self.collection.find_one_and_update(
-            {"_id": tour_id, "deleted_at": None},
+        query = build_id_filter(tour_id)
+        query["deleted_at"] = None
+        res = await self.collection.find_one_and_update(
+            query,
             {
                 "$set": update_fields,
                 "$inc": {"pricing_version": 1, "version": 1}
             },
             return_document=True
         )
+        return serialize_mongo_doc(res)
 
 
 tour_repo = TourRepository()

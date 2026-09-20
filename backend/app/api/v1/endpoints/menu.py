@@ -59,7 +59,8 @@ async def update_menu_item(
         expected_version=expected_version
     )
     if not res.get("success"):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=res.get("error"))
+        status_code = status.HTTP_403_FORBIDDEN if "quyền" in res.get("error", "").lower() else status.HTTP_400_BAD_REQUEST
+        raise HTTPException(status_code=status_code, detail=res.get("error"))
     return res["item"]
 
 

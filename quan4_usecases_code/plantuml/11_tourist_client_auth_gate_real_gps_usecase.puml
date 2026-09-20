@@ -1,0 +1,31 @@
+@startuml
+!theme plain
+skinparam defaultFontName "Arial"
+skinparam packageStyle rectangle
+
+title Sơ Đồ Use Case: Trải Nghiệm Khách Du Lịch (/client/) - Auth Gate, GPS Thật & Đa Ngôn Ngữ (T01, T04, T05)
+
+actor "Khách Du Lịch\n(Tourist)" as Tourist #LightYellow
+
+rectangle "Ứng Dụng Khách Du Lịch React (/client/) & FastAPI Backend" {
+  usecase "T00: Xác Thực Cổng Vào (Auth Gate)\n[Đăng Nhập / Đăng Ký / Khách Vãng Lai]" as UC_AuthGate
+  
+  usecase "T01: Xem Bản Đồ Quận 4 & Vị Trí Real GPS" as UC_ViewMap
+  usecase "T02: Định Vị Vị Trí Của Tôi (Locate Me)" as UC_LocateMe
+  usecase "T03: Xem Danh Sách & Khoảng Cách POI Gần Nhất" as UC_ListNearby
+  
+  usecase "T04: Tự Động Phát Thuyết Minh Khi Đến Gần\n(Proximity Geofence Trigger)" as UC_AutoNarration
+  usecase "T05: Chuyển Đổi Đa Ngôn Ngữ\n(VI, EN, FR, JA, KO, ZH)" as UC_SwitchLang
+}
+
+Tourist --> UC_AuthGate
+UC_AuthGate ..> UC_ViewMap : <<precondition>>
+Tourist --> UC_ViewMap
+Tourist --> UC_LocateMe
+Tourist --> UC_ListNearby
+Tourist --> UC_AutoNarration
+Tourist --> UC_SwitchLang
+
+UC_SwitchLang ..> UC_AutoNarration : <<update audio & text>>
+
+@enduml

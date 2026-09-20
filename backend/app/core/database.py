@@ -55,10 +55,18 @@ async def connect_to_mongo():
         db_manager.is_mock = False
         logger.info(f"Connected successfully to live MongoDB database: '{settings.DATABASE_NAME}' via PyMongo Async.")
     except Exception as e:
+        err_str = str(e)
+        if "10061" in err_str or "refused" in err_str.lower():
+            reason = "Dịch vụ MongoDB cục bộ (localhost:27017) chưa được khởi động trên máy tính."
+        elif "ssl" in err_str.lower() or "tls" in err_str.lower() or "alert" in err_str.lower():
+            reason = "Địa chỉ IP hiện tại chưa được thêm vào Network Access Whitelist trên MongoDB Atlas."
+        else:
+            reason = f"Không thể kết nối đến máy chủ MongoDB ({err_str})."
+
         logger.warning(
-            f"⚠️ Could not connect to live MongoDB Atlas ({e}).\n"
-            "👉 REASON: Atlas returned '[SSL: TLSV1_ALERT_INTERNAL_ERROR]' because your current IP is not whitelisted in MongoDB Atlas Network Access.\n"
-            "🚀 ACTIVATING IN-MEMORY SEEDED DATABASE: Loading 10 District 4 POIs, tours, QR codes, and test accounts so API, Web Admin, and Mobile work immediately!"
+            f"⚠️ Không thể kết nối đến cơ sở dữ liệu MongoDB ({masked_url}):\n"
+            f"👉 NGUYÊN NHÂN: {reason}\n"
+            "🚀 TỰ ĐỘNG KÍCH HOẠT CƠ SỞ DỮ LIỆU IN-MEMORY: Đã nạp đầy đủ 10 địa điểm du lịch Quận 4, các tuyến tour, mã QR và tài khoản test để API, Web Admin và Mobile hoạt động ngay lập tức!"
         )
         from app.core.mock_db import AsyncMockDatabase
         from app.db.seed import seed_database

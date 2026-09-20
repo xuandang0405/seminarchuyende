@@ -1,0 +1,49 @@
+@startuml
+!theme plain
+autonumber
+skinparam defaultFontName "Arial"
+skinparam BoxPadding 10
+skinparam ParticipantPadding 10
+
+title Sequence Diagram: Thêm/Sửa POI Với Bản Đồ Tương Tác, GPS Thật & Google TTS (C01, C02, C11)
+
+actor "Quản Trị Viên" as Admin
+participant "Giao Diện React\n(/pois)" as WebAdmin
+participant "Trình Duyệt\n(Navigator GPS)" as GeoAPI
+participant "FastAPI Server\n(/api/v1/pois, /audio)" as Backend
+participant "Google TTS Engine\n(gTTS Library)" as GoogleTTS
+participant "Local Storage\n(/storage/audio)" as Storage
+participant "MongoDB Atlas\n(pois, audio_tasks)" as DB
+
+Admin -> WebAdmin: Bấm "Thêm Địa Điểm Mới" (hoặc "Chỉnh Sửa")
+WebAdmin -> Admin: Mở modal kèm Bản đồ Leaflet tương tác
+
+== 1. Bắt GPS Thật Của Máy ==
+Admin -> WebAdmin: Bấm nút "Lấy GPS Thật Của Máy"
+WebAdmin -> GeoAPI: navigator.geolocation.getCurrentPosition({ enableHighAccuracy: true })
+GeoAPI --> WebAdmin: Coordinates { latitude: 10.7635, longitude: 106.7042, accuracy: 12m }
+WebAdmin -> WebAdmin: Di chuyển marker ghim & tự điền tọa độ thật 100%
+
+== 2. Sinh Giọng Đọc Google TTS & Dịch 6 Thứ Tiếng ==
+Admin -> WebAdmin: Bấm "Dịch 6 Thứ Tiếng & TTS" (hoặc "Lưu Địa Điểm")
+WebAdmin -> Backend: PUT /api/v1/pois/{id} (hoặc POST /sync-multilingual)\n{ name, description, auto_translate: true }
+Backend -> Backend: Dịch name & description sang 6 thứ tiếng: vi, en, fr, ja, ko, zh
+loop 6 ngôn ngữ [vi, en, fr, ja, ko, zh]
+  Backend -> GoogleTTS: gTTS(text, lang=gtts_code)
+  GoogleTTS -> Storage: Lưu file MP3 (/storage/audio/{poi_id}_{lang}.mp3)
+end
+Backend -> DB: Lưu translations { vi, en, fr, ja, ko, zh } vào pois & poi_localizations
+DB --> Backend: Document & localizations updated
+Backend --> WebAdmin: HTTP 200 OK { translations, status: "ready" }
+WebAdmin -> Admin: Hiển thị 6 huy hiệu ngôn ngữ [🇻🇳 🇬🇧 🇫🇷 🇯🇵 🇰🇷 🇨🇳] và thông báo thành công
+
+== 3. Khách Du Lịch Nghe Theo Đúng Ngôn Ngữ Đã Chọn ==
+actor "Khách Du Lịch" as Tourist
+participant "Giao Diện Khách\n(/client)" as ClientApp
+
+Tourist -> ClientApp: Chọn ngôn ngữ (ví dụ: English 🇬🇧 / 日本語 🇯🇵)
+ClientApp -> Backend: GET /api/v1/pois?lang=en
+Backend --> ClientApp: HTTP 200 OK (Trả về title, description, audio_url tiếng Anh)
+ClientApp -> ClientApp: Tự động cập nhật tiêu đề, mô tả và phát audio tiếng Anh tương ứng
+
+@enduml

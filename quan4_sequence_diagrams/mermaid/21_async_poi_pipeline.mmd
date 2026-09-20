@@ -1,0 +1,38 @@
+%% Sơ đồ tuần tự: Xử lý POI Bất đồng bộ (Async POI Creation Pipeline)
+%% Phân tách Synchronous Response (<50ms) và Asynchronous Background Worker
+sequenceDiagram
+    autonumber
+    actor Admin as Quản Trị Viên
+    participant Web as React Web Admin
+    participant Router as POI Router (/api/v1/pois)
+    participant Service as POI Admin Service
+    participant DB as MongoDB 7.0 (POI & Localizations)
+    participant Worker as FastAPI BackgroundTasks
+    participant Cloud as Google Translator & TTS
+
+    Admin->>Web: Nhập thông tin POI & Bấm "Lưu địa điểm"
+    Web->>Router: POST /api/v1/pois (Payload, Bearer Token)
+    Router->>Router: Xác thực phiên Admin
+    Router->>Service: create_poi(payload, background_tasks)
+    
+    rect rgb(235, 248, 255)
+        note over Service, DB: Luồng Đồng Bộ Phản Hồi Tức Thì (<50ms)
+        Service->>DB: insert_one(poi_doc, is_active=True)
+        DB-->>Service: Xác nhận lưu POI thành công
+        Service->>DB: upsert_localization(poi_id_vi)
+        DB-->>Service: Bản địa hóa gốc sẵn sàng
+        Service->>Worker: background_tasks.add_task(sync_multilingual)
+        Service-->>Router: 201 Created (POI Model)
+        Router-->>Web: 201 Created (Thời gian phản hồi < 0.2s)
+        Web-->>Admin: Đóng modal ngay lập tức, báo thành công!
+    end
+
+    rect rgb(254, 249, 195)
+        note over Worker, Cloud: Luồng Xử Lý Ngầm Trong Nền (Non-blocking)
+        Worker->>Cloud: Dịch sang EN, FR, JA, KO, ZH
+        Cloud-->>Worker: Bản dịch 5 thứ tiếng
+        Worker->>Cloud: Sinh giọng đọc Google TTS (6 file MP3)
+        Cloud-->>Worker: 6 file audio stream MP3
+        Worker->>Worker: Lưu static storage (/storage/audio/...)
+        Worker->>DB: Cập nhật audio_url và nội dung 6 thứ tiếng
+    end

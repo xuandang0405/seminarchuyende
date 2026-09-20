@@ -89,11 +89,9 @@ class GoogleStartRequest(BaseModel):
 # =============================================================================
 
 def get_browser_binding(request: Request) -> str:
-    """Computes a browser binding fingerprint based on User-Agent and client IP."""
+    """Computes a browser binding fingerprint based on User-Agent."""
     ua = request.headers.get("User-Agent", "unknown")
-    client_ip = request.client.host if request.client else "unknown"
-    raw = f"{ua}:{client_ip}"
-    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:32]
+    return hashlib.sha256(ua.encode("utf-8")).hexdigest()[:32]
 
 
 def set_refresh_cookie(response: Response, session_id: str, refresh_token: str):
@@ -170,6 +168,41 @@ async def get_current_user(
     return user
 
 
+async def get_optional_current_user(
+    token: Optional[str] = Depends(oauth2_scheme),
+    request: Request = None
+) -> Optional[Dict[str, Any]]:
+    """Resolves authenticated user from Bearer access token if present, returns None if not authenticated."""
+    if not token and request:
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header.split(" ")[1]
+
+    if not token or token in ("undefined", "null", ""):
+        return None
+
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        user_id = payload.get("sub")
+        if not user_id:
+            return None
+
+        user = await auth_repo.get_user_by_id(user_id)
+        if not user or not user.get("is_active", True):
+            return None
+
+        token_auth_version = payload.get("auth_version", 1)
+        if user.get("auth_version", 1) != token_auth_version:
+            return None
+
+        role_name = user.get("role", "user")
+        role_doc = await auth_repo.get_role_by_name(role_name)
+        user["permissions"] = role_doc.get("permissions", []) if role_doc else []
+        return user
+    except Exception:
+        return None
+
+
 async def get_current_admin(current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     if current_user.get("role") not in ("super_admin", "admin"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Yêu cầu quyền Quản trị viên (Admin).")
@@ -229,6 +262,36 @@ async def login(
     )
     if not res.get("success"):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=res.get("error"))
+
+    set_refresh_cookie(response, res["session_id"], res["refresh_token"])
+    return res
+
+
+@router.post("/admin/login")
+async def admin_login(
+    req: LoginRequest,
+    request: Request,
+    response: Response
+):
+    """Logs in specifically for Administrators and POI Owners with issued credentials."""
+    client_ip = request.client.host if request.client else None
+    ua = request.headers.get("User-Agent")
+
+    res = await auth_service.login(
+        email=req.email,
+        password=req.password,
+        ip_address=client_ip,
+        user_agent=ua,
+    )
+    if not res.get("success"):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=res.get("error"))
+
+    user_role = res.get("user", {}).get("role")
+    if user_role not in ("admin", "super_admin", "poi_owner"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Tài khoản này là tài khoản Người dùng / Du khách, không có quyền truy cập Cổng Quản Trị. Vui lòng đăng nhập qua Cổng Du Khách bằng Google."
+        )
 
     set_refresh_cookie(response, res["session_id"], res["refresh_token"])
     return res
@@ -330,17 +393,106 @@ async def get_me(current_user: Dict[str, Any] = Depends(get_current_user)):
 # GOOGLE OIDC / OAUTH ENDPOINTS
 # =============================================================================
 
+def get_request_scheme_and_host(request: Request) -> tuple[str, str]:
+    """Detects scheme and host accounting for Cloudflare / reverse proxy headers."""
+    # 1. Host
+    host = (
+        request.headers.get("x-forwarded-host")
+        or request.headers.get("host")
+        or (request.url.netloc if request.url else "")
+        or "serminar.bkpvp.top"
+    ).split(",")[0].strip()
+
+    # 2. Scheme
+    scheme = "http"
+    cf_visitor = request.headers.get("cf-visitor")
+    if cf_visitor and "https" in cf_visitor.lower():
+        scheme = "https"
+    elif request.headers.get("x-forwarded-proto"):
+        scheme = request.headers.get("x-forwarded-proto").split(",")[0].strip()
+    elif request.url and request.url.scheme:
+        scheme = request.url.scheme
+
+    # Cloudflare proxy provides HTTPS. Google OAuth strictly mandates HTTPS for public non-localhost domains.
+    if "seminar.bkpvp.top" in host.lower() or "serminar.bkpvp.top" in host.lower():
+        scheme = "https"
+
+    return scheme, host
+
+
+def get_frontend_base_url(request: Request) -> str:
+    """Extracts frontend base URL from request origin/referer or falls back to settings."""
+    ref = request.headers.get("origin") or request.headers.get("referer")
+    if ref:
+        parsed = urllib.parse.urlparse(ref)
+        if parsed.scheme and parsed.netloc:
+            netloc_lower = parsed.netloc.lower()
+            if not any(blocked in netloc_lower for blocked in ["google.com", "accounts.google", "apple.com", "facebook.com"]):
+                scheme = parsed.scheme
+                if "bkpvp.top" in netloc_lower:
+                    scheme = "https"
+                return f"{scheme}://{parsed.netloc}"
+
+    scheme, host = get_request_scheme_and_host(request)
+    if "seminar.bkpvp.top" in host.lower():
+        return "https://seminar.bkpvp.top"
+    if "serminar.bkpvp.top" in host.lower():
+        return "https://serminar.bkpvp.top"
+    if "localhost" in host.lower() or "127.0.0.1" in host.lower():
+        return f"{scheme}://{host}"
+    return settings.FRONTEND_URL
+
+
+def get_google_redirect_uri(request: Request) -> str:
+    """Computes exact Google OAuth redirect URI matching the request context."""
+    scheme, host = get_request_scheme_and_host(request)
+    if "localhost" in host.lower() or "127.0.0.1" in host.lower():
+        return f"{scheme}://{host}/api/v1/auth/google/callback"
+    if "seminar.bkpvp.top" in host.lower():
+        return "https://seminar.bkpvp.top/api/v1/auth/google/callback"
+    if "serminar.bkpvp.top" in host.lower():
+        return "https://serminar.bkpvp.top/api/v1/auth/google/callback"
+    return settings.GOOGLE_REDIRECT_URI
+
+
 @router.get("/google/start")
 async def google_login_start(
     request: Request,
-    return_to: Optional[str] = Query(default="/")
+    return_to: Optional[str] = Query(default="/client")
 ):
-    """Initiates Google OAuth login transaction."""
+    """Initiates Google OAuth login transaction and returns auth_url."""
     binding = get_browser_binding(request)
-    res = await google_auth_service.start_google_login(return_to=return_to, browser_binding=binding)
+    fe_base = get_frontend_base_url(request)
+    redirect_uri = get_google_redirect_uri(request)
+    res = await google_auth_service.start_google_login(
+        return_to=return_to,
+        browser_binding=binding,
+        frontend_base_url=fe_base,
+        redirect_uri=redirect_uri,
+    )
     if not res.get("success"):
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=res.get("error"))
     return res
+
+
+@router.get("/google/login")
+async def google_login_redirect(
+    request: Request,
+    return_to: Optional[str] = Query(default="/client")
+):
+    """Direct redirect to Google OAuth login page."""
+    binding = get_browser_binding(request)
+    fe_base = get_frontend_base_url(request)
+    redirect_uri = get_google_redirect_uri(request)
+    res = await google_auth_service.start_google_login(
+        return_to=return_to,
+        browser_binding=binding,
+        frontend_base_url=fe_base,
+        redirect_uri=redirect_uri,
+    )
+    if not res.get("success"):
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=res.get("error"))
+    return RedirectResponse(url=res["auth_url"])
 
 
 @router.post("/google/link/start")
@@ -353,12 +505,14 @@ async def google_link_start(
     binding = get_browser_binding(request)
     return_to = body.return_to if body else "/account/security"
     session_id = request.cookies.get(settings.SESSION_COOKIE_NAME, "").split(":")[0]
+    redirect_uri = get_google_redirect_uri(request)
 
     res = await google_auth_service.start_google_link(
         user_id=current_user["_id"],
         current_session_id=session_id,
         return_to=return_to,
         browser_binding=binding,
+        redirect_uri=redirect_uri,
     )
     if not res.get("success"):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=res.get("error"))
@@ -374,7 +528,8 @@ async def google_callback(
     error: Optional[str] = None,
 ):
     """Backend OAuth callback handling from Google redirect."""
-    callback_frontend = settings.FRONTEND_CALLBACK_URL
+    fe_base = get_frontend_base_url(request)
+    callback_frontend = f"{fe_base.rstrip('/')}/auth/callback" if fe_base else settings.FRONTEND_CALLBACK_URL
 
     if error:
         redirect_url = f"{callback_frontend}?error={urllib.parse.quote(error)}"
@@ -396,6 +551,11 @@ async def google_callback(
         user_agent=ua,
     )
 
+    # Use saved frontend_base_url if available
+    saved_fe = res.get("frontend_base_url")
+    if saved_fe:
+        callback_frontend = f"{saved_fe.rstrip('/')}/auth/callback"
+
     if not res.get("success"):
         err_msg = res.get("error", "Đăng nhập Google thất bại.")
         redirect_url = f"{callback_frontend}?error={urllib.parse.quote(err_msg)}"
@@ -408,7 +568,9 @@ async def google_callback(
         return RedirectResponse(url=redirect_url)
 
     # Login succeeded: Set HttpOnly refresh cookie
-    return_to = res.get("return_to", "/")
+    return_to = res.get("return_to") or "/client"
+    if not return_to or return_to in ("/", "/login", "/dashboard", "/pois"):
+        return_to = "/client"
     redirect_url = f"{callback_frontend}?return_to={urllib.parse.quote(return_to)}"
     redirect_response = RedirectResponse(url=redirect_url)
     set_refresh_cookie(redirect_response, res["session_id"], res["refresh_token"])

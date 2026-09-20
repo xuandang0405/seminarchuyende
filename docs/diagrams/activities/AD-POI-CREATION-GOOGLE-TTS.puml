@@ -1,0 +1,42 @@
+@startuml
+!theme plain
+skinparam defaultFontName "Arial"
+
+title Activity Diagram: Quy Trình Quản Trị Tạo/Sửa POI Với Bản Đồ & Google TTS (C01, C02, C11)
+
+start
+
+:Quản trị viên mở trang Quản lý POIs;
+:Bấm "Thêm Địa Điểm Mới" hoặc "Chỉnh Sửa";
+:Hệ thống hiển thị Modal kèm Bản đồ Leaflet tương tác;
+
+if (Phương thức chọn tọa độ?) then (Dùng GPS thật của máy)
+    :Bấm nút "Lấy GPS Thật Của Máy";
+    :Trình duyệt kích hoạt Geolocation API;
+    :Bản đồ tự động canh tâm vào vị trí thực tế;
+    :Tự động điền Kinh độ & Vĩ độ chính xác;
+else (Chọn thủ công trên bản đồ)
+    :Click chuột hoặc kéo thả ghim trên bản đồ;
+    :Cập nhật tức thời tọa độ trong form;
+endif
+
+:Nhập tên địa điểm, địa chỉ, danh mục, bán kính;
+
+if (Hình thức tạo âm thanh thuyết minh?) then (Soạn thảo văn bản)
+    :Nhập nội dung mô tả chi tiết;
+    :Bấm nút "Đọc Chuẩn Google TTS";
+    :Backend gọi thư viện gTTS sinh file MP3 chuẩn;
+    :Lưu file âm thanh vào /storage/audio/;
+    :Phát âm thanh nghe thử trực tiếp trong modal;
+else (Ghi âm hoặc tải file có sẵn)
+    :Bấm "Ghi Âm Trực Tiếp" qua microphone hoặc tải file MP3;
+    :Hệ thống lưu file âm thanh tùy chỉnh;
+endif
+
+:Bấm nút "Lưu Địa Điểm" (hoặc "Lưu Thay Đổi");
+:Backend lưu tài liệu vào MongoDB Atlas;
+:Hiển thị thông báo thành công và cập nhật danh sách POI;
+
+stop
+
+@enduml

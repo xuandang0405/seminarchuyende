@@ -1,0 +1,62 @@
+@startuml
+!theme plain
+skinparam defaultFontName "Arial"
+
+title Activity Diagram: Quy Trình Du Khách Trải Nghiệm Web Client (/client/)
+
+start
+
+:Du khách truy cập URL http://1.55.58.251:8000/client/;
+
+if (Du khách đã đăng nhập?) then (Chưa đăng nhập)
+    :Hệ thống kích hoạt Auth Gate Modal;
+    if (Lựa chọn hình thức vào?) then (Đăng nhập tài khoản có sẵn)
+        :Nhập email và mật khẩu;
+        :Xác thực với Backend API;
+    else if (Đăng ký tài khoản mới)
+        :Nhập họ tên, email, mật khẩu;
+        :Tạo tài khoản và đăng nhập tự động;
+    else (Trải nghiệm nhanh dạng khách)
+        :Bấm nút "Trải Nghiệm Nhanh Với Tư Cách Khách";
+    endif
+    :Đóng Auth Gate Modal;
+else (Đã đăng nhập)
+    :Bỏ qua Auth Gate, vào thẳng bản đồ;
+endif
+
+:Hệ thống yêu cầu quyền truy cập GPS thiết bị;
+if (Khách cấp quyền GPS?) then (Đồng ý)
+    :Kích hoạt GPS thời gian thực (watchPosition);
+    :Hiển thị chấm xanh nhấp nháy tại vị trí thật;
+    :Vẽ vòng tròn độ chính xác GPS;
+else (Từ chối)
+    :Sử dụng tọa độ trung tâm mặc định Quận 4;
+endif
+
+:Tải danh sách địa điểm (POIs) từ Backend;
+:Tính khoảng cách (mét) từ vị trí khách đến từng POI;
+
+fork
+    :Theo dõi khoảng cách di chuyển thực tế;
+    if (Khách bước vào bán kính trigger_radius của POI?) then (Có)
+        if (Chế độ tự động phát đang BẬT?) then (Bật)
+            :Tự động phát âm thanh thuyết minh của POI;
+        else (Tắt)
+            :Hiển thị thông báo POI đang ở rất gần;
+        endif
+    endif
+fork again
+    :Du khách thao tác trên thanh công cụ;
+    if (Du khách chọn đổi ngôn ngữ?) then (Đổi ngôn ngữ)
+        :Cập nhật toàn bộ nhãn giao diện theo ngôn ngữ mới;
+        :Tải lại bản dịch tiêu đề và mô tả của POI;
+        :Cập nhật luồng âm thanh theo ngôn ngữ được chọn;
+    endif
+    if (Bấm nút "Vị Trí Của Tôi"?) then (Định vị)
+        :Canh tâm bản đồ vào đúng vị trí GPS thật của khách;
+    endif
+end fork
+
+stop
+
+@enduml

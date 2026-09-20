@@ -23,4 +23,9 @@
    - Admin Duyệt   : admin@tourvoice.vn        | Mật khẩu: Admin@123456
    - Chủ Quán Ăn   : owner.verified@quan4.vn   | Mật khẩu: Owner@123456
    - Khách Du Lịch : tourist@test.vn          | Mật khẩu: User@123456
+
+4. CÁCH CHẠY APP DI ĐỘNG (REACT NATIVE EXPO):
+   - Mở Terminal/CMD mới và chuyển vào thư mục: cd mobile
+   - Chạy lệnh: npm start
+   - Dùng camera điện thoại quét mã QR (trên ứng dụng Expo Go) để chạy app trực tiếp trên thiết bị iOS/Android thật.
 ======================================================================

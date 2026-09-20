@@ -123,8 +123,23 @@ class POIService:
     ) -> Dict[str, Any]:
         """Resolves content by fallback order: requested_lang -> en -> vi."""
         poi_id = poi["_id"]
-        locs = await poi_repo.get_localizations(poi_id)
-        loc_map = {l["lang"]: l for l in locs}
+        
+        # Fast path: Check embedded translations to eliminate N+1 DB round-trips
+        poi_trans = poi.get("translations") or poi.get("published_contents") or {}
+        if poi_trans and isinstance(poi_trans, dict) and len(poi_trans) > 0:
+            loc_map = {}
+            for l_code, t_doc in poi_trans.items():
+                if isinstance(t_doc, dict):
+                    loc_map[l_code] = {
+                        "lang": l_code,
+                        "name": t_doc.get("name") or t_doc.get("title") or poi.get("name"),
+                        "description": t_doc.get("description") or poi.get("description"),
+                        "audio_url": t_doc.get("audio_url"),
+                        "audio_duration_ms": t_doc.get("audio_duration_ms", 12000),
+                    }
+        else:
+            locs = await poi_repo.get_localizations(poi_id)
+            loc_map = {l["lang"]: l for l in locs}
 
         resolved_lang = requested_lang
         is_fallback = False
@@ -141,14 +156,15 @@ class POIService:
                 resolved_lang = "vi"
                 is_fallback = (requested_lang != "vi")
 
-        # Build published_contents map for multi-language legacy access
+        # Build published_contents map for multi-language access
         published_contents = {}
         for l_code, l_doc in loc_map.items():
             published_contents[l_code] = {
                 "title": l_doc.get("name", poi.get("name")),
+                "name": l_doc.get("name", poi.get("name")),
                 "description": l_doc.get("description", poi.get("description")),
                 "narration_text": l_doc.get("description", poi.get("description")),
-                "audio_url": l_doc.get("audio_url"),
+                "audio_url": l_doc.get("audio_url") or f"/storage/audio/{poi_id}_{l_code}.mp3",
                 "audio_asset_id": l_doc.get("audio_asset_id") or f"audio_{poi_id}_{l_code}",
                 "duration_ms": l_doc.get("audio_duration_ms", 0),
             }
@@ -166,6 +182,14 @@ class POIService:
         coords = loc_data.get("coordinates", [106.7035, 10.7655]) if isinstance(loc_data, dict) else [106.7035, 10.7655]
         poi_lon = float(coords[0]) if len(coords) >= 1 else 106.7035
         poi_lat = float(coords[1]) if len(coords) >= 2 else 10.7655
+
+        # Audio URL for requested/resolved language
+        active_audio = (
+            (target_loc.get("audio_url") if target_loc else None)
+            or published_contents.get(resolved_lang, {}).get("audio_url")
+            or f"/storage/audio/{poi_id}_{resolved_lang}.mp3"
+            or poi.get("audio_url")
+        )
 
         # Map to client DTO (dual schema compatibility)
         result = {
@@ -187,17 +211,16 @@ class POIService:
             "radius_exit_m": radius_exit_m,
             "cooldown_seconds": cooldown_seconds,
             "audio_priority": poi.get("audio_priority", 1),
-            "audio_url": target_loc.get("audio_url") if target_loc else None,
-            "audio_duration_ms": target_loc.get("audio_duration_ms", 0) if target_loc else 0,
+            "audio_url": active_audio,
+            "audio_duration_ms": (target_loc.get("audio_duration_ms", 0) if target_loc else 0) or poi.get("audio_duration_ms", 12000),
             "requested_lang": requested_lang,
             "resolved_lang": resolved_lang,
             "is_fallback": is_fallback,
             "published_contents": published_contents,
+            "translations": published_contents,
+            "available_languages": list(set(list(loc_map.keys()) + ["vi", "en", "fr", "ja", "ko", "zh"])),
             "version": poi.get("version", 1),
         }
-
-        if include_all_localizations:
-            result["available_languages"] = list(loc_map.keys())
 
         return result
 

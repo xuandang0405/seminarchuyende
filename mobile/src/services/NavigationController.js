@@ -144,6 +144,36 @@ export class NavigationController {
   }
 
   /**
+   * Requests route preview between two POIs (POI A to POI B).
+   */
+  async previewRouteBetweenPois(originPoi, destinationPoi, mode = "walking", locale = "vi") {
+    this.state = NavigationState.PREVIEWING;
+    this.destinationPoi = destinationPoi;
+    this.originPoi = originPoi;
+    this.travelMode = mode;
+    this.locale = locale;
+    this._notify();
+
+    try {
+      const client = await this.getApi();
+      const routeData = await client.getRoutePreview({
+        originPoiId: originPoi._id || originPoi.id,
+        destinationPoiId: destinationPoi._id || destinationPoi.id,
+        mode,
+        locale,
+      });
+
+      this.currentRoute = routeData;
+      this._notify();
+      return routeData;
+    } catch (err) {
+      this.state = NavigationState.ERROR;
+      this._notify();
+      throw err;
+    }
+  }
+
+  /**
    * Starts live navigation along current previewed route.
    */
   startNavigation() {

@@ -9,7 +9,8 @@ CRITICAL INVARIANT:
 
 from typing import Any, Dict, List, Optional
 from datetime import datetime, timezone
-from app.repositories.base import BaseRepository
+import re
+from app.repositories.base import BaseRepository, build_id_filter, serialize_mongo_doc
 from app.db.collections import COLLECTION_POI, COLLECTION_POI_LOCALIZATIONS
 
 
@@ -23,11 +24,11 @@ class POIRepository(BaseRepository):
 
     async def get_public_by_id(self, poi_id: str) -> Optional[Dict[str, Any]]:
         """Fetch POI if active and not soft-deleted."""
-        return await self.collection.find_one({
-            "_id": poi_id,
-            "is_active": True,
-            "deleted_at": None,
-        })
+        q = build_id_filter(poi_id)
+        q["is_active"] = True
+        q["deleted_at"] = None
+        doc = await self.collection.find_one(q)
+        return serialize_mongo_doc(doc)
 
     async def find_public(
         self,
@@ -35,18 +36,21 @@ class POIRepository(BaseRepository):
         limit: int = 50,
         category: Optional[str] = None,
         search: Optional[str] = None,
+        include_inactive: bool = True,
     ) -> List[Dict[str, Any]]:
         query: Dict[str, Any] = {
-            "is_active": True,
             "deleted_at": None,
         }
+        if not include_inactive:
+            query["is_active"] = True
         if category:
             query["category"] = category
-        if search:
+        if search and search.strip():
+            safe_search = re.escape(search.strip()[:100])
             query["$or"] = [
-                {"name": {"$regex": search, "$options": "i"}},
-                {"description": {"$regex": search, "$options": "i"}},
-                {"address": {"$regex": search, "$options": "i"}},
+                {"name": {"$regex": safe_search, "$options": "i"}},
+                {"description": {"$regex": safe_search, "$options": "i"}},
+                {"address": {"$regex": safe_search, "$options": "i"}},
             ]
         cursor = self.collection.find(query).skip(skip).limit(limit).sort("audio_priority", -1)
         return await cursor.to_list(length=limit)
@@ -89,8 +93,7 @@ class POIRepository(BaseRepository):
         ]
 
         try:
-            cursor = self.collection.aggregate(pipeline)
-            results = await cursor.to_list(length=limit)
+            results = await self.aggregate_to_list(self.collection, pipeline, length=limit)
             return results
         except Exception:
             # Fallback to query + python haversine if geoNear index not yet warm
@@ -138,7 +141,7 @@ class POIRepository(BaseRepository):
         limit: int = 20
     ) -> List[Dict[str, Any]]:
         """Searches POIs across name, description, address, and localized content."""
-        clean_q = query.strip()
+        clean_q = re.escape(query.strip()[:100])
         if not clean_q:
             return []
 
@@ -228,8 +231,10 @@ class POIRepository(BaseRepository):
         cursor = self.collection.find(query).skip(skip).limit(limit).sort("created_at", -1)
         return await cursor.to_list(length=limit)
 
-    async def count_public(self, category: Optional[str] = None) -> int:
-        query: Dict[str, Any] = {"is_active": True, "deleted_at": None}
+    async def count_public(self, category: Optional[str] = None, include_inactive: bool = True) -> int:
+        query: Dict[str, Any] = {"deleted_at": None}
+        if not include_inactive:
+            query["is_active"] = True
         if category:
             query["category"] = category
         return await self.collection.count_documents(query)
@@ -238,7 +243,7 @@ class POIRepository(BaseRepository):
         now = datetime.now(timezone.utc)
         doc.setdefault("version", 1)
         doc.setdefault("content_version", 1)
-        doc.setdefault("is_active", False)
+        doc.setdefault("is_active", True)
         doc.setdefault("activation_requested", False)
         doc.setdefault("deleted_at", None)
         doc.setdefault("created_at", now)
@@ -261,20 +266,26 @@ class POIRepository(BaseRepository):
         if content_changed:
             inc_fields["content_version"] = 1
 
+        query = build_id_filter(poi_id)
+        query["version"] = expected_version
+        query["deleted_at"] = None
+
         result = await self.collection.find_one_and_update(
-            {"_id": poi_id, "version": expected_version, "deleted_at": None},
+            query,
             {
                 "$set": update_fields,
                 "$inc": inc_fields
             },
             return_document=True
         )
-        return result
+        return serialize_mongo_doc(result)
 
     async def soft_delete(self, poi_id: str) -> bool:
         now = datetime.now(timezone.utc)
+        query = build_id_filter(poi_id)
+        query["deleted_at"] = None
         result = await self.collection.update_one(
-            {"_id": poi_id, "deleted_at": None},
+            query,
             {"$set": {
                 "deleted_at": now,
                 "is_active": False,

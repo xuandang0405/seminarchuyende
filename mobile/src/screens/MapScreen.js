@@ -6,11 +6,11 @@ import {
   TouchableOpacity,
   TextInput,
   ScrollView,
-  SafeAreaView,
   Alert,
   Linking,
   ActivityIndicator,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import MapView, { Marker, Circle, Polyline } from "react-native-maps";
 import { api } from "../services/api";
 import { locationService } from "../services/LocationService";
@@ -22,6 +22,7 @@ import AudioPlayerBar from "../components/AudioPlayerBar";
 import POIDetailModal from "../components/POIDetailModal";
 import SettingsModal from "../components/SettingsModal";
 import TourModal from "../components/TourModal";
+import RoutePlanningModal from "../components/RoutePlanningModal";
 
 // District 4 default map viewport
 const DISTRICT_4_REGION = {
@@ -51,6 +52,9 @@ export default function MapScreen({ onNavigateQR, onNavigateOffline }) {
   const [selectedPoiForModal, setSelectedPoiForModal] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
   const [showTourModal, setShowTourModal] = useState(false);
+  const [showRouteModal, setShowRouteModal] = useState(false);
+  const [routeModalOrigin, setRouteModalOrigin] = useState(null);
+  const [routeModalDest, setRouteModalDest] = useState(null);
   const [activeTour, setActiveTour] = useState(null);
 
   // Subscribe to NarrationController updates
@@ -162,18 +166,46 @@ export default function MapScreen({ onNavigateQR, onNavigateOffline }) {
     }
   };
 
-  // Fetch POIs whenever language or category changes
-  useEffect(() => {
-    loadPOIs();
-  }, [currentLang, selectedCategory]);
+  const handleStartRouteFromPlanner = ({ route, destinationPoi, originPoi, mode }) => {
+    navigationController.currentRoute = route;
+    navigationController.destinationPoi = destinationPoi;
+    navigationController.originPoi = originPoi;
+    navigationController.travelMode = mode;
+    navigationController.startNavigation();
+    if (mapRef.current && route?.geometry?.coordinates?.length > 0) {
+      const coords = route.geometry.coordinates.map(([lon, lat]) => ({
+        latitude: lat,
+        longitude: lon,
+      }));
+      mapRef.current.fitToCoordinates(coords, {
+        edgePadding: { top: 160, right: 40, bottom: 220, left: 40 },
+        animated: true,
+      });
+    }
+  };
 
-  const loadPOIs = async () => {
-    const data = await api.getPOIs({
+  const fetchSeqRef = useRef(0);
+
+  // Fetch POIs whenever language or category changes with race condition protection
+  useEffect(() => {
+    let isCurrent = true;
+    const currentSeq = ++fetchSeqRef.current;
+
+    api.getPOIs({
       lang: currentLang,
       category: selectedCategory === "all" ? null : selectedCategory,
+    }).then((data) => {
+      if (isCurrent && currentSeq === fetchSeqRef.current) {
+        setPois(data || []);
+      }
+    }).catch((err) => {
+      console.warn("[MapScreen] Could not load POIs:", err);
     });
-    setPois(data);
-  };
+
+    return () => {
+      isCurrent = false;
+    };
+  }, [currentLang, selectedCategory]);
 
   // Real-time Geofence Evaluation when userLocation updates
   useEffect(() => {
@@ -334,6 +366,18 @@ export default function MapScreen({ onNavigateQR, onNavigateOffline }) {
           <Text style={styles.fabLabel}>Tour</Text>
         </TouchableOpacity>
 
+        <TouchableOpacity
+          style={styles.fab}
+          onPress={() => {
+            setRouteModalOrigin(null);
+            setRouteModalDest(null);
+            setShowRouteModal(true);
+          }}
+        >
+          <Text style={styles.fabIcon}>🧭</Text>
+          <Text style={styles.fabLabel}>Tìm đường</Text>
+        </TouchableOpacity>
+
         <TouchableOpacity style={styles.fab} onPress={onNavigateOffline}>
           <Text style={styles.fabIcon}>📦</Text>
           <Text style={styles.fabLabel}>Offline</Text>
@@ -450,6 +494,11 @@ export default function MapScreen({ onNavigateQR, onNavigateOffline }) {
           narrationController.requestNarration(poi, type, currentLang);
         }}
         onDirections={handleStartDirections}
+        onPlanRoute={(poi) => {
+          setRouteModalOrigin(poi);
+          setRouteModalDest(null);
+          setShowRouteModal(true);
+        }}
       />
 
       {/* Tour Selection Modal */}
@@ -457,6 +506,18 @@ export default function MapScreen({ onNavigateQR, onNavigateOffline }) {
         visible={showTourModal}
         onClose={() => setShowTourModal(false)}
         onSelectTour={(tour) => setActiveTour(tour)}
+      />
+
+      {/* Route Planning Modal */}
+      <RoutePlanningModal
+        visible={showRouteModal}
+        pois={pois}
+        userLocation={userLocation}
+        initialOriginPoi={routeModalOrigin}
+        initialDestinationPoi={routeModalDest}
+        currentLang={currentLang}
+        onClose={() => setShowRouteModal(false)}
+        onStartRoute={handleStartRouteFromPlanner}
       />
 
       {/* Settings Modal */}

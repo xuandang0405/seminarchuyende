@@ -7,8 +7,10 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from app.api.v1.endpoints.auth import get_current_admin
+from app.api.v1.endpoints.auth import get_current_admin, get_current_user
 from app.services.offline_package_service import offline_package_service
+from app.repositories.tour_repo import tour_repo
+from app.repositories.entitlement_repo import entitlement_repo
 
 router = APIRouter(prefix="/packages", tags=["Offline Data Packages"])
 
@@ -27,9 +29,23 @@ async def list_packages():
 @router.get("/tours/{tour_id}")
 async def get_tour_package(
     tour_id: str,
-    language_code: str = Query("vi", description="Requested language code")
+    language_code: str = Query("vi", description="Requested language code"),
+    current_user: dict = Depends(get_current_user)
 ):
-    """Fetches or builds an offline package for a specific tour."""
+    """Fetches or builds an offline package for a specific tour. Requires active tour entitlement if tour is paid."""
+    tour = await tour_repo.get_public_tour(tour_id)
+    if not tour:
+        raise HTTPException(status_code=404, detail="Không tìm thấy dữ liệu tour.")
+
+    is_paid = tour.get("is_purchasable") or tour.get("is_paid")
+    if is_paid and current_user.get("role") not in ("admin", "super_admin"):
+        ent = await entitlement_repo.get_entitlement(user_id=current_user["_id"], tour_id=tour_id)
+        if not ent:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Yêu cầu mua vé tour để tải gói dữ liệu ngoại tuyến."
+            )
+
     pkg = await offline_package_service.generate_tour_package(tour_id=tour_id, language_code=language_code)
     if not pkg:
         raise HTTPException(status_code=404, detail="Không tìm thấy dữ liệu tour.")

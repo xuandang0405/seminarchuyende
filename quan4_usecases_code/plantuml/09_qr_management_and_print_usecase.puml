@@ -1,0 +1,33 @@
+@startuml
+!theme plain
+skinparam defaultFontName "Arial"
+skinparam packageStyle rectangle
+
+title Sơ Đồ Use Case: Quản Lý & In Thẻ Mã QR Thuyết Minh (T11, C16)
+
+actor "Quản Trị Viên\n(Admin)" as Admin #AliceBlue
+actor "Khách Du Lịch\n(Tourist)" as Tourist #LightYellow
+
+rectangle "Hệ Thống TourVoice Quận 4 (React Admin & API)" {
+  usecase "C16: Tạo Mã QR Mới Cho POI" as UC_CreateQR
+  usecase "C16.1: Xem Trước Ảnh QR Thực Tế" as UC_ViewQR
+  usecase "C16.2: In Thẻ Mã QR Chuẩn\n(Print QR Badge)" as UC_PrintQR
+  usecase "C16.3: Vô Hiệu Hóa Mã QR" as UC_DeactivateQR
+  usecase "C16.4: Kích Hoạt Lại Mã QR\n(Reactivate QR)" as UC_ActivateQR
+  
+  usecase "T11: Quét Mã QR Nghe Thuyết Minh\n(Không Cần Bật GPS)" as UC_ScanQR
+}
+
+Admin --> UC_CreateQR
+Admin --> UC_ViewQR
+Admin --> UC_PrintQR
+Admin --> UC_DeactivateQR
+Admin --> UC_ActivateQR
+
+Tourist --> UC_ScanQR
+
+UC_CreateQR ..> UC_ViewQR : <<include>>
+UC_PrintQR ..> UC_ViewQR : <<include>>
+UC_DeactivateQR ..> UC_ActivateQR : <<extends>>
+
+@enduml

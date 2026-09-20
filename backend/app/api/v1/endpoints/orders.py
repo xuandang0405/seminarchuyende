@@ -4,8 +4,8 @@ Section 7 & 10 of prompt.
 BR-PAY-01..06.
 """
 
-from typing import Any, Dict, Optional
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from typing import Any, Dict, List, Optional
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
 from app.api.v1.endpoints.auth import get_current_user
 from app.services.order_service import order_service
@@ -19,6 +19,21 @@ from app.schemas.order import (
 )
 
 router = APIRouter(prefix="/orders", tags=["Orders & Payments"])
+
+
+@router.get("", response_model=List[Dict[str, Any]])
+async def list_orders_endpoint(
+    status: Optional[str] = Query(None, description="Filter by order status"),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=100),
+    current_user: dict = Depends(get_current_user)
+):
+    """P05/P06: Lists orders for the current user or all orders if admin."""
+    from typing import List
+    is_admin = current_user.get("role") in ("admin", "super_admin")
+    if is_admin:
+        return await order_service.list_all_orders_admin(skip=skip, limit=limit, status_filter=status)
+    return await order_service.list_user_orders(user_id=current_user["_id"], skip=skip, limit=limit, status_filter=status)
 
 
 @router.post("", response_model=OrderResponse, status_code=status.HTTP_201_CREATED)
@@ -80,6 +95,7 @@ async def get_order_endpoint(
 
 
 @router.post("/{order_id}/payment-attempts", response_model=PaymentAttemptResponse)
+@router.post("/{order_id}/attempts", response_model=PaymentAttemptResponse)
 async def create_payment_attempt_endpoint(
     order_id: str,
     body: PaymentAttemptCreateRequest,

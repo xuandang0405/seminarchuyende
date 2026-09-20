@@ -68,11 +68,17 @@ class JobWorkerService:
                 source_desc = content.get("description", "")
                 source_narration = content.get("narration_text", "")
 
-                # Translation logic: prefix with target language translation tag or fallback
-                # In production can hook into Google Translate or LLM
-                trans_title = f"[{target_lang.upper()}] {source_title}"
-                trans_desc = f"[{target_lang.upper()}] {source_desc}"
-                trans_narration = f"Welcome to this attraction. {source_narration}"
+                # Automated high-fidelity translation across 6 languages
+                try:
+                    from app.services.translation_service import translation_service
+                    trans_title = await translation_service.translate_text(source_title, target_lang) or source_title
+                    trans_desc = await translation_service.translate_text(source_desc, target_lang) or source_desc
+                    trans_narration = await translation_service.translate_text(source_narration or source_desc, target_lang) or trans_desc
+                except Exception as e:
+                    logger.warning(f"Translation service fallback in job worker: {e}")
+                    trans_title = source_title
+                    trans_desc = source_desc
+                    trans_narration = source_narration or source_desc
 
                 new_content_id = str(uuid.uuid4())
                 now = datetime.now(timezone.utc)

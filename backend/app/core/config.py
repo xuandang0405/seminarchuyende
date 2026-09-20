@@ -33,7 +33,7 @@ class Settings(BaseSettings):
 
     # Environment and Domain Settings
     APP_ENV: str = "production"  # "development" | "staging" | "production"
-    PUBLIC_WEB_URL: str = "http://localhost:8000"
+    PUBLIC_WEB_URL: str = "https://seminar.bkpvp.top"
     TRUSTED_HOSTS: Union[List[str], str] = ["*"]
     FORWARDED_ALLOW_IPS: str = "*"
 
@@ -43,16 +43,18 @@ class Settings(BaseSettings):
     CSRF_HEADER_NAME: str = "X-CSRF-Token"
     COOKIE_SECURE: bool = False
     COOKIE_SAMESITE: str = "lax"
-    FRONTEND_URL: str = "http://localhost:5173"
-    FRONTEND_CALLBACK_URL: str = "http://localhost:5173/auth/callback"
+    FRONTEND_URL: str = "https://seminar.bkpvp.top"
+    FRONTEND_CALLBACK_URL: str = "https://seminar.bkpvp.top/auth/callback"
     ALLOWED_RETURN_PATHS: List[str] = [
-        "/", "/dashboard", "/pois", "/account", "/account/security", "/owner-registration", "/menu", "/analytics"
+        "/", "/client", "/tourist", "/dashboard", "/pois", "/tours", "/qr-codes",
+        "/orders", "/account", "/account/security", "/owner-registration", "/menu",
+        "/analytics", "/admin/login", "/client/login", "/login"
     ]
 
     # Google OAuth 2.0 / OIDC Settings
     GOOGLE_CLIENT_ID: Optional[str] = None
     GOOGLE_CLIENT_SECRET: Optional[str] = None
-    GOOGLE_REDIRECT_URI: str = "http://localhost:8000/api/v1/auth/google/callback"
+    GOOGLE_REDIRECT_URI: str = "https://seminar.bkpvp.top/api/v1/auth/google/callback"
 
     # Media Storage
     MEDIA_STORAGE_DIR: str = "storage"
@@ -64,6 +66,7 @@ class Settings(BaseSettings):
     # External AI / TTS / Weather integrations (Optional)
     OPENAI_API_KEY: Optional[str] = None
     GEMINI_API_KEY: Optional[str] = None
+    GEMINI_MODEL: str = "gemini-2.5-flash"
 
     # Payment & Trial Policy Configuration
     PAYMENT_MODE: str = "mock"  # "mock" | "live"
@@ -74,12 +77,13 @@ class Settings(BaseSettings):
     VNPAY_TMN_CODE: str = "DEMO"
     VNPAY_HASH_SECRET: str = "DEMOHASHSECRET1234567890ABCDEF"
     VNPAY_PAY_URL: str = "https://sandbox.vnpayment.vn/paymentv2/vpcpay.html"
-    VNPAY_RETURN_URL: str = "http://localhost:8000/client/index.html"
+    VNPAY_RETURN_URL: str = "http://localhost:8000/admin/orders"
 
     # payOS Configuration
-    PAYOS_CLIENT_ID: Optional[str] = "demo-client-id"
-    PAYOS_API_KEY: Optional[str] = "demo-api-key"
-    PAYOS_CHECKSUM_KEY: Optional[str] = "demo-checksum-key-1234567890"
+    PAYOS_CLIENT_ID: Optional[str] = None
+    PAYOS_API_KEY: Optional[str] = None
+    PAYOS_CHECKSUM_KEY: Optional[str] = None
+    PAYOS_ENDPOINT: str = "https://api-merchant.payos.vn"
     # Map and Geo Configuration (District 4, HCMC)
     MAP_DEFAULT_CENTER_LAT: float = 10.7635
     MAP_DEFAULT_CENTER_LNG: float = 106.7042
@@ -88,9 +92,9 @@ class Settings(BaseSettings):
     MAP_BOUNDS_MIN_LAT: float = 10.745
     MAP_BOUNDS_MAX_LNG: float = 106.720
     MAP_BOUNDS_MAX_LAT: float = 10.775
-    MAP_TILE_PROVIDER_NAME: str = "CartoDB Voyager"
-    MAP_TILE_STYLE_URL: str = "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
-    MAP_ATTRIBUTION: str = "© CartoDB Voyager | OpenStreetMap contributors"
+    MAP_TILE_PROVIDER_NAME: str = "Google Maps"
+    MAP_TILE_STYLE_URL: str = "https://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}"
+    MAP_ATTRIBUTION: str = "© Google Maps"
 
     # Routing Engine Configuration (OSRM)
     ROUTING_PROVIDER_URL: str = "https://router.project-osrm.org"
@@ -106,6 +110,10 @@ class Settings(BaseSettings):
         "http://127.0.0.1:3000",
         "http://127.0.0.1:5173",
         "http://127.0.0.1:8000",
+        "http://seminar.bkpvp.top",
+        "https://seminar.bkpvp.top",
+        "http://serminar.bkpvp.top",
+        "https://serminar.bkpvp.top",
         "*"
     ]
     CORS_ALLOWED_ORIGINS: Optional[Union[List[str], str]] = None

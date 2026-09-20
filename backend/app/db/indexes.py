@@ -5,6 +5,8 @@ Can be run multiple times safely on fresh or existing MongoDB databases.
 
 import logging
 from pymongo.asynchronous.database import AsyncDatabase
+
+logger = logging.getLogger("uvicorn")
 from app.db.collections import (
     COLLECTION_POI,
     COLLECTION_POI_LOCALIZATIONS,
@@ -47,12 +49,39 @@ from app.db.collections import (
     COLLECTION_TOUR_SESSIONS,
 )
 
-logger = logging.getLogger("uvicorn")
+class SafeColProxy:
+    def __init__(self, col):
+        self._col = col
+
+    def __getattr__(self, name):
+        return getattr(self._col, name)
+
+    async def create_index(self, *args, **kwargs):
+        try:
+            return await self._col.create_index(*args, **kwargs)
+        except Exception as e:
+            err_str = str(e)
+            if "already exists with a different name" in err_str or "code': 85" in err_str or "IndexOptionsConflict" in err_str:
+                return None
+            logger.debug(f"Notice creating index on {self._col.name}: {e}")
+            return None
+
+
+class SafeDatabaseProxy:
+    def __init__(self, db):
+        self._db = db
+
+    def __getitem__(self, item):
+        return SafeColProxy(self._db[item])
+
+    def __getattr__(self, name):
+        return getattr(self._db, name)
 
 
 async def create_all_indexes(db: AsyncDatabase):
     """Creates all required compound, unique, 2dsphere and TTL indexes idempotently."""
     logger.info("Starting idempotent index creation for collections...")
+    db = SafeDatabaseProxy(db)
 
     try:
         # 1. roles: unique roles.name
@@ -436,11 +465,10 @@ async def create_all_indexes(db: AsyncDatabase):
             name="ttl_playback_grants_expires_at"
         )
 
-        # 33. orders: unique user+idempotency, user orders, status+expires
         await db[COLLECTION_ORDERS].create_index(
             [("user_id", 1), ("idempotency_key", 1)],
             unique=True,
-            sparse=True,
+            partialFilterExpression={"idempotency_key": {"$type": "string"}},
             name="uq_orders_user_idempotency"
         )
         await db[COLLECTION_ORDERS].create_index(

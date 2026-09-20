@@ -1,0 +1,72 @@
+@startuml SD-ASYNC-POI-PIPELINE
+title Kiến Trúc Xử Lý POI Bất Đồng Bộ (Non-blocking Async POI Pipeline)
+caption Thiết kế phân tách đường dẫn tức thì (Synchronous <50ms) và xử lý ngầm (Asynchronous Background Worker)
+
+skinparam shadowing false
+skinparam defaultFontName "Arial"
+skinparam defaultFontSize 12
+skinparam sequenceMessageAlign center
+
+actor "Admin / Creator" as User
+box "FastAPI Web Application (Port 8000)" #F8FAFC
+participant "HTTP Endpoint\n(POST /api/v1/pois)" as Endpoint
+participant "POI Admin Service" as Service
+participant "BackgroundTasks Queue" as Queue
+end box
+
+box "Database Tier (Atlas MongoDB 7.0)" #EFF6FF
+database "Collection: POI" as DB_POI
+database "Collection: poi_localizations" as DB_LOC
+end box
+
+box "External AI / Cloud Services" #FEF3C7
+participant "Google Translate API" as TransAPI
+participant "Google TTS Engine" as TTSAPI
+end box
+
+== 1. LUỒNG ĐỒNG BỘ PHẢN HỒI TỨC THÌ (Thời gian < 50ms) ==
+User -> Endpoint: Gửi yêu cầu tạo POI (JSON payload)
+activate Endpoint
+
+Endpoint -> Service: create_poi(payload, background_tasks)
+activate Service
+
+Service -> DB_POI: insert_one(poi_doc, is_active=True)
+activate DB_POI
+DB_POI --> Service: Xác nhận lưu thành công (10ms)
+deactivate DB_POI
+
+Service -> DB_LOC: upsert_localization(poi_id_vi)
+activate DB_LOC
+DB_LOC --> Service: Ghi nhận bản địa hóa gốc (5ms)
+deactivate DB_LOC
+
+Service -> Queue: add_task(background_sync_poi_multilingual)
+note right: Đẩy tác vụ nặng vào hàng đợi nền\nKhông chờ dịch thuật hay tạo file âm thanh
+
+Service --> Endpoint: Trả về POI đã lưu
+deactivate Service
+
+Endpoint --> User: 201 Created (HTTP Response < 50ms ⚡)
+deactivate Endpoint
+note left: Người dùng nhận phản hồi ngay lập tức,\nmodal đóng ngay, bảng POI cập nhật tức thì!
+
+== 2. LUỒNG BẤT ĐỒNG BỘ NỀN (Chạy ngầm không ảnh hưởng người dùng) ==
+activate Queue
+Queue -> TransAPI: Dịch sang EN, FR, JA, KO, ZH (batch/resilient)
+activate TransAPI
+TransAPI --> Queue: Nội dung đa ngôn ngữ
+deactivate TransAPI
+
+Queue -> TTSAPI: Sinh giọng đọc Google TTS (6 file MP3)
+activate TTSAPI
+TTSAPI --> Queue: Stream âm thanh các thứ tiếng
+deactivate TTSAPI
+
+Queue -> DB_LOC: Lưu 6 bản dịch + liên kết audio MP3
+activate DB_LOC
+DB_LOC --> Queue: Hoàn tất đồng bộ đa ngôn ngữ
+deactivate DB_LOC
+deactivate Queue
+
+@enduml

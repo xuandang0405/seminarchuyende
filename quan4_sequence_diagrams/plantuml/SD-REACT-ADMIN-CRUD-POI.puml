@@ -1,0 +1,95 @@
+@startuml SD-REACT-ADMIN-CRUD-POI
+title SD-REACT-ADMIN-CRUD-POI: Thêm/Sửa/Xóa POI Tức Thì, AI Assistant, Xử Lý Ngầm & Cascade Xóa Mã QR
+caption Tương tác: React Web Admin -> FastAPI (Router -> Service -> Repo) -> MongoDB 7.0 & Background Worker
+
+autonumber
+skinparam shadowing false
+skinparam defaultFontName "Arial"
+skinparam defaultFontSize 12
+
+actor "Quản Trị Viên" as Admin
+participant "React Web Admin\n(apps/web-admin)" as AdminUI
+participant "POI API Router\n(/api/v1/pois)" as POIRouter
+participant "Gemini 3.6 AI\n(/api/v1/ai/poi-assistant)" as GeminiAI
+participant "POI Admin Service\n(FastAPI Backend)" as POIService
+participant "FastAPI BackgroundTasks\n(Async Worker Queue)" as BgWorker
+participant "QR Repository & Repo\n(app/repositories/qr_repo)" as QRRepo
+participant "MongoDB 7.0\n(Collections: POI, qr_codes)" as MongoDB
+participant "Google Translate & gTTS\n(Multi-lingual Engine)" as TTS
+
+== Bước 1: Trợ Lý Google Gemini 3.6 AI Hỗ Trợ Tạo & Sửa POI (Tùy Chọn) ==
+alt 1A. Thêm POI Mới: Tự Động Nhận Diện & Điền Form
+    Admin -> AdminUI: Nhập tên quán / địa danh (Ví dụ: "Quán Ốc Oanh Vĩnh Khánh")
+    Admin -> AdminUI: Bấm "✨ AI Nhận Diện & Tự Điền"
+    AdminUI -> GeminiAI: POST /api/v1/ai/poi-assistant\n{"poi_name": "...", "category_hint": "..."}
+    GeminiAI -> GeminiAI: Nhận diện địa danh, tạo mô tả 3-5 câu, định vị GPS Quận 4 & gợi ý đặc sản
+    GeminiAI --> AdminUI: 200 OK {name, description, address, category, lat, lng, script}
+    AdminUI --> Admin: Tự động điền hoàn chỉnh form POI trên màn hình
+else 1B. Sửa POI: Tối Ưu Hóa / Viết Lại Mô Tả Du Lịch
+    Admin -> AdminUI: Chọn POI cần sửa, bấm "✨ Gemini Tối Ưu Mô Tả" (Chọn giọng văn: Cuốn hút, Lịch sử...)
+    AdminUI -> GeminiAI: POST /api/v1/ai/refine-description\n{"poi_name": "...", "current_description": "...", "tone": "cuốn hút"}
+    GeminiAI -> GeminiAI: Trau chuốt văn phong du lịch, làm nổi bật phong vị ẩm thực & văn hóa Quận 4
+    GeminiAI --> AdminUI: 200 OK {refined_description, suggested_title, highlights}
+    AdminUI --> Admin: Cập nhật mô tả mới hấp dẫn vào ô soạn thảo
+else 1C. Soạn Kịch Bản Thuyết Minh GPS
+    Admin -> AdminUI: Bấm "✨ Soạn Thuyết Minh GPS"
+    AdminUI -> GeminiAI: POST /api/v1/ai/generate-narration\n{"poi_name": "...", "tone": "...", "language_code": "vi"}
+    GeminiAI --> AdminUI: 200 OK {narration_text, suggested_voice}
+    AdminUI --> Admin: Điền kịch bản thuyết minh vào form, sẵn sàng tạo Google TTS
+else 1D. Dịch Bản Địa Hóa 6 Ngôn Ngữ Văn Hóa
+    Admin -> AdminUI: Bấm "✨ Gemini Dịch 6 Thứ Tiếng" (Tại Form hoặc Modal Đa Ngôn Ngữ)
+    AdminUI -> GeminiAI: POST /api/v1/ai/multilingual-translate\n{"poi_name": "...", "description": "..."}
+    GeminiAI -> GeminiAI: Dịch bảo tồn ngữ nghĩa món ăn Việt Nam sang EN, FR, JA, KO, ZH
+    GeminiAI --> AdminUI: 200 OK (Bản dịch 6 ngôn ngữ chuẩn ẩm thực Quận 4)
+    AdminUI --> Admin: Cập nhật bản dịch trên 6 tab ngôn ngữ
+end
+
+== Bước 2: Lưu POI Tức Thì Vào Database (< 50ms) ==
+Admin -> AdminUI: Bấm "Lưu địa điểm"
+AdminUI -> POIRouter: POST /api/v1/pois\n(Headers: Authorization Bearer Token, Payload JSON)
+POIRouter -> POIRouter: Xác thực token & Phân quyền Admin
+POIRouter -> POIService: create_poi(poi_data, created_by, background_tasks)
+
+POIService -> MongoDB: insert_one(poi_doc) [Collection: POI]
+MongoDB --> POIService: _id, inserted=True
+POIService -> MongoDB: upsert_localization(poi_id_vi) [Collection: poi_localizations]
+MongoDB --> POIService: upserted=True
+
+POIService -> BgWorker: background_tasks.add_task(\n  background_sync_poi_multilingual,\n  poi_id, name, description\n)
+
+POIService --> POIRouter: 201 Created (POI Document, is_active=True)
+POIRouter --> AdminUI: 201 Created (Thời gian phản hồi < 0.2s ⚡)
+AdminUI --> Admin: Đóng popup ngay lập tức, báo "⚡ Đã lưu POI ngay vào database!"
+
+== Bước 3: Xử Lý Ngầm Dịch 6 Thứ Tiếng & Sinh Audio TTS (Non-blocking) ==
+note over BgWorker, TTS: Xử lý ngầm trong nền, hoàn toàn không chặn hay làm chậm giao diện người dùng
+BgWorker -> TTS: Dịch mô tả sang EN, FR, JA, KO, ZH (GoogleTranslator)
+TTS --> BgWorker: Bản dịch 5 thứ tiếng
+BgWorker -> TTS: Sinh giọng đọc truyền cảm cho từng ngôn ngữ (Google TTS MP3)
+TTS --> BgWorker: 6 file audio stream MP3
+BgWorker -> BgWorker: Lưu vào static storage (/storage/audio/poi_xxx_{lang}.mp3)
+BgWorker -> MongoDB: Cập nhật audio_url và bản dịch 6 ngôn ngữ vào poi_localizations
+
+== Bước 4: Xóa POI & Tự Động Xóa Dây Chuyền Mã QR (Cascade Deletion) ==
+Admin -> AdminUI: Bấm "Xóa" POI và Xác nhận hộp thoại
+note over AdminUI: Cảnh báo: "Tự động xóa toàn bộ mã QR liên quan đến địa điểm này"
+AdminUI -> POIRouter: DELETE /api/v1/pois/{poi_id}\n(Headers: Authorization Bearer Token)
+POIRouter -> POIRouter: Xác thực quyền Admin
+POIRouter -> POIService: soft_delete_poi(poi_id)
+
+POIService -> MongoDB: update_one({_id: poi_id}, {$set: {deleted_at: now, is_active: false}})\n[Collection: POI]
+MongoDB --> POIService: modified_count: 1
+
+POIService -> QRRepo: delete_by_poi(poi_id)\n[Cascade Delete: Kích hoạt xóa toàn bộ QR của POI]
+QRRepo -> MongoDB: delete_many({poi_id: poi_id})\n[Collection: qr_codes]
+MongoDB --> QRRepo: deleted_count (Toàn bộ mã QR gắn với POI bị xóa vĩnh viễn)
+QRRepo --> POIService: deleted_qrs count
+
+POIService -> POIService: route_cache_repo.invalidate_all()
+POIService --> POIRouter: 204 No Content
+POIRouter --> AdminUI: 204 No Content (Thành công)
+AdminUI --> Admin: Thông báo "Đã xóa địa điểm và toàn bộ mã QR liên quan thành công!"
+AdminUI -> AdminUI: Danh sách POI và danh sách /qr-codes tự động cập nhật, mã QR biến mất 100%
+
+@enduml
+

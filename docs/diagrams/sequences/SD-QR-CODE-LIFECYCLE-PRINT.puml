@@ -1,0 +1,62 @@
+@startuml
+!theme plain
+autonumber
+skinparam defaultFontName "Arial"
+skinparam BoxPadding 10
+skinparam ParticipantPadding 10
+
+title Sequence Diagram: Vòng Đời Quản Lý, Xem Trước & In Thẻ Mã QR (T11, C16)
+
+actor "Quản Trị Viên" as Admin
+participant "Giao Diện React\n(/qr-codes)" as WebAdmin
+participant "FastAPI Server\n(/api/v1/qr)" as Backend
+participant "MongoDB Atlas\n(qr_codes)" as DB
+participant "Trình Trình Duyệt\n(Print Engine)" as BrowserPrint
+
+== 1. Tải Danh Sách Mã QR ==
+Admin -> WebAdmin: Mở trang /qr-codes
+WebAdmin -> Backend: GET /api/v1/qr
+Backend -> DB: find({}).sort({ created_at: -1 })
+DB --> Backend: Danh sách QR codes
+Backend --> WebAdmin: JSON [ { id, code, poi_name, is_active }, ... ]
+WebAdmin -> WebAdmin: Render thẻ QR với QRCodeSVG thực tế
+
+== 2. Xem Chi Tiết & Phóng To Mã QR ==
+Admin -> WebAdmin: Bấm nút "Xem" trên thẻ QR
+WebAdmin -> WebAdmin: Mở modal phóng to (kích thước 220px, level H)
+WebAdmin -> Admin: Hiển thị mã QR rõ nét & URL quét trực tiếp
+
+== 3. In Thẻ Mã QR (Print QR Badge) ==
+Admin -> WebAdmin: Bấm nút "In QR"
+WebAdmin -> WebAdmin: Kích hoạt bố cục in chuẩn (@media print)\nvới Logo, Tên POI, QR 260px và hướng dẫn
+WebAdmin -> BrowserPrint: window.print()
+BrowserPrint --> Admin: Hộp thoại in thẻ vật lý hoàn tất
+
+== 4. Vô Hiệu Hóa & Kích Hoạt Lại ==
+alt Vô hiệu hóa mã QR
+    Admin -> WebAdmin: Bấm "Vô hiệu"
+    WebAdmin -> Backend: POST /api/v1/qr/{id}/deactivate
+    Backend -> DB: updateOne({ _id }, { $set: { is_active: false } })
+    DB --> Backend: modified_count: 1
+    Backend --> WebAdmin: { success: true }
+    WebAdmin -> WebAdmin: Cập nhật thẻ sang màu đỏ "Đã vô hiệu"
+else Kích hoạt lại mã QR
+    Admin -> WebAdmin: Bấm "Kích hoạt"
+    WebAdmin -> Backend: POST /api/v1/qr/{id}/activate
+    Backend -> DB: updateOne({ _id }, { $set: { is_active: true } })
+    DB --> Backend: modified_count: 1
+    Backend --> WebAdmin: { success: true }
+    WebAdmin -> WebAdmin: Cập nhật thẻ sang màu xanh "Đang hiệu lực"
+end
+
+== 5. Tự Động Xóa Mã QR Khi Xóa POI (Cascade Deletion) ==
+Admin -> WebAdmin: Quản trị viên xóa POI (/pois)
+WebAdmin -> Backend: DELETE /api/v1/pois/{poi_id}
+Backend -> DB: updateOne({ _id: poi_id }, { $set: { deleted_at: now, is_active: false } })
+Backend -> DB: deleteMany({ poi_id: poi_id }) [Collection: qr_codes]
+DB --> Backend: Xóa vĩnh viễn tất cả mã QR liên quan
+Backend --> WebAdmin: 204 No Content
+WebAdmin -> WebAdmin: Danh sách /qr-codes tự động loại bỏ mã QR của POI vừa xóa
+
+@enduml
+

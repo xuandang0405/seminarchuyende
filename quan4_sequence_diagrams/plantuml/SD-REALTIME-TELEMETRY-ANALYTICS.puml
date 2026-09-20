@@ -1,0 +1,64 @@
+@startuml SD-REALTIME-TELEMETRY-ANALYTICS
+title SD-REALTIME-TELEMETRY-ANALYTICS: Thu Thập Telemetry Thật 100% & Tổng Hợp Dashboard Thời Gian Thực
+caption Luồng dữ liệu: Tourist Client (Web/Mobile) -> Ingestion API -> MongoDB -> Real-time Aggregation -> Admin Dashboard
+
+skinparam shadowing false
+skinparam defaultFontName "Arial"
+skinparam defaultFontSize 12
+skinparam sequenceMessageAlign center
+
+actor "Du Khách (Web/Mobile)" as Tourist
+box "Client Applications" #F1F5F9
+participant "Web Tourist Map\n(TouristMap.tsx)" as WebClient
+participant "Mobile App\n(React Native Expo)" as MobileClient
+end box
+
+box "Telemetry & Ingestion Engine" #EFF6FF
+participant "Events Router\n(/analytics/events/batch)" as EventsRouter
+participant "Payment Engine\n(/payments/payos)" as PaymentRouter
+participant "Analytics Service" as AnalyticsService
+end box
+
+box "MongoDB 7.0 Storage (100% Real Data)" #ECFDF5
+database "analytics_events\n(Raw Event Log)" as DB_Events
+database "orders\n(Paid & Pending Orders)" as DB_Orders
+database "analytics_sessions\n(Active Heartbeats)" as DB_Sessions
+database "analytics_poi_daily_metrics\n(Aggregated Counters)" as DB_Metrics
+end box
+
+actor "Quản Trị Viên (Admin)" as Admin
+participant "Admin Dashboard\n(/admin/overview)" as DashboardUI
+
+== 1. DU KHÁCH PHÁT SINH HÀNH ĐỘNG THẬT TRÊN HỆ THỐNG ==
+alt Khách bấm nghe thuyết minh âm thanh
+    Tourist -> WebClient: Bấm "Nghe Thuyết Minh" (POI)
+    WebClient -> EventsRouter: POST /events/batch\n{event_type: "audio_play", poi_id, device_id, locale}
+    EventsRouter -> DB_Events: insert_one(event_doc)
+    EventsRouter -> DB_Metrics: $inc: {listen_started_count: 1, audio_plays: 1},\n$addToSet: {unique_device_ids: device_id}
+    EventsRouter --> WebClient: 200 OK (per-item ACK)
+else Khách nghe xong trọn vẹn bài thuyết minh
+    WebClient -> EventsRouter: POST /events/batch\n{event_type: "audio_completed", poi_id, device_id}
+    EventsRouter -> DB_Events: insert_one(event_doc)
+    EventsRouter -> DB_Metrics: $inc: {listen_completed_count: 1}
+    EventsRouter --> WebClient: 200 OK
+else Khách mua vé Tour thành công qua PayOS / VietQR
+    Tourist -> PaymentRouter: Thanh toán đơn hàng (PayOS Webhook)
+    PaymentRouter -> DB_Orders: update_one(order_id, {status: "paid", amount_vnd})
+    PaymentRouter --> Tourist: Cấp vé điện tử thành công
+else Khách quét mã QR tại điểm đến
+    Tourist -> MobileClient: Quét mã QR tại bảng di tích
+    MobileClient -> EventsRouter: POST /events/batch\n{event_type: "qr_scanned", poi_id}
+    EventsRouter -> DB_Events: insert_one(event_doc)
+end
+
+== 2. QUẢN TRỊ VIÊN XEM BÁO CÁO THỐNG KÊ THẬT 100% ==
+Admin -> DashboardUI: Truy cập https://seminar.bkpvp.top/admin/
+DashboardUI -> AnalyticsService: GET /api/v1/analytics/overview
+AnalyticsService -> DB_Orders: find({status: "paid"}) -> Tính tổng tiền vé & gom nhóm theo tour
+AnalyticsService -> DB_Sessions: count_documents(last_seen_at >= now - 15m) -> Số người đang dùng thật
+AnalyticsService -> DB_Metrics: $sum: listen_started_count, listen_completed_count -> Tổng lượt nghe thật
+AnalyticsService -> DB_Events: count_documents(event_type: "qr_scanned") -> Tổng lượt quét QR thật
+AnalyticsService --> DashboardUI: 200 OK (Toàn bộ dữ liệu tính toán từ DB thật 100%)
+DashboardUI --> Admin: Hiển thị bảng số liệu chuẩn xác tuyệt đối, không có số ảo!
+
+@enduml

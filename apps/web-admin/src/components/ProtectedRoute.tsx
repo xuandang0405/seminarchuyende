@@ -55,17 +55,19 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
     );
   }
 
-  // 3. Anonymous: redirect to login
+  // 3. Anonymous: redirect to admin login for protected admin/owner routes
   if (status === 'anonymous' || !user) {
-    return <Navigate to="/login" state={{ from: location }} replace />;
+    return <Navigate to="/admin/login" state={{ from: location }} replace />;
   }
 
-  // 4. Role restrictions
+  // 4. User role ('user') is strictly restricted to /client only
+  if (user.role === 'user') {
+    return <Navigate to="/client" replace />;
+  }
+
+  // 5. Role restrictions
   if (allowedRoles && allowedRoles.length > 0) {
     if (!allowedRoles.includes(user.role)) {
-      if (user.role === 'user') {
-        return <Navigate to="/account" replace />;
-      }
       return <Navigate to="/403" replace />;
     }
   }

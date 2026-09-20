@@ -21,6 +21,7 @@ class LanguageUpdate(BaseModel):
 
 class LanguageResponse(LanguageBase):
     id: str = Field(..., alias="_id")
+    code: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 

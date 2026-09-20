@@ -1,0 +1,36 @@
+@startuml
+!theme plain
+autonumber
+skinparam defaultFontName "Arial"
+skinparam BoxPadding 10
+skinparam ParticipantPadding 10
+
+title Sequence Diagram: Chỉnh Sửa Chính Sách Vé Tour Không Lỗi [object Object] (T12, C15, P01)
+
+actor "Quản Trị Viên" as Admin
+participant "Giao Diện React\n(/tours)" as WebAdmin
+participant "FastAPI Server\n(/api/v1/tours)" as Backend
+participant "TourPricingValidator\n(Pydantic Schema)" as Validator
+participant "MongoDB Atlas\n(tours)" as DB
+
+Admin -> WebAdmin: Chọn Tour & bấm "Chỉnh Sửa Giá Vé"
+WebAdmin -> Admin: Mở modal nhập giá vé (VND) & công tắc Mở bán
+
+Admin -> WebAdmin: Nhập giá vé (VD: 50.000 VND) & bấm "Lưu Thay Đổi"
+WebAdmin -> Backend: PUT /api/v1/tours/{id}/pricing\nPayload: { price_amount: 50000, is_purchasable: true, currency: 'VND' }
+
+Backend -> Validator: Kiểm tra & chuẩn hóa dữ liệu đầu vào
+alt Dữ liệu hợp lệ
+    Validator --> Backend: TourPricingUpdateRequest hợp lệ
+    Backend -> DB: updateOne({ _id }, { $set: { price_amount: 50000, is_purchasable: true, ... } })
+    DB --> Backend: Document tour đã cập nhật
+    Backend --> WebAdmin: HTTP 200 OK\n{ success: true, message: "Cập nhật thành công", tour: {...} }
+    WebAdmin -> WebAdmin: Hiển thị Toast thông báo xanh & cập nhật UI
+else Dữ liệu không hợp lệ (Validation Error)
+    Validator --> Backend: ValidationError [{ loc, msg, type }]
+    Backend --> WebAdmin: HTTP 422 Unprocessable Entity\n{ detail: [ { msg: "..." } ] }
+    WebAdmin -> WebAdmin: Bóc tách errDetail = d.map(x => x.msg).join(', ')\n(Loại bỏ hoàn toàn lỗi '[object Object]')
+    WebAdmin -> Admin: Hiển thị thông báo lỗi rõ nghĩa
+end
+
+@enduml

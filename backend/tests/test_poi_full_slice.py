@@ -98,3 +98,51 @@ async def test_publication_readiness_gate(client: AsyncClient):
     assert gate_data["activation_requested"] is True
     assert gate_data["gate_passed"] is False
     assert len(gate_data["reasons"]) > 0
+
+
+@pytest.mark.asyncio
+async def test_poi_deletion_cascades_qr(client: AsyncClient):
+    """Test that deleting a POI cascade deletes all associated QR codes."""
+    # 1. Login as admin
+    login_resp = await client.post("/api/v1/admin/auth/login", json={
+        "email": "admin@tourvoice.vn",
+        "password": "Admin@123456"
+    })
+    token = login_resp.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # 2. Create test POI
+    create_resp = await client.post("/api/v1/pois", json={
+        "name": "Địa Điểm Test Cascade Xóa",
+        "description": "Địa điểm kiểm thử xóa QR theo POI.",
+        "location": {"type": "Point", "coordinates": [106.702, 10.761]},
+    }, headers=headers)
+    assert create_resp.status_code == 201
+    poi_id = create_resp.json()["_id"]
+
+    # 3. Create QR code for this POI
+    qr_code = f"QR-CASCADE-{poi_id[-6:]}"
+    qr_create_resp = await client.post("/api/v1/qr", json={
+        "poi_id": poi_id,
+        "code": qr_code,
+        "location_description": "Cổng kiểm thử"
+    }, headers=headers)
+    assert qr_create_resp.status_code == 201
+
+    # 4. Verify QR is resolvable
+    resolve_resp = await client.get(f"/api/v1/qr/{qr_code}")
+    assert resolve_resp.status_code == 200
+
+    # 5. Delete the POI
+    delete_resp = await client.delete(f"/api/v1/pois/{poi_id}", headers=headers)
+    assert delete_resp.status_code == 204
+
+    # 6. Verify QR is no longer resolvable (404)
+    resolve_after = await client.get(f"/api/v1/qr/{qr_code}")
+    assert resolve_after.status_code == 404
+
+    # 7. Verify QR does not appear in admin list
+    qr_list_resp = await client.get("/api/v1/qr", headers=headers)
+    assert qr_list_resp.status_code == 200
+    all_codes = [q["code"] for q in qr_list_resp.json()]
+    assert qr_code not in all_codes

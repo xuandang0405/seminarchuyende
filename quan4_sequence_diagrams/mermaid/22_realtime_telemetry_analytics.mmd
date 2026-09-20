@@ -1,0 +1,36 @@
+%% Sơ đồ tuần tự: Thu thập Telemetry Thật 100% & Tổng hợp Báo cáo Dashboard Thời Gian Thực
+sequenceDiagram
+    autonumber
+    actor Tourist as Du Khách (Web/Mobile)
+    participant Client as Ứng Dụng Client (Web / Mobile App)
+    participant Router as Telemetry Router (/analytics/events/batch)
+    participant Payment as Payment Gateway (PayOS / VietQR)
+    participant DB as MongoDB 7.0 (Events, Orders, Sessions, POI)
+    participant Admin as Quản Trị Viên (Web Admin)
+    participant Dashboard as Dashboard API (/analytics/overview)
+
+    rect rgb(240, 253, 244)
+        note over Tourist, DB: 1. Phát Sinh Sự Kiện & Giao Dịch Thật
+        Tourist->>Client: Bấm nghe thuyết minh âm thanh
+        Client->>Router: POST /events/batch (audio_play, poi_id, device_id)
+        Router->>DB: Ghi nhận event vào analytics_events & $inc lượt nghe
+        Router-->>Client: 200 OK (ACK)
+
+        Tourist->>Client: Nghe hoàn tất bài thuyết minh
+        Client->>Router: POST /events/batch (audio_completed, poi_id)
+        Router->>DB: Ghi nhận event & $inc hoàn thành vào analytics_poi_daily_metrics
+        Router-->>Client: 200 OK
+
+        Tourist->>Payment: Thanh toán mua vé Tour qua PayOS
+        Payment->>DB: Cập nhật đơn hàng (status: "paid", amount_vnd: 79000)
+    end
+
+    rect rgb(238, 242, 255)
+        note over Admin, Dashboard: 2. Tổng Hợp Số Liệu Thật 100% Lên Dashboard
+        Admin->>Dashboard: Mở trang Tổng quan (Dashboard)
+        Dashboard->>DB: find({status: "paid"}) từ collection orders -> Tổng doanh thu vé
+        Dashboard->>DB: count_documents(last_seen_at >= now - 15m) -> Số người đang online thật
+        Dashboard->>DB: $sum: listen_started, listen_completed -> Lượt nghe thật từng POI
+        Dashboard->>DB: count_documents(deleted_at: None) -> Tổng số POI thật (14 điểm)
+        Dashboard-->>Admin: Trả về dữ liệu chính xác 100%, tuyệt đối không có số liệu ảo!
+    end

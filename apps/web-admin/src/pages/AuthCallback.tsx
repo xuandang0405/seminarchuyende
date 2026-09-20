@@ -40,7 +40,9 @@ export const AuthCallback: React.FC = () => {
 
         setStatusMsg('Xác thực thành công! Đang chuyển hướng...');
         setTimeout(() => {
-          navigate(returnTo, { replace: true });
+          // Google login users are strictly directed to /client portal
+          const target = (!returnTo || returnTo === '/' || returnTo === '/login' || returnTo.startsWith('/admin')) ? '/client' : returnTo;
+          navigate(target, { replace: true });
         }, 800);
       } catch (err: any) {
         setErrorMsg(err.message || 'Lỗi xử lý phiên đăng nhập.');
