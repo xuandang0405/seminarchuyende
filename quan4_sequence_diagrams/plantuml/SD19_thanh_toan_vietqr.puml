@@ -1,29 +1,30 @@
 @startuml
-title SD19 - Khách Hàng Đặt Vé Tour & Quét Mã Thanh Toán VietQR
+title SD19 - Khách Hàng Đặt Mua Vé Tour & Quét Mã Thanh Toán VietQR
 autonumber
 skinparam shadowing false
 skinparam defaultFontName "Arial"
 
 actor "Du khách" as User
-participant "Ứng dụng / Web Client" as App
-participant "FastAPI\nPayment Router" as API
-participant "PaymentService" as Service
+participant "Giao diện Web / Client\n(TouristMap Modal)" as App
+participant "FastAPI Server\n(/api/v1/payments)" as API
+participant "PaymentService\n(Backend)" as Service
 participant "VietQR API\n(Napas 247)" as VietQR
-participant "MongoDB\n(orders)" as DB
+participant "MongoDB Atlas\n(orders collection)" as DB
 
-User -> App: Chọn Tour / Món ăn & bấm "Đặt vé / Đặt món"
-App --> User: Hiển thị form nhập thông tin (Họ tên, SĐT, Email, Số lượng)
-User -> App: Nhập thông tin & bấm "Tạo mã thanh toán VietQR"
+User -> App: Xem danh sách Tuyến Tour & bấm "Mua Vé Ngay"
+App --> User: Mở Modal thanh toán (Bước 1: Nhập Họ tên, Email, SĐT)
+User -> App: Xác nhận thông tin & bấm "Tạo Mã VietQR Thanh Toán"
 
-App -> API: POST /api/v1/payments/orders\nBody: { order_type, item_id, item_title, customer_name, customer_phone, customer_email, quantity, unit_price }
-API -> Service: create_order(params)
-Service -> Service: Sinh mã đơn hàng ngẫu nhiên: order_id = "TV-ORD-XXXXXX"\nTính tổng tiền = quantity * unit_price
-Service -> VietQR: Tạo URL mã QR động theo chuẩn Napas 247:\nhttps://api.vietqr.io/image/970422-0909123456-compact2.png?amount=...&addInfo=...
-Service -> DB: insert_one(order_document) với status="pending"
-DB --> Service: Document đã lưu
-Service --> API: Order data kèm vietqr_url & bank_info
+App -> API: POST /api/v1/payments/orders\nBody: { order_type: "tour_ticket", item_id, item_title, customer_name, customer_email, customer_phone, unit_price, payment_method: "vietqr" }
+API -> Service: create_order(...)
+Service -> Service: Sinh mã đơn hàng: order_id = "TV-ORD-XXXXXX"\nTính tổng tiền theo giá vé tour
+Service -> VietQR: Tạo URL mã QR động Napas 247:\nhttps://api.vietqr.io/image/970422-0987654321-compact2.png?amount=...&addInfo=TV-ORD-XXXXXX
+Service -> DB: insert_one(order_doc) với status="pending"
+DB --> Service: Document đã lưu thành công
+Service --> API: Order data kèm vietqr_url & bank_info MB Bank
 API --> App: 201 Created { status: "success", data: order }
 
-App --> User: Hiển thị mã VietQR động, Số tài khoản MB Bank,\nSố tiền chính xác & Nội dung chuyển khoản TV-ORD-XXXXXX
-User -> User: Mở App Ngân hàng (Mobile Banking) quét mã QR chuyển khoản
+App -> App: Chuyển sang Bước 2: Hiển thị Mã VietQR động\n- Ngân hàng: MB Bank (Quân Đội)\n- Số tài khoản & Tên chủ tài khoản\n- Số tiền chính xác & Mã nội dung chuyển tiền (có nút Copy)\n- Bắt đầu Polling tự động kiểm tra trạng thái mỗi 3 giây
+App --> User: Hiển thị giao diện quét mã QR Napas 247
+User -> User: Mở ứng dụng Ngân hàng di động (Mobile Banking) quét mã QR chuyển khoản
 @enduml

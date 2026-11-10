@@ -26,7 +26,11 @@ async def start_tour_session_endpoint(
 ):
     """Starts a new tour session with idempotency_key deduplication."""
     token = header_token or cookie_token
-    device_doc, _, _ = await session_service.bootstrap_device(device_token=token)
+    device_doc = await session_service.verify_device_token(token)
+    if not device_doc:
+        raise HTTPException(401, "Yêu cầu thiết bị đã xác thực.")
+    if not device_doc.get("consent_granted") or "events" not in (device_doc.get("consent_scopes") or []):
+        raise HTTPException(403, "Cần đồng ý ghi nhận phiên tham quan.")
     device_id = device_doc["_id"]
 
     tour_session = await session_service.start_tour_session(
@@ -61,6 +65,8 @@ async def patch_tour_session_endpoint(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Device token không hợp lệ."
         )
+    if not device_doc.get("consent_granted") or "events" not in (device_doc.get("consent_scopes") or []):
+        raise HTTPException(403, "Thiết bị đã tắt ghi nhận phiên tham quan.")
 
     status_val = req.status.value if req.status and hasattr(req.status, "value") else (str(req.status) if req.status else None)
 

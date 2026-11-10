@@ -7,10 +7,13 @@ Implements:
 """
 
 from typing import Any, Dict, List, Optional, Tuple
+from datetime import datetime, timezone, timedelta
+from fastapi import HTTPException
 
 from app.repositories.device_repo import device_repo
-from app.repositories.session_repo import session_repo
+from app.repositories.session_repo import session_repo, SESSION_INACTIVITY_TIMEOUT_MINUTES
 from app.repositories.tour_session_repo import tour_session_repo
+from app.repositories.tour_repo import tour_repo
 
 
 class SessionService:
@@ -88,6 +91,16 @@ class SessionService:
         guest_session_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Starts a tour session with client-provided idempotency_key."""
+        tour = await tour_repo.get_public_tour(tour_id)
+        if not tour:
+            raise HTTPException(404, "Tour không tồn tại.")
+        visitor = await session_repo.find_one({"_id": visitor_session_id, "device_id": device_id,
+                                               "status": "active", "consent_granted": True,
+                                               "last_seen_at": {"$gte": datetime.now(timezone.utc) - timedelta(minutes=SESSION_INACTIVITY_TIMEOUT_MINUTES)}})
+        if not visitor:
+            raise HTTPException(404, "Phiên tham quan không còn hiệu lực trên thiết bị này.")
+        if start_poi_id and start_poi_id not in tour.get("poi_ids", []):
+            raise HTTPException(422, "Điểm bắt đầu phải thuộc tuyến tour.")
         return await tour_session_repo.start_tour_session(
             idempotency_key=idempotency_key,
             tour_id=tour_id,
@@ -95,7 +108,8 @@ class SessionService:
             device_id=device_id,
             start_poi_id=start_poi_id,
             user_id=user_id,
-            guest_session_id=guest_session_id
+            guest_session_id=guest_session_id,
+            tour_version=tour.get("version", 1),
         )
 
     async def update_tour_progress(
@@ -108,6 +122,15 @@ class SessionService:
         status: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         """Updates tour session progress or status."""
+        current = await tour_session_repo.find_one({"_id": tour_session_id, "device_id": device_id, "status": "active"})
+        if not current:
+            return None
+        tour = await tour_repo.get_public_tour(current["tour_id"])
+        if not tour:
+            return None
+        stops = set(tour.get("poi_ids", []))
+        if (last_poi_id and last_poi_id not in stops) or set(completed_poi_ids or []) - stops:
+            raise HTTPException(422, "Điểm dừng phải thuộc tuyến tour.")
         return await tour_session_repo.update_progress(
             tour_session_id=tour_session_id,
             device_id=device_id,

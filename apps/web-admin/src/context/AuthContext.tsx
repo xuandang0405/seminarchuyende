@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import { apiUrl } from '../config/runtime';
+import { setApiAccessToken, setApiRefreshHandler } from '../services/apiClient';
 
 export interface UserProfile {
   id: string;
@@ -48,6 +49,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Keep a ref to the latest accessToken for fetchWithAuth closures
   const tokenRef = useRef<string | null>(null);
+  const authGeneration = useRef(0);
   tokenRef.current = accessToken;
 
   // 1. Fetch CSRF token
@@ -75,6 +77,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     activeRefreshPromise = (async () => {
+      const generation = authGeneration.current;
       try {
         const res = await fetch(apiUrl('/auth/refresh'), {
           method: 'POST',
@@ -83,26 +86,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             'Content-Type': 'application/json',
           },
         });
+        if (generation !== authGeneration.current) return null;
 
         if (!res.ok) {
           setAccessToken(null);
           tokenRef.current = null;
-          if (typeof window !== 'undefined' && window.localStorage) {
-            localStorage.removeItem('token');
-            localStorage.removeItem('admin_token');
-          }
+          setApiAccessToken(null);
           setUser(null);
+          setStatus('anonymous');
+          localStorage.removeItem('tourvoice_offline_profile');
           return null;
         }
 
         const data = await res.json();
+        if (generation !== authGeneration.current) return null;
         const newToken = data.access_token;
         setAccessToken(newToken);
         tokenRef.current = newToken;
-        if (typeof window !== 'undefined' && window.localStorage) {
-          localStorage.setItem('token', newToken);
-          localStorage.setItem('admin_token', newToken);
-        }
+        setApiAccessToken(newToken);
 
         // Also fetch user profile /me
         const meRes = await fetch(apiUrl('/auth/me'), {
@@ -114,11 +115,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         if (meRes.ok) {
           const profile = await meRes.json();
+          if (generation !== authGeneration.current) return null;
           setUser(profile);
+          localStorage.setItem('tourvoice_offline_profile', JSON.stringify({ ...profile, role: 'user', permissions: [] }));
           setStatus('authenticated');
         } else {
+          if (generation !== authGeneration.current) return null;
+          setAccessToken(null);
+          tokenRef.current = null;
+          setApiAccessToken(null);
           setUser(null);
           setStatus('anonymous');
+          localStorage.removeItem('tourvoice_offline_profile');
+          return null;
         }
 
         return newToken;
@@ -134,6 +143,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return activeRefreshPromise;
   }, []);
 
+  useEffect(() => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('admin_token');
+    setApiRefreshHandler(performRefresh);
+  }, [performRefresh]);
+
   const refreshSession = useCallback(async (): Promise<boolean> => {
     try {
       const token = await performRefresh();
@@ -145,18 +160,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // 3. Bootstrap authentication on load
   const bootstrapAuth = useCallback(async () => {
+    const generation = authGeneration.current;
     setStatus('loading');
     setBootstrapError(null);
     try {
       await fetchCsrfToken();
-      const token = await performRefresh();
-      if (token) {
-        setStatus('authenticated');
-      } else {
-        setStatus('anonymous');
-      }
+      if (generation === authGeneration.current) await performRefresh();
     } catch (err: any) {
+      if (generation !== authGeneration.current) return;
       // Network error occurred
+      const cached = localStorage.getItem('tourvoice_offline_profile');
+      if (!navigator.onLine && cached) {
+        try {
+          setUser({ ...JSON.parse(cached), role: 'user', permissions: [] });
+          setStatus('authenticated');
+          return;
+        } catch {}
+      }
       setBootstrapError('Không thể kết nối đến máy chủ. Vui lòng kiểm tra kết nối mạng và thử lại.');
       setStatus('error');
     }
@@ -168,18 +188,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // 4. Login helper
   const loginWithData = useCallback((token: string, userProfile: UserProfile) => {
+    ++authGeneration.current;
     setAccessToken(token);
     tokenRef.current = token;
-    if (typeof window !== 'undefined' && window.localStorage) {
-      localStorage.setItem('token', token);
-      localStorage.setItem('admin_token', token);
-    }
+    setApiAccessToken(token);
     setUser(userProfile);
+    localStorage.setItem('tourvoice_offline_profile', JSON.stringify({ ...userProfile, role: 'user', permissions: [] }));
     setStatus('authenticated');
   }, []);
 
   // 5. Logout helper
   const logout = useCallback(async () => {
+    ++authGeneration.current;
+    localStorage.removeItem('tourvoice_offline_profile');
     try {
       await fetch(apiUrl('/auth/logout'), {
         method: 'POST',
@@ -190,10 +211,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } finally {
       setAccessToken(null);
       tokenRef.current = null;
-      if (typeof window !== 'undefined' && window.localStorage) {
-        localStorage.removeItem('token');
-        localStorage.removeItem('admin_token');
-      }
+      setApiAccessToken(null);
       setUser(null);
       setStatus('anonymous');
     }
@@ -201,6 +219,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // 6. Logout all devices
   const logoutAll = useCallback(async () => {
+    ++authGeneration.current;
+    localStorage.removeItem('tourvoice_offline_profile');
     try {
       if (tokenRef.current) {
         await fetch(apiUrl('/auth/logout-all'), {
@@ -216,6 +236,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } finally {
       setAccessToken(null);
       tokenRef.current = null;
+      setApiAccessToken(null);
       setUser(null);
       setStatus('anonymous');
     }

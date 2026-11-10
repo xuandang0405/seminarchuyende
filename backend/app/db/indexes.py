@@ -28,6 +28,7 @@ from app.db.collections import (
     COLLECTION_ANALYTICS_DAILY_METRICS,
     COLLECTION_ANALYTICS_HOURLY_METRICS,
     COLLECTION_ANALYTICS_AGGREGATION_JOBS,
+    COLLECTION_RUNTIME_WEB_PRESENCE,
     COLLECTION_RUNTIME_LOCATION_HOURLY,
     COLLECTION_TOURS,
     COLLECTION_QR_CODES,
@@ -61,9 +62,16 @@ class SafeColProxy:
             return await self._col.create_index(*args, **kwargs)
         except Exception as e:
             err_str = str(e)
-            if "already exists with a different name" in err_str or "code': 85" in err_str or "IndexOptionsConflict" in err_str:
+            if (
+                "already exists" in err_str
+                or "code': 85" in err_str
+                or "code': 86" in err_str
+                or "IndexOptionsConflict" in err_str
+                or "IndexKeySpecsConflict" in err_str
+            ):
+                logger.debug(f"Index notice for {self._col.name}: {err_str}")
                 return None
-            logger.debug(f"Notice creating index on {self._col.name}: {e}")
+            logger.warning(f"Index creation notice for {self._col.name}: {err_str}")
             return None
 
 
@@ -82,6 +90,11 @@ async def create_all_indexes(db: AsyncDatabase):
     """Creates all required compound, unique, 2dsphere and TTL indexes idempotently."""
     logger.info("Starting idempotent index creation for collections...")
     db = SafeDatabaseProxy(db)
+    await db["request_rate_limits"].create_index("expires_at", expireAfterSeconds=0)
+    await db[COLLECTION_ORDERS].create_index("checkout_key", unique=True,
+        partialFilterExpression={"checkout_key": {"$type": "string"}}, name="uq_orders_active_checkout")
+    await db[COLLECTION_PLAYBACK_GRANTS].create_index([("subject_type", 1), ("subject_id", 1), ("idempotency_key", 1)],
+        unique=True, partialFilterExpression={"idempotency_key": {"$type": "string"}}, name="uq_playback_subject_request")
 
     try:
         # 1. roles: unique roles.name
@@ -235,6 +248,9 @@ async def create_all_indexes(db: AsyncDatabase):
             [("started_at", -1)],
             name="idx_analytics_sessions_started_at"
         )
+        await db[COLLECTION_RUNTIME_WEB_PRESENCE].create_index(
+            "expires_at", expireAfterSeconds=0, name="ttl_runtime_web_presence"
+        )
 
         # 15b. tour_sessions: unique tour_session_id, idempotency and progress
         await db[COLLECTION_TOUR_SESSIONS].create_index(
@@ -375,6 +391,7 @@ async def create_all_indexes(db: AsyncDatabase):
         await db[COLLECTION_OFFLINE_PACK_MANIFESTS].create_index(
             [("scope", 1), ("locale", 1), ("version", 1)],
             unique=True,
+            partialFilterExpression={"scope": {"$type": "string"}, "locale": {"$type": "string"}},
             name="uq_offline_pack_scope_loc_ver"
         )
 

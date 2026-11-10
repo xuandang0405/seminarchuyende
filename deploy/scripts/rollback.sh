@@ -50,7 +50,7 @@ echo "✅ Symlink switched to: ${PREV_RELEASE}"
 # Restart backend service
 if command -v systemctl &>/dev/null; then
     echo "Restarting service..."
-    sudo systemctl restart tour-guide-api || true
+    sudo systemctl restart tour-guide-api tour-guide-worker
 fi
 
 # Run smoke test on rolled back version

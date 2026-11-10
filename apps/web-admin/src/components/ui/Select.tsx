@@ -27,7 +27,7 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
           <select
             id={selectId}
             ref={ref}
-            className={`w-full bg-slate-900/90 border rounded-xl text-sm text-slate-100 transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500 px-3.5 py-2.5 appearance-none cursor-pointer disabled:opacity-50 ${
+            className={`w-full bg-slate-900 border rounded text-sm text-slate-100 transition-colors focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 px-3 py-2 appearance-none cursor-pointer disabled:opacity-50 ${
               error ? 'border-rose-500 focus:border-rose-500' : 'border-slate-800 hover:border-slate-700'
             } ${className}`}
             {...props}

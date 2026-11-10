@@ -4,7 +4,8 @@
 """
 
 from typing import Any, Dict, List, Optional
-import uuid
+from fastapi import HTTPException
+from app.services.unit_of_work import run_transaction
 
 from app.repositories.owner_repo import owner_repo
 from app.repositories.poi_repo import poi_repo
@@ -12,22 +13,31 @@ from app.services.poi_admin_service import poi_admin_service
 
 
 class ModerationService:
+    async def review_registration(self, registration_id, decision, admin_id, admin_note=None, expected_version=None):
+        return await run_transaction(lambda s: self._review_registration(
+            registration_id, decision, admin_id, admin_note, expected_version, session=s))
+
+    async def review_submission(self, submission_id, decision, admin_id, admin_note=None, expected_version=None):
+        return await run_transaction(lambda s: self._review_submission(
+            submission_id, decision, admin_id, admin_note, expected_version, session=s))
+
     async def list_pending_registrations(self) -> List[Dict[str, Any]]:
         return await owner_repo.list_pending_registrations()
 
-    async def review_registration(
+    async def _review_registration(
         self,
         registration_id: str,
         decision: str,  # 'approved' or 'rejected'
         admin_id: str,
         admin_note: Optional[str] = None,
-        expected_version: Optional[int] = None
+        expected_version: Optional[int] = None,
+        session=None
     ) -> Dict[str, Any]:
         """Reviews owner registration."""
         if decision not in ("approved", "rejected"):
             return {"success": False, "error": "Quyết định không hợp lệ."}
 
-        reg = await owner_repo.get_by_id(registration_id)
+        reg = await owner_repo.get_by_id(registration_id, session=session)
         if not reg:
             return {"success": False, "error": "Hồ sơ đăng ký không tồn tại."}
 
@@ -39,7 +49,8 @@ class ModerationService:
             status=decision,
             admin_id=admin_id,
             admin_note=admin_note,
-            expected_version=expected_version
+            expected_version=expected_version,
+            session=session
         )
 
         if not updated:
@@ -54,7 +65,8 @@ class ModerationService:
             owner_id=reg["user_id"],
             type="registration_result",
             message=msg,
-            registration_id=registration_id
+            registration_id=registration_id,
+            session=session
         )
 
         return {
@@ -67,19 +79,20 @@ class ModerationService:
     async def list_pending_submissions(self) -> List[Dict[str, Any]]:
         return await owner_repo.list_submissions(status="pending")
 
-    async def review_submission(
+    async def _review_submission(
         self,
         submission_id: str,
         decision: str,  # 'approved' or 'rejected'
         admin_id: str,
         admin_note: Optional[str] = None,
-        expected_version: Optional[int] = None
+        expected_version: Optional[int] = None,
+        session=None
     ) -> Dict[str, Any]:
         """Reviews POI content submission."""
         if decision not in ("approved", "rejected"):
             return {"success": False, "error": "Quyết định không hợp lệ."}
 
-        sub = await owner_repo.get_submission(submission_id)
+        sub = await owner_repo.get_submission(submission_id, session=session)
         if not sub:
             return {"success": False, "error": "Đề xuất nội dung không tồn tại."}
 
@@ -91,7 +104,8 @@ class ModerationService:
             status=decision,
             admin_id=admin_id,
             admin_note=admin_note,
-            expected_version=expected_version
+            expected_version=expected_version,
+            session=session
         )
 
         if not updated:
@@ -100,23 +114,32 @@ class ModerationService:
         # If approved, apply payload to POI
         applied_poi_id = sub.get("poi_id")
         if decision == "approved":
-            payload = sub.get("payload", {})
+            payload = dict(sub.get("payload", {}))
             action = sub.get("action", "create")
 
             if action == "create":
                 payload["owner_id"] = sub["owner_id"]
-                created_poi = await poi_admin_service.create_poi(payload, created_by=admin_id)
+                created_poi = await poi_admin_service.create_poi(payload, created_by=admin_id, session=session)
                 applied_poi_id = created_poi["_id"]
             elif action == "update" and applied_poi_id:
                 # Update existing POI
-                poi = await poi_repo.get_by_id(applied_poi_id)
+                poi = await poi_repo.get_by_id(applied_poi_id, session=session)
+                if not poi or poi.get("deleted_at") or poi.get("owner_id") != sub["owner_id"]:
+                    raise HTTPException(409, "POI đã bị xóa hoặc đổi chủ. Đề xuất chưa được duyệt.")
                 if poi:
-                    await poi_admin_service.update_poi(
+                    applied = await poi_admin_service.update_poi(
                         poi_id=applied_poi_id,
                         update_fields=payload,
                         expected_version=poi.get("version", 1),
-                        content_changed=True
+                        content_changed=True,
+                        session=session
                     )
+                    if not applied:
+                        raise HTTPException(409, "POI đã thay đổi. Vui lòng tải lại trước khi duyệt.")
+            else:
+                raise HTTPException(422, "Đề xuất thiếu thao tác hoặc POI hợp lệ.")
+            await owner_repo.submissions_col.update_one({"_id": submission_id},
+                {"$set": {"applied_poi_id": applied_poi_id}}, **({"session": session} if session else {}))
 
         # Send in-app notification to owner
         msg = f"Đề xuất nội dung của bạn đã được {'phê duyệt' if decision == 'approved' else 'từ chối'}."
@@ -127,7 +150,8 @@ class ModerationService:
             owner_id=sub["owner_id"],
             type="submission_result",
             message=msg,
-            submission_id=submission_id
+            submission_id=submission_id,
+            session=session
         )
 
         return {

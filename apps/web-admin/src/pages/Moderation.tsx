@@ -1,9 +1,11 @@
+import { useLiveRefresh } from '../services/useLiveRefresh';
 import React, { useEffect, useState } from 'react';
 import { CheckCircle, XCircle, Clock, ShieldCheck, UserCheck, AlertCircle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { EmptyState, PageHeader } from '../components/ui';
 
 export const Moderation: React.FC = () => {
-  const { token } = useAuth();
+  const { token, fetchWithAuth } = useAuth();
   const [activeTab, setActiveTab] = useState<'registrations' | 'submissions'>('registrations');
   const [registrations, setRegistrations] = useState<any[]>([]);
   const [submissions, setSubmissions] = useState<any[]>([]);
@@ -12,28 +14,32 @@ export const Moderation: React.FC = () => {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  const fetchData = async () => {
-    setLoading(true);
+  const fetchData = async (background = false) => {
+    if (!background) setLoading(true);
     try {
       if (activeTab === 'registrations') {
-        const res = await fetch('/api/v1/admin/moderation/registrations', {
+        const res = await fetchWithAuth('/api/v1/admin/moderation/registrations', {
           headers: { Authorization: `Bearer ${token}` },
         });
+        if (!res.ok) throw new Error('Không tải được hàng đợi duyệt.');
         const data = await res.json();
         setRegistrations(Array.isArray(data) ? data : []);
       } else {
-        const res = await fetch('/api/v1/admin/moderation/submissions', {
+        const res = await fetchWithAuth('/api/v1/admin/moderation/submissions', {
           headers: { Authorization: `Bearer ${token}` },
         });
+        if (!res.ok) throw new Error('Không tải được hàng đợi duyệt.');
         const data = await res.json();
         setSubmissions(Array.isArray(data) ? data : []);
       }
     } catch (err) {
-      console.error(err);
+      if (!background) setMessage({ type: 'error', text: 'Không tải được hàng đợi duyệt. Vui lòng thử lại.' });
     } finally {
       setLoading(false);
     }
   };
+
+  useLiveRefresh(() => fetchData(true), !!token);
 
   useEffect(() => {
     fetchData();
@@ -43,7 +49,7 @@ export const Moderation: React.FC = () => {
     setActionLoading(id);
     setMessage(null);
     try {
-      const res = await fetch(`/api/v1/admin/moderation/registrations/${id}`, {
+      const res = await fetchWithAuth(`/api/v1/admin/moderation/registrations/${id}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -72,7 +78,7 @@ export const Moderation: React.FC = () => {
     setActionLoading(id);
     setMessage(null);
     try {
-      const res = await fetch(`/api/v1/admin/moderation/submissions/${id}`, {
+      const res = await fetchWithAuth(`/api/v1/admin/moderation/submissions/${id}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -98,13 +104,8 @@ export const Moderation: React.FC = () => {
   };
 
   return (
-    <div className="p-8 space-y-8 max-w-7xl mx-auto">
-      <div>
-        <h1 className="text-2xl font-bold text-white tracking-tight">Trung Tâm Kiểm Duyệt (Moderation)</h1>
-        <p className="text-sm text-slate-400 mt-1">
-          Xét duyệt hồ sơ đăng ký chủ quán (C06) và kiểm duyệt nội dung đề xuất POI mới (C07)
-        </p>
-      </div>
+    <div className="console-page space-y-5 sm:space-y-6">
+      <PageHeader title="Kiểm duyệt nội dung" description="Xét duyệt hồ sơ chủ sạp và đề xuất thông tin địa điểm." />
 
       {message && (
         <div className={`p-4 rounded-xl text-sm font-medium flex items-center space-x-2 ${
@@ -118,35 +119,29 @@ export const Moderation: React.FC = () => {
       )}
 
       {/* Tabs */}
-      <div className="flex space-x-2 border-b border-slate-800">
+      <div className="console-tabs" role="group" aria-label="Nội dung kiểm duyệt">
         <button
+          type="button"
+          aria-pressed={activeTab === 'registrations'}
           onClick={() => setActiveTab('registrations')}
-          className={`pb-3 px-4 text-sm font-semibold border-b-2 transition-all ${
-            activeTab === 'registrations'
-              ? 'border-indigo-500 text-indigo-400'
-              : 'border-transparent text-slate-400 hover:text-slate-200'
-          }`}
         >
-          Hồ Sơ Đăng Ký Chủ Quán
+          Hồ sơ chủ sạp
         </button>
         <button
+          type="button"
+          aria-pressed={activeTab === 'submissions'}
           onClick={() => setActiveTab('submissions')}
-          className={`pb-3 px-4 text-sm font-semibold border-b-2 transition-all ${
-            activeTab === 'submissions'
-              ? 'border-indigo-500 text-indigo-400'
-              : 'border-transparent text-slate-400 hover:text-slate-200'
-          }`}
         >
-          Đề Xuất Nội Dung Chờ Duyệt
+          Đề xuất địa điểm
         </button>
       </div>
 
       {/* Content */}
       {loading ? (
-        <div className="text-center py-16 text-slate-400">Đang tải danh sách kiểm duyệt...</div>
+        <div className="console-panel text-center py-10 text-slate-400" role="status">Đang tải danh sách kiểm duyệt…</div>
       ) : activeTab === 'registrations' ? (
         registrations.length === 0 ? (
-          <div className="text-center py-16 text-slate-500">Hiện không có hồ sơ chủ quán nào chờ duyệt.</div>
+          <EmptyState title="Chưa có hồ sơ chờ duyệt" description="Hồ sơ chủ sạp mới sẽ xuất hiện ở đây." icon={<UserCheck size={22} />} />
         ) : (
           <div className="space-y-4">
             {registrations.map((reg) => (
@@ -184,7 +179,7 @@ export const Moderation: React.FC = () => {
         )
       ) : (
         submissions.length === 0 ? (
-          <div className="text-center py-16 text-slate-500">Hiện không có đề xuất nội dung nào chờ duyệt.</div>
+          <EmptyState title="Chưa có đề xuất chờ duyệt" description="Thông tin địa điểm do chủ sạp gửi sẽ xuất hiện ở đây." icon={<ShieldCheck size={22} />} />
         ) : (
           <div className="space-y-4">
             {submissions.map((sub) => (

@@ -22,14 +22,14 @@ async def _resolve_device_id(
     body_token: Optional[str],
     header_token: Optional[str],
     cookie_token: Optional[str],
-    platform: str = "web",
 ) -> str:
-    """Helper to verify token or bootstrap an anonymous device identity."""
+    """Resolves an existing device with active analytics consent."""
     token = body_token or header_token or cookie_token
-    device_doc, _, _ = await session_service.bootstrap_device(
-        device_token=token,
-        platform=platform
-    )
+    device_doc = await session_service.verify_device_token(token)
+    if not device_doc:
+        raise HTTPException(401, "Yêu cầu thiết bị đã xác thực.")
+    if not device_doc.get("consent_granted") or "events" not in (device_doc.get("consent_scopes") or []):
+        raise HTTPException(403, "Cần đồng ý thu thập thống kê để ghi nhận phiên tham quan.")
     return device_doc["_id"]
 
 
@@ -45,15 +45,16 @@ async def start_or_resume_visitor_session(
         body_token=req.device_token,
         header_token=header_token,
         cookie_token=cookie_token,
-        platform=platform_str
     )
+    if req.consent_granted is False:
+        raise HTTPException(403, "Chưa đồng ý ghi nhận phiên tham quan.")
 
     sess = await session_service.start_or_resume_visitor_session(
         device_id=device_id,
         platform=platform_str,
         app_version=req.app_version,
         locale=req.locale,
-        consent_granted=req.consent_granted,
+        consent_granted=True,
         consent_version=req.consent_version
     )
     return sess
@@ -79,6 +80,8 @@ async def visitor_session_heartbeat(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Device token không hợp lệ."
         )
+    if not device_doc.get("consent_granted") or "events" not in (device_doc.get("consent_scopes") or []):
+        raise HTTPException(403, "Thiết bị đã tắt ghi nhận phiên tham quan.")
 
     updated = await session_service.heartbeat_visitor_session(
         session_id=session_id,

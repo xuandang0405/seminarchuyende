@@ -38,6 +38,8 @@ COLLECTION_ANALYTICS_POI_DAILY_METRICS = "analytics_poi_daily_metrics"
 COLLECTION_ANALYTICS_DAILY_METRICS = "analytics_daily_metrics"
 COLLECTION_ANALYTICS_HOURLY_METRICS = "analytics_hourly_metrics"
 COLLECTION_ANALYTICS_AGGREGATION_JOBS = "analytics_aggregation_jobs"
+COLLECTION_RUNTIME_WEB_PRESENCE = "runtime_web_presence"
+COLLECTION_RUNTIME_AUDIO_DAILY = "runtime_audio_daily"
 
 # Runtime Observability
 COLLECTION_RUNTIME_LOCATION_HOURLY = "runtime_location_hourly"

@@ -1,47 +1,48 @@
 @startuml
-title 04_gps_tu_dong_thuyet_minh
+title SD04 - Hiển Thị Vòng Bán Kính Geofence & Tự Động Thuyết Minh Theo Độ Ưu Tiên
 autonumber
 skinparam shadowing false
 skinparam defaultFontName "Arial"
 
-participant "GPS" as Dịch vụ vị trí
-participant "Geo" as Geofence trên ứng dụng
-participant "Audio" as Narration trên ứng dụng
-participant "Cache" as Bộ nhớ offline
-participant "API" as API nội dung và audio
-GPS -> Geo: Cập nhật tọa độ và độ chính xác
-Geo -> Geo: Kiểm tra bán kính, debounce, cooldown và ưu tiên
-alt Chưa đủ điều kiện
-Geo -> Geo: Tiếp tục theo dõi vị trí
-else POI đủ điều kiện
-Geo -> Audio: Gửi sự kiện POI và ngôn ngữ hiện tại
-Audio -> Audio: Loại sự kiện trùng và sắp xếp hàng chờ
-opt Mục được chọn đã đến lượt phát
-Audio -> Cache: Tìm audio phù hợp với POI và ngôn ngữ
-Cache- -> Audio: Có file hoặc chưa có
-alt Có audio đã tải
-Audio -> Audio: Chọn file offline
-else Trường hợp còn lại
-alt Chưa có audio nhưng có mạng
-Audio -> API: Yêu cầu nội dung và nguồn audio phù hợp
-alt Tải hoặc tạo audio thành công
-API- -> Audio: Audio hoặc URL cùng phiên bản nội dung
-Audio -> Cache: Lưu tài nguyên tải thành công
-else API lỗi hoặc quá thời gian
-API- -> Audio: Kết quả lỗi
-Audio -> Audio: Chọn nguồn dự phòng nếu còn khả dụng
+actor "Du khách" as User
+participant "Leaflet Map UI\n(TouristMap)" as Map
+participant "Geofence Engine\n(Haversine & Priority)" as Engine
+participant "Audio Player\n(HTML5 Audio)" as Audio
+participant "FastAPI Server\n(/api/v1/pois)" as API
+
+== 1. Khởi Tạo & Hiển Thị Vòng Tròn Bán Kính POI ==
+Map -> API: GET /api/v1/pois?lang={lang}
+API --> Map: Danh sách POIs kèm tọa độ, trigger_radius (m) và priority (1-100)
+Map -> Map: Vẽ vòng tròn L.circle(lat, lon, radius) quanh từng POI\n- Viền tím/xám khi ở ngoài (Standby)\n- Gắn Tooltip: Bán kính phát & Mức ưu tiên Lv.X
+Map --> User: Hiển thị các vòng tròn bán kính kích hoạt trên nền bản đồ
+
+== 2. Di Chuyển & Kích Hoạt Vòng Tròn Theo Độ Ưu Tiên ==
+User -> Map: Di chuyển trong Quận 4 (GPS thời gian thực hoặc Mô phỏng)
+Map -> Engine: Cập nhật tọa độ (currentLat, currentLng)
+Engine -> Engine: Tính khoảng cách d = Haversine(userPos, poiPos) cho từng POI
+
+loop Với mọi POI trong hệ thống
+    alt Khoảng cách d <= trigger_radius
+        Engine -> Engine: Đưa POI vào danh sách ứng viên trong vùng (insidePois)
+        Map -> Map: Đổi màu vòng tròn L.circle sang Xanh Emerald (#10b981)\nHiển thị trạng thái "🟢 Bạn đang ở trong vòng phát!"
+    else d > trigger_radius
+        Map -> Map: Giữ màu vòng tròn ở trạng thái chờ (#64748b)
+    end
 end
-else Không có mạng và không có file
-Audio -> Audio: Dùng text và giọng local đã có nếu phù hợp
-end
-end
-Audio -> Audio: Kiểm tra lại request token và ngôn ngữ
-alt Yêu cầu còn hiệu lực và có nguồn phát
-Audio -> Audio: Phát thuyết minh và cập nhật trạng thái phát
-Audio- -> Geo: Thông báo đã bắt đầu phát POI
-else Yêu cầu đã cũ hoặc không có nội dung
-Audio -> Audio: Bỏ kết quả cũ hoặc báo chưa có nội dung
-end
-end
+
+alt insidePois không rỗng (Du khách ở trong 1 hoặc nhiều vòng tròn POI)
+    Engine -> Engine: Sắp xếp các POI theo thuật toán Ưu Tiên Tuyệt Đối:\n1. POI có priority cao hơn được xếp trước (b.priority - a.priority)\n2. Nếu priority bằng nhau, POI gần hơn xếp trước (a.dist - b.dist)
+    Engine -> Engine: Lọc tìm POI ưu tiên cao nhất chưa phát (!playedPoiIds.has(poiId))
+
+    alt Tìm thấy POI thỏa mãn
+        Engine -> Map: Kích hoạt POI ưu tiên cao nhất
+        Map -> Map: Hiển thị Toast thông báo: "Đã bước vào bán kính Xm • Ưu tiên Lv.Y"
+        Map -> Audio: playAudio(poi, lang)
+        Audio -> Audio: Tải audio theo ngôn ngữ hiện tại và phát qua loa/tai nghe
+        Audio --> User: Âm thanh thuyết minh tự động vang lên
+        Map -> Engine: Đánh dấu POI đã phát vào playedPoiIds
+    else Tất cả POI trong vùng đã được phát trước đó
+        Engine -> Engine: Không phát lại (tránh lặp tiếng ồn)
+    end
 end
 @enduml

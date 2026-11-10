@@ -31,12 +31,16 @@ class TrialRepository(BaseRepository):
             # Check if a pending reservation has expired; if so, recover to available
             if doc.get("state") == "reserved":
                 expires_at = doc.get("reservation_expires_at")
-                if expires_at and expires_at < datetime.now(timezone.utc):
-                    await self.collection.update_one(
-                        {"_id": doc["_id"], "state": "reserved"},
+                if expires_at and expires_at.replace(tzinfo=timezone.utc) < datetime.now(timezone.utc):
+                    released = await self.collection.update_one(
+                        {"_id": doc["_id"], "state": "reserved", "reservation_id": doc.get("reservation_id"),
+                         "reservation_expires_at": expires_at},
                         {"$set": {"state": "available", "reservation_id": None, "updated_at": datetime.now(timezone.utc)}}
                     )
-                    doc["state"] = "available"
+                    if released.modified_count:
+                        doc["state"] = "available"
+                    else:
+                        return await self.collection.find_one({"_id": doc["_id"]})
             return doc
 
         now = datetime.now(timezone.utc)
@@ -76,12 +80,11 @@ class TrialRepository(BaseRepository):
         tour_id: str,
         poi_id: str,
         lang: str,
-        idempotency_key: Optional[str] = None,
         duration_minutes: int = 15
     ) -> Tuple[bool, Optional[str], Optional[Dict[str, Any]]]:
         """Atomically reserves the single free trial quota using conditional update."""
         now = datetime.now(timezone.utc)
-        reservation_id = idempotency_key or str(uuid.uuid4())
+        reservation_id = str(uuid.uuid4())
         expires_at = now + timedelta(minutes=duration_minutes)
 
         # 1. First ensure the document exists
@@ -89,14 +92,10 @@ class TrialRepository(BaseRepository):
         if not usage:
             return False, "CANNOT_INITIALIZE_USAGE", None
 
-        # 2. Check if already reserved with the same idempotency_key/reservation_id
-        if usage.get("state") == "reserved" and usage.get("reservation_id") == reservation_id:
-            return True, reservation_id, usage
-
         if usage.get("state") == "consumed":
             return False, "TRIAL_EXHAUSTED", usage
 
-        # 3. Conditional atomic update: state must be 'available' OR ('reserved' with expired time)
+        # The quota can only be reserved again after the old reservation expires.
         res = await self.collection.find_one_and_update(
             {
                 "subject_type": subject_type,
@@ -132,9 +131,10 @@ class TrialRepository(BaseRepository):
         subject_id: str,
         policy_version: int,
         reservation_id: str,
-        playback_id: str
+        playback_id: str,
+        session=None,
     ) -> bool:
-        """Transitions state from 'reserved' to 'consumed' on first media delivery."""
+        """Consumes a current reservation when issuing its playback grant."""
         now = datetime.now(timezone.utc)
         res = await self.collection.update_one(
             {
@@ -142,7 +142,8 @@ class TrialRepository(BaseRepository):
                 "subject_id": subject_id,
                 "policy_version": policy_version,
                 "state": "reserved",
-                "reservation_id": reservation_id
+                "reservation_id": reservation_id,
+                "reservation_expires_at": {"$gt": now},
             },
             {
                 "$set": {
@@ -151,7 +152,8 @@ class TrialRepository(BaseRepository):
                     "playback_id": playback_id,
                     "updated_at": now
                 }
-            }
+            },
+            **({"session": session} if session else {}),
         )
         return res.modified_count > 0
 

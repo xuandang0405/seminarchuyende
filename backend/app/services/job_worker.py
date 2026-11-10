@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from typing import Optional, Dict, Any
 from app.repositories.job_repo import job_repo
 from app.repositories.content_repo import content_repo
-from app.repositories.audio_repo import audio_repo
+from app.repositories.audio_asset_repo import audio_asset_repo
 from app.services.tts_service import tts_service
 
 logger = logging.getLogger("uvicorn")
@@ -22,6 +22,15 @@ class JobWorkerService:
         job_type = job.get("job_type")
         input_content_id = job.get("input_content_id")
         logger.info(f"Worker processing job '{job_id}' (type: {job_type})")
+        async def heartbeat():
+            from datetime import timedelta
+            while True:
+                await asyncio.sleep(5)
+                result = await job_repo.collection.update_one({"_id": job_id, "status": "running", "lease_owner": job["lease_owner"]},
+                    {"$set": {"lease_until": datetime.now(timezone.utc) + timedelta(seconds=120)}})
+                if not result.matched_count:
+                    return
+        pulse = asyncio.create_task(heartbeat())
 
         try:
             content = await content_repo.get_by_id(input_content_id)
@@ -45,6 +54,7 @@ class JobWorkerService:
                 audio_doc = {
                     "_id": audio_id,
                     "poi_content_id": input_content_id,
+                    "content_version": content.get("version", 1),
                     "source_type": "tts",
                     "storage_key": storage_key,
                     "duration_ms": duration_ms,
@@ -55,7 +65,7 @@ class JobWorkerService:
                     "voice_id": voice_id or tts_service.get_voice_for_language(lang),
                     "created_at": datetime.now(timezone.utc)
                 }
-                await audio_repo.insert_one(audio_doc)
+                await audio_asset_repo.insert_one(audio_doc)
 
                 # Mark job succeeded
                 updated_job = await job_repo.mark_succeeded(job_id=job_id, output_audio_id=audio_id)
@@ -75,10 +85,7 @@ class JobWorkerService:
                     trans_desc = await translation_service.translate_text(source_desc, target_lang) or source_desc
                     trans_narration = await translation_service.translate_text(source_narration or source_desc, target_lang) or trans_desc
                 except Exception as e:
-                    logger.warning(f"Translation service fallback in job worker: {e}")
-                    trans_title = source_title
-                    trans_desc = source_desc
-                    trans_narration = source_narration or source_desc
+                    raise RuntimeError("Translation failed; source text is not a translated result") from e
 
                 new_content_id = str(uuid.uuid4())
                 now = datetime.now(timezone.utc)
@@ -114,6 +121,9 @@ class JobWorkerService:
                 max_attempts=job.get("max_attempts", 3)
             )
             return updated_job
+        finally:
+            pulse.cancel()
+            await asyncio.gather(pulse, return_exceptions=True)
 
     @classmethod
     async def worker_loop(cls):

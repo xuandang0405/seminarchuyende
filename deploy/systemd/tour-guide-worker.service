@@ -1,0 +1,15 @@
+[Unit]
+Description=TourVoice durable content worker
+After=network.target tour-guide-api.service
+[Service]
+User=deploy
+WorkingDirectory=/opt/tour-guide/current/backend
+EnvironmentFile=/opt/tour-guide/shared/.env
+ExecStart=/opt/tour-guide/current/backend/.venv/bin/python worker.py
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+[Install]
+WantedBy=multi-user.target

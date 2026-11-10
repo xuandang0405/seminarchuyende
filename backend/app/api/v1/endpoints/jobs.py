@@ -14,7 +14,7 @@ router = APIRouter(prefix="/jobs", tags=["Async Content Jobs (TTS & Translate)"]
 @router.post("", response_model=ContentJobResponse, status_code=status.HTTP_201_CREATED)
 async def create_job(
     job_in: ContentJobCreate,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_admin)
 ):
     """
     Enqueue an asynchronous TTS or Translation job.
@@ -61,7 +61,8 @@ async def create_job(
 async def list_jobs(
     status_filter: Optional[JobStatus] = Query(None, alias="status"),
     skip: int = Query(0, ge=0),
-    limit: int = Query(50, ge=1, le=100)
+    limit: int = Query(50, ge=1, le=100),
+    current_user: dict = Depends(get_current_admin)
 ):
     query = {}
     if status_filter:
@@ -71,7 +72,7 @@ async def list_jobs(
 
 
 @router.get("/{job_id}", response_model=ContentJobResponse)
-async def get_job(job_id: str):
+async def get_job(job_id: str, current_user: dict = Depends(get_current_admin)):
     job = await job_repo.get_by_id(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")

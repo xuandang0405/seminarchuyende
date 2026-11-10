@@ -6,7 +6,8 @@ Tests BR-DEVICE-*, BR-SESSION-*, BR-TOUR-SESSION-*, BR-LISTEN-*, BR-SYNC-*.
 import pytest
 import uuid
 from httpx import AsyncClient, ASGITransport
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from app.repositories.playback_grant_repo import playback_grant_repo
 
 from app.main import app
 from app.db.collections import (
@@ -65,6 +66,8 @@ async def test_visitor_session_lifecycle_and_heartbeat():
         # 1. Bootstrap device
         boot_res = await ac.post("/api/v1/device/bootstrap", json={"platform": "web"})
         dev_token = boot_res.json()["device_token"]
+        await ac.post("/api/v1/analytics/consent", json={"device_id": boot_res.json()["device_id"], "consent_granted": True},
+                      headers={"x-device-token": dev_token})
 
         # 2. Start visitor session
         sess_res = await ac.post(
@@ -109,6 +112,8 @@ async def test_tour_session_idempotent_start_and_progress():
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         boot_res = await ac.post("/api/v1/device/bootstrap", json={"platform": "web"})
         dev_token = boot_res.json()["device_token"]
+        await ac.post("/api/v1/analytics/consent", json={"device_id": boot_res.json()["device_id"], "consent_granted": True},
+                      headers={"x-device-token": dev_token})
 
         sess_res = await ac.post(
             "/api/v1/visitor-sessions/start-or-resume",
@@ -169,6 +174,18 @@ async def test_tour_session_idempotent_start_and_progress():
         )
         assert comp_res.status_code == 200
         assert comp_res.json()["status"] == "completed"
+        reopened = await ac.patch(f"/api/v1/tour-sessions/{ts_id}", json={"status": "active"},
+                                  headers={"x-device-token": dev_token})
+        assert reopened.status_code == 404
+        other = (await ac.post("/api/v1/device/bootstrap", json={"platform": "web", "device_token": "new-device"})).json()
+        other_headers = {"x-device-token": other["device_token"]}
+        await ac.post("/api/v1/analytics/consent", json={"consent_granted": True}, headers=other_headers)
+        other_visitor = (await ac.post("/api/v1/visitor-sessions/start-or-resume", json={}, headers=other_headers)).json()
+        start = {"tour_id": "tour_quan_4_lich_su", "visitor_session_id": vis_session_id, "idempotency_key": idempotency_key}
+        assert (await ac.post("/api/v1/tour-sessions", json=start, headers=other_headers)).status_code == 404
+        start["visitor_session_id"] = other_visitor["_id"]
+        other_tour = await ac.post("/api/v1/tour-sessions", json=start, headers=other_headers)
+        assert other_tour.status_code == 201 and other_tour.json()["_id"] != ts_id
         assert comp_res.json()["ended_at"] is not None
 
 
@@ -179,6 +196,8 @@ async def test_analytics_batch_ingest_with_per_item_ack():
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         boot_res = await ac.post("/api/v1/device/bootstrap", json={"platform": "web"})
         dev_token = boot_res.json()["device_token"]
+        await ac.post("/api/v1/analytics/consent", json={"device_id": boot_res.json()["device_id"], "consent_granted": True},
+                      headers={"x-device-token": dev_token})
 
         ev1_id = f"ev_{uuid.uuid4().hex}"
         ev2_id = f"ev_{uuid.uuid4().hex}"
@@ -237,9 +256,16 @@ async def test_idempotent_listen_counting():
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         boot_res = await ac.post("/api/v1/device/bootstrap", json={"platform": "web"})
         dev_token = boot_res.json()["device_token"]
+        await ac.post("/api/v1/analytics/consent", json={"device_id": boot_res.json()["device_id"], "consent_granted": True},
+                      headers={"x-device-token": dev_token})
 
         playback_id = f"pb_{uuid.uuid4().hex[:12]}"
         poi_id = "poi_pho_oc_vinh_khanh"
+        await playback_grant_repo.collection.insert_one({
+            "_id": playback_id, "poi_id": poi_id, "device_id": boot_res.json()["device_id"],
+            "first_delivered_at": datetime.now(timezone.utc),
+            "expires_at": datetime.now(timezone.utc) + timedelta(minutes=15),
+        })
 
         ev_start_id = f"ev_start_{uuid.uuid4().hex}"
         ev_pause_id = f"ev_pause_{uuid.uuid4().hex}"
@@ -262,6 +288,8 @@ async def test_idempotent_listen_counting():
         assert r1.json()["accepted_count"] == 1
 
         # Check POI metrics: started = 1
+        login = await ac.post("/api/v1/auth/login", json={"email": "admin@tourvoice.vn", "password": "Admin@123456"})
+        ac.headers["Authorization"] = "Bearer " + login.json()["access_token"]
         top_pois_res = await ac.get("/api/v1/analytics/pois")
         assert top_pois_res.status_code == 200
         pois_list = top_pois_res.json()
@@ -335,6 +363,8 @@ async def test_admin_analytics_overview_and_tours():
     """Section 17: Admin analytics overview and tour stats with non-zero safe metrics."""
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        login = await ac.post("/api/v1/auth/login", json={"email": "admin@tourvoice.vn", "password": "Admin@123456"})
+        ac.headers["Authorization"] = "Bearer " + login.json()["access_token"]
         overview_res = await ac.get("/api/v1/analytics/overview")
         assert overview_res.status_code == 200
         overview = overview_res.json()

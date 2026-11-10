@@ -7,8 +7,11 @@ Implements:
 - Section 17: Admin dashboard metrics with distinct devices and safe non-zero division.
 """
 
+import asyncio
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
+from fastapi import HTTPException
+from pymongo.errors import DuplicateKeyError
 
 from app.db.collections import (
     COLLECTION_ANALYTICS_DEVICES,
@@ -18,15 +21,24 @@ from app.db.collections import (
     COLLECTION_ANALYTICS_DAILY_METRICS,
     COLLECTION_ANALYTICS_HOURLY_METRICS,
     COLLECTION_ANALYTICS_AGGREGATION_JOBS,
+    COLLECTION_RUNTIME_WEB_PRESENCE,
+    COLLECTION_RUNTIME_AUDIO_DAILY,
     COLLECTION_TOUR_SESSIONS,
     COLLECTION_POI,
     COLLECTION_TOURS,
     COLLECTION_ORDERS,
     COLLECTION_ADMIN_USERS,
-    COLLECTION_AUTH_IDENTITIES,
     COLLECTION_GUEST_SESSIONS,
+    COLLECTION_PLAYBACK_GRANTS,
 )
 from app.repositories.base import BaseRepository
+from app.services.unit_of_work import run_transaction
+
+LISTEN_METRICS = {
+    "narration_started": "started", "audio_play": "started",
+    "narration_completed": "completed", "audio_completed": "completed",
+    "narration_progress": "progress", "audio_progress": "progress",
+}
 
 
 class AnalyticsRepository(BaseRepository):
@@ -61,6 +73,61 @@ class AnalyticsRepository(BaseRepository):
     def jobs_col(self):
         return self.db[COLLECTION_ANALYTICS_AGGREGATION_JOBS]
 
+    @property
+    def runtime_audio_col(self):
+        return self.db[COLLECTION_RUNTIME_AUDIO_DAILY]
+
+    async def update_web_presence(self, lease_id: str, active: bool):
+        leases = self.db[COLLECTION_RUNTIME_WEB_PRESENCE]
+        if active:
+            expiry = datetime.now(timezone.utc) + timedelta(seconds=45)
+            await leases.update_one({"_id": lease_id}, {"$max": {"expires_at": expiry}}, upsert=True)
+        else:
+            await leases.delete_one({"_id": lease_id})
+
+    async def record_runtime_listen(self, token: str, listened_ms: int, completed: bool):
+        """Count an authorized playback without collecting a device or visitor history."""
+        now = datetime.now(timezone.utc)
+        grants = self.db[COLLECTION_PLAYBACK_GRANTS]
+        query = {"grant_token": token, "expires_at": {"$gt": now},
+                 "first_delivered_at": {"$type": "date"}}
+        grant = await grants.find_one(query)
+        if not grant:
+            raise HTTPException(404, "Phiên phát chưa được xác thực hoặc đã hết hạn.")
+        if grant.get("device_id"):
+            return  # Opt-in playback is counted by the verified analytics event batch.
+
+        delivered = grant["first_delivered_at"].replace(tzinfo=timezone.utc)
+        elapsed_ms = max(0, int((now - delivered).total_seconds() * 1000))
+        position = min(listened_ms, elapsed_ms + 2000)
+        finished = completed and position > 0
+
+        async def commit(session):
+            kwargs = {"session": session} if session else {}
+            previous = await grants.find_one_and_update(
+                {**query, "_id": grant["_id"], "metric_completed": {"$ne": True}},
+                {"$max": {"metric_listened_ms": position},
+                 "$set": {"metric_started": True, **({"metric_completed": True} if finished else {})}},
+                **kwargs,
+            )
+            if not previous:
+                return
+            increments = {
+                "listen_started_count": int(not previous.get("metric_started")),
+                "listen_completed_count": int(finished),
+                "listened_ms": max(0, position - (previous.get("metric_listened_ms") or 0)),
+            }
+            if any(increments.values()):
+                day = delivered.strftime("%Y-%m-%d")
+                poi_id, lang = grant["poi_id"], grant["lang"]
+                await self.runtime_audio_col.update_one(
+                    {"_id": f"{poi_id}_{day}_{lang}"},
+                    {"$setOnInsert": {"poi_id": poi_id, "metric_date": day, "locale": lang}, "$inc": increments},
+                    upsert=True, **kwargs,
+                )
+
+        await run_transaction(commit)
+
     # =========================================================================
     # CONSENT & DEVICES
     # =========================================================================
@@ -72,7 +139,7 @@ class AnalyticsRepository(BaseRepository):
         scopes: Optional[List[str]] = None
     ) -> Dict[str, Any]:
         now = datetime.now(timezone.utc)
-        scopes = scopes or (["events", "route_sampling"] if consent_granted else [])
+        scopes = (scopes if scopes is not None else ["events", "route_sampling"]) if consent_granted else []
         doc = {
             "consent_granted": consent_granted,
             "consent_version": 1,
@@ -85,12 +152,13 @@ class AnalyticsRepository(BaseRepository):
 
         await self.devices_col.update_one(
             {"_id": device_id},
-            {
-                "$set": doc,
-                "$setOnInsert": {"created_at": now}
-            },
-            upsert=True
+            {"$set": doc},
         )
+        if not consent_granted:
+            await self.sessions_col.update_many({"device_id": device_id, "status": "active"},
+                {"$set": {"status": "ended", "ended_at": now, "updated_at": now}})
+            await self.tour_sessions_col.update_many({"device_id": device_id, "status": "active"},
+                {"$set": {"status": "abandoned", "ended_at": now, "updated_at": now}})
         return doc
 
     # =========================================================================
@@ -143,6 +211,16 @@ class AnalyticsRepository(BaseRepository):
             poi_id = ev.get("poi_id")
             tour_id = ev.get("tour_id")
             client_time = ev.get("client_occurred_at")
+            metric = LISTEN_METRICS.get(event_type)
+            grant_filter = {"_id": playback_id, "device_id": device_id, "poi_id": poi_id,
+                            "first_delivered_at": {"$type": "date"}, "expires_at": {"$gt": now}}
+            grant = None
+            if metric:
+                grant = await self.db[COLLECTION_PLAYBACK_GRANTS].find_one(grant_filter) if playback_id and poi_id else None
+                if not grant:
+                    rejected_count += 1
+                    acks.append({"event_id": event_id, "status": "rejected_permanent", "reason": "PLAYBACK_NOT_VERIFIED"})
+                    continue
 
             doc = {
                 "_id": event_id,
@@ -161,17 +239,28 @@ class AnalyticsRepository(BaseRepository):
                 "properties": ev.get("properties") or {},
             }
 
+            async def persist(session=None):
+                kwargs = {"session": session} if session else {}
+                try:
+                    await self.collection.insert_one(doc, **kwargs)
+                except DuplicateKeyError as error:
+                    raise HTTPException(409, "Sự kiện đã tồn tại.") from error
+                if metric:
+                    await self._count_verified_listen(metric, grant, grant_filter, doc, date_str, now, session)
+
             try:
-                await self.collection.insert_one(doc)
+                if metric:
+                    await run_transaction(persist)
+                else:
+                    await persist()
                 acks.append({
                     "event_id": event_id,
                     "status": "accepted",
                     "reason": None
                 })
                 accepted_count += 1
-            except Exception as e:
-                # Handle unique index race condition
-                if "duplicate" in str(e).lower() or "11000" in str(e):
+            except Exception as error:
+                if isinstance(error, HTTPException) and error.status_code == 409:
                     acks.append({
                         "event_id": event_id,
                         "status": "duplicate",
@@ -183,66 +272,10 @@ class AnalyticsRepository(BaseRepository):
                     acks.append({
                         "event_id": event_id,
                         "status": "retryable",
-                        "reason": f"Lỗi ghi dữ liệu: {str(e)}"
+                        "reason": "Chưa ghi được sự kiện. Có thể gửi lại."
                     })
                     rejected_count += 1
                     continue
-
-            # =================================================================
-            # IDEMPOTENT BUSINESS METRICS COUNTING (BR-LISTEN-01 / BR-LISTEN-02)
-            # =================================================================
-            if event_type in ("narration_started", "audio_play") and poi_id:
-                # Check if this playback_id has already been counted as started
-                prior_start = None
-                if playback_id:
-                    prior_start = await self.collection.find_one({
-                        "playback_id": playback_id,
-                        "event_type": {"$in": ["narration_started", "audio_play"]},
-                        "_id": {"$ne": event_id}
-                    })
-                if not prior_start:
-                    # First genuine start for this playback -> increment listen_started_count
-                    await self._increment_poi_metrics(
-                        poi_id=poi_id,
-                        metric_date=date_str,
-                        inc_started=1,
-                        inc_completed=0,
-                        inc_ms=0,
-                        device_id=device_id
-                    )
-
-            elif event_type in ("narration_completed", "audio_completed") and poi_id:
-                # Check if this playback_id has already been counted as completed
-                prior_complete = None
-                if playback_id:
-                    prior_complete = await self.collection.find_one({
-                        "playback_id": playback_id,
-                        "event_type": {"$in": ["narration_completed", "audio_completed"]},
-                        "_id": {"$ne": event_id}
-                    })
-                if not prior_complete:
-                    await self._increment_poi_metrics(
-                        poi_id=poi_id,
-                        metric_date=date_str,
-                        inc_started=0,
-                        inc_completed=1,
-                        inc_ms=0,
-                        device_id=device_id
-                    )
-
-            elif event_type in ("narration_progress", "audio_progress") and poi_id:
-                # Clamp delta_ms to max 15s to prevent absurd listening times
-                props = ev.get("properties") or {}
-                raw_delta = props.get("delta_ms", 0)
-                if isinstance(raw_delta, (int, float)) and 0 < raw_delta <= 15000:
-                    await self._increment_poi_metrics(
-                        poi_id=poi_id,
-                        metric_date=date_str,
-                        inc_started=0,
-                        inc_completed=0,
-                        inc_ms=int(raw_delta),
-                        device_id=device_id
-                    )
 
         return {
             "total": len(events),
@@ -254,6 +287,33 @@ class AnalyticsRepository(BaseRepository):
             "acked_ids": [a["event_id"] for a in acks if a["status"] in ("accepted", "duplicate")]
         }
 
+    async def _count_verified_listen(self, metric, grant, query, event, date_str, now, session=None):
+        started = completed = delta = 0
+        if metric == "progress":
+            raw = event["properties"].get("delta_ms", 0)
+            if type(raw) not in (int, float) or not 0 < raw <= 15000:
+                return
+            elapsed = int((now - grant["first_delivered_at"].replace(tzinfo=timezone.utc)).total_seconds() * 1000)
+            delta = int(raw)
+            if delta < 1 or elapsed + 2000 < delta:
+                return
+            query.update(metric_started=True, metric_completed={"$ne": True}, **{"$or": [
+                {"metric_listened_ms": None}, {"metric_listened_ms": {"$lte": elapsed + 2000 - delta}},
+            ]})
+            update = {"$inc": {"metric_listened_ms": delta}}
+        else:
+            flag = "metric_" + metric
+            query[flag] = {"$ne": True}
+            if metric == "completed":
+                query["metric_started"] = True
+            started, completed = int(metric == "started"), int(metric == "completed")
+            update = {"$set": {flag: True}}
+        result = await self.db[COLLECTION_PLAYBACK_GRANTS].update_one(
+            query, update, **({"session": session} if session else {}),
+        )
+        if result.modified_count:
+            await self._increment_poi_metrics(grant["poi_id"], date_str, started, completed, delta, grant["device_id"], session)
+
     async def _increment_poi_metrics(
         self,
         poi_id: str,
@@ -261,7 +321,8 @@ class AnalyticsRepository(BaseRepository):
         inc_started: int,
         inc_completed: int,
         inc_ms: int,
-        device_id: str
+        device_id: str,
+        session=None,
     ):
         """Atomic upsert to analytics_poi_daily_metrics with device tracking."""
         doc_id = f"{poi_id}_{metric_date}"
@@ -289,12 +350,31 @@ class AnalyticsRepository(BaseRepository):
         await self.poi_daily_col.update_one(
             {"_id": doc_id},
             update_doc,
-            upsert=True
+            upsert=True, **({"session": session} if session else {}),
         )
 
     # =========================================================================
     # ADMIN ANALYTICS DASHBOARD READ MODELS
     # =========================================================================
+
+    async def _listen_rollup(self, group_by=None, match=None, include_devices=False):
+        fields = {"_id": group_by, "started": {"$sum": "$listen_started_count"},
+                  "completed": {"$sum": "$listen_completed_count"}, "ms": {"$sum": "$listened_ms"}}
+        if include_devices:
+            fields["device_lists"] = {"$push": "$unique_device_ids"}
+        pipeline = ([{"$match": match}] if match else []) + [{"$group": fields}]
+        streams = await asyncio.gather(*(self.aggregate_to_list(col, pipeline, length=None)
+                                         for col in (self.poi_daily_col, self.runtime_audio_col)))
+        totals = {}
+        for rows in streams:
+            for row in rows:
+                target = totals.setdefault(row["_id"], {"started": 0, "completed": 0, "ms": 0, "devices": set()})
+                for field in ("started", "completed", "ms"):
+                    target[field] += row[field]
+                for devices in row.get("device_lists", []):
+                    if isinstance(devices, list):
+                        target["devices"].update(devices)
+        return totals
 
     async def get_admin_overview(self) -> Dict[str, Any]:
         """Calculates system-wide metrics safely for the admin dashboard.
@@ -303,50 +383,29 @@ class AnalyticsRepository(BaseRepository):
         """
         now = datetime.now(timezone.utc)
         inactivity_threshold = now - timedelta(minutes=15)
-        start_of_today = datetime(now.year, now.month, now.day, tzinfo=timezone.utc)
-
-        # 1. Active visitor sessions in the last 15 minutes
-        active_sessions_now = await self.sessions_col.count_documents({
-            "status": "active",
-            "last_seen_at": {"$gte": inactivity_threshold}
-        })
-
-        # 2. Daily visitor sessions today
-        daily_sessions = await self.sessions_col.count_documents({
-            "started_at": {"$gte": start_of_today}
-        })
-
-        # 3. Unique devices count (distinct across visitor sessions)
-        distinct_devices = await self.sessions_col.distinct("device_id")
+        start_of_today = now.astimezone(timezone(timedelta(hours=7))).replace(hour=0, minute=0, second=0, microsecond=0)
+        (live_web_sessions, active_devices, daily_sessions, distinct_devices, distinct_users,
+         tour_started_count, tour_completed_count, rollup) = await asyncio.gather(
+            self.db[COLLECTION_RUNTIME_WEB_PRESENCE].count_documents({"expires_at": {"$gt": now}}),
+            self.sessions_col.distinct("device_id", {"status": "active", "last_seen_at": {"$gte": inactivity_threshold}}),
+            self.sessions_col.count_documents({"started_at": {"$gte": start_of_today}}),
+            self.sessions_col.distinct("device_id"),
+            self.sessions_col.distinct("user_id", {"user_id": {"$ne": None}}),
+            self.tour_sessions_col.count_documents({}),
+            self.tour_sessions_col.count_documents({"status": "completed"}),
+            self._listen_rollup(),
+        )
         unique_devices_count = len(distinct_devices)
-
-        # 4. Unique accounts count (distinct user_id where user_id is not null)
-        distinct_users = await self.sessions_col.distinct("user_id", {"user_id": {"$ne": None}})
         unique_accounts_count = len(distinct_users)
-
-        # 5. Tour sessions stats
-        tour_started_count = await self.tour_sessions_col.count_documents({})
-        tour_completed_count = await self.tour_sessions_col.count_documents({"status": "completed"})
         tour_completion_rate = (
             round((tour_completed_count / tour_started_count) * 100.0, 1)
             if tour_started_count > 0 else 0.0
         )
 
-        # 6. Audio listening stats (aggregated across analytics_poi_daily_metrics)
-        pipeline = [
-            {"$group": {
-                "_id": None,
-                "total_started": {"$sum": "$listen_started_count"},
-                "total_completed": {"$sum": "$listen_completed_count"},
-                "total_ms": {"$sum": "$listened_ms"}
-            }}
-        ]
-        agg_res = await self.aggregate_to_list(self.poi_daily_col, pipeline, length=1)
-        totals = agg_res[0] if agg_res else {"total_started": 0, "total_completed": 0, "total_ms": 0}
-
-        listen_started = totals.get("total_started", 0)
-        listen_completed = totals.get("total_completed", 0)
-        total_ms = totals.get("total_ms", 0)
+        totals = rollup.get(None, {})
+        listen_started = totals.get("started", 0)
+        listen_completed = totals.get("completed", 0)
+        total_ms = totals.get("ms", 0)
 
         listen_completion_rate = (
             round((listen_completed / listen_started) * 100.0, 1)
@@ -360,55 +419,48 @@ class AnalyticsRepository(BaseRepository):
 
         # 7. Orders & Ticket Sales Revenue
         orders_col = self.db[COLLECTION_ORDERS]
-        paid_orders = await orders_col.find({"status": "paid"}).to_list(1000)
-        total_revenue_vnd = sum(int(o.get("amount_vnd") or 0) for o in paid_orders)
-        paid_orders_count = len(paid_orders)
-        total_orders_count = await orders_col.count_documents({})
-        pending_orders_count = await orders_col.count_documents({"status": {"$in": ["pending", "pending_payment"]}})
-
-        # Revenue breakdown by tour
-        tour_rev_map: Dict[str, Dict[str, Any]] = {}
-        for o in paid_orders:
-            tid = o.get("tour_id") or "tour_standard"
-            amt = int(o.get("amount_vnd") or 0)
-            if tid not in tour_rev_map:
-                tour_rev_map[tid] = {
-                    "tour_id": tid,
-                    "title": o.get("tour_title_snapshot") or tid,
-                    "paid_orders": 0,
-                    "revenue_vnd": 0
-                }
-            tour_rev_map[tid]["paid_orders"] += 1
-            tour_rev_map[tid]["revenue_vnd"] += amt
-        revenue_by_tour = list(tour_rev_map.values())
-
-        # 8. Registered users & guests stats
-        total_registered_users = await self.db[COLLECTION_ADMIN_USERS].count_documents({"role": "user"})
-        auth_identities_count = await self.db[COLLECTION_AUTH_IDENTITIES].count_documents({})
-        effective_registered_users = max(total_registered_users, auth_identities_count, unique_accounts_count)
-        total_guest_sessions = await self.db[COLLECTION_GUEST_SESSIONS].count_documents({})
-        if total_guest_sessions == 0 and unique_devices_count > 0:
-            total_guest_sessions = max(0, unique_devices_count - effective_registered_users)
-
-        # 9. POIs, Tours, and QR Scans
-        total_pois = await self.db[COLLECTION_POI].count_documents({"deleted_at": None})
-        total_tours = await self.db[COLLECTION_TOURS].count_documents({"deleted_at": None})
-        total_qr_scans = await self.collection.count_documents({"event_type": {"$in": ["qr_scanned", "qr_scan"]}})
-
-        # 10. Language distribution
-        lang_pipeline = [
-            {"$match": {"locale": {"$ne": None}}},
-            {"$group": {"_id": "$locale", "count": {"$sum": 1}}},
-            {"$sort": {"count": -1}},
-            {"$limit": 6}
+        revenue_pipeline = [
+            {"$match": {"status": "paid"}},
+            {"$group": {"_id": {"$ifNull": ["$tour_id", "tour_standard"]},
+                        "title": {"$first": "$tour_title_snapshot"}, "paid_orders": {"$sum": 1},
+                        "revenue_vnd": {"$sum": "$amount_vnd"}}},
+            {"$sort": {"revenue_vnd": -1, "_id": 1}},
         ]
-        lang_agg = await self.aggregate_to_list(self.collection, lang_pipeline, length=6)
-        popular_languages = [{"code": item["_id"], "count": item["count"]} for item in lang_agg]
-        if not popular_languages:
-            popular_languages = [{"code": "vi", "count": max(listen_started, 1)}]
+        lang_pipeline = [
+            {"$match": {"event_type": {"$in": ["narration_started", "audio_play"]},
+                        "locale": {"$ne": None}, "playback_id": {"$ne": None}}},
+            {"$group": {"_id": "$playback_id", "locale": {"$first": "$locale"}}},
+            {"$group": {"_id": "$locale", "count": {"$sum": 1}}},
+        ]
+        runtime_lang_pipeline = [{"$group": {"_id": "$locale", "count": {"$sum": "$listen_started_count"}}}]
+        (revenue, total_orders_count, pending_orders_count, total_registered_users, total_guest_sessions,
+         total_pois, total_tours, total_qr_scans, lang_agg, runtime_langs) = await asyncio.gather(
+            self.aggregate_to_list(orders_col, revenue_pipeline, length=None),
+            orders_col.count_documents({}),
+            orders_col.count_documents({"status": {"$in": ["pending", "pending_payment"]}}),
+            self.db[COLLECTION_ADMIN_USERS].count_documents({"role": "user"}),
+            self.db[COLLECTION_GUEST_SESSIONS].count_documents({}),
+            self.db[COLLECTION_POI].count_documents({"deleted_at": None}),
+            self.db[COLLECTION_TOURS].count_documents({"deleted_at": None}),
+            self.collection.count_documents({"event_type": {"$in": ["qr_scanned", "qr_scan"]}}),
+            self.aggregate_to_list(self.collection, lang_pipeline, length=None),
+            self.aggregate_to_list(self.runtime_audio_col, runtime_lang_pipeline, length=None),
+        )
+        revenue_by_tour = [{"tour_id": row["_id"], "title": row["title"] or row["_id"],
+                            "paid_orders": row["paid_orders"], "revenue_vnd": row["revenue_vnd"]} for row in revenue]
+        total_revenue_vnd = sum(row["revenue_vnd"] for row in revenue)
+        paid_orders_count = sum(row["paid_orders"] for row in revenue)
+        languages = {}
+        for item in lang_agg + runtime_langs:
+            code = item["_id"]
+            if code:
+                languages[code] = languages.get(code, 0) + item["count"]
+        popular_languages = [{"code": code, "count": count} for code, count in
+                             sorted(languages.items(), key=lambda item: (-item[1], item[0]))[:6]]
 
         return {
-            "active_visitor_sessions_now": active_sessions_now,
+            "live_web_sessions": live_web_sessions,
+            "active_visitor_sessions_now": len(active_devices),
             "daily_visitor_sessions": daily_sessions,
             "unique_devices_count": unique_devices_count,
             "unique_accounts_count": unique_accounts_count,
@@ -421,6 +473,7 @@ class AnalyticsRepository(BaseRepository):
             "average_listening_time_seconds": avg_listening_sec,
             "avg_listen_duration_seconds": avg_listening_sec,
             "total_listening_time_minutes": total_listening_minutes,
+            "total_listened_seconds": round(total_ms / 1000, 1),
             "total_listen_hours": round(total_ms / (1000 * 3600), 2),
             "total_active_pois": total_pois,
             "total_pois_count": total_pois,
@@ -430,7 +483,7 @@ class AnalyticsRepository(BaseRepository):
             "total_orders_count": total_orders_count,
             "paid_orders_count": paid_orders_count,
             "pending_orders_count": pending_orders_count,
-            "total_registered_users": effective_registered_users,
+            "total_registered_users": total_registered_users,
             "total_guest_sessions": total_guest_sessions,
             "revenue_by_tour": revenue_by_tour,
             "popular_languages": popular_languages,
@@ -444,87 +497,55 @@ class AnalyticsRepository(BaseRepository):
         """Aggregate stats for POIs belonging to a specific owner (IDOR protection)."""
         owner_pois_cursor = self.db[COLLECTION_POI].find({"owner_id": owner_id, "deleted_at": None})
         owner_pois = await owner_pois_cursor.to_list(length=100)
-        owner_poi_ids = [p["_id"] for p in owner_pois]
+        owner_poi_ids = [str(p["_id"]) for p in owner_pois]
 
-        if not owner_poi_ids:
-            return {
-                "owner_id": owner_id,
-                "total_pois": 0,
-                "audio_plays": 0,
-                "total_listen_hours": 0.0,
-                "top_pois": []
-            }
-
-        pipeline = [
-            {"$match": {"poi_id": {"$in": owner_poi_ids}}},
-            {"$group": {
-                "_id": "$poi_id",
-                "plays": {"$sum": "$listen_started_count"},
-                "listened_ms": {"$sum": "$listened_ms"}
-            }},
-            {"$sort": {"plays": -1}}
-        ]
-        agg_res = await self.aggregate_to_list(self.poi_daily_col, pipeline, length=100)
-
-        total_plays = sum(item["plays"] for item in agg_res)
-        total_ms = sum(item["listened_ms"] for item in agg_res)
+        rollup = await self._listen_rollup("$poi_id", {"poi_id": {"$in": owner_poi_ids}}, include_devices=True) if owner_poi_ids else {}
+        top_pois = self._rank_poi_metrics(owner_pois, rollup)
+        total_plays = sum(item["started"] for item in rollup.values())
+        completed = sum(item["completed"] for item in rollup.values())
+        total_ms = sum(item["ms"] for item in rollup.values())
 
         return {
             "owner_id": owner_id,
             "total_pois": len(owner_pois),
+            "total_pois_count": len(owner_pois),
             "audio_plays": total_plays,
+            "listen_started_count": total_plays,
+            "listen_completed_count": completed,
+            "listen_completion_rate_percent": round(completed / total_plays * 100, 1) if total_plays else 0.0,
+            "total_listened_seconds": round(total_ms / 1000, 1),
             "total_listen_hours": round(total_ms / (1000 * 3600), 2),
             "top_pois": [
                 {
-                    "poi_id": item["_id"],
-                    "plays": item["plays"],
-                    "minutes": round(item["listened_ms"] / (1000 * 60), 1)
+                    **item,
+                    "plays": item["listen_started_count"],
+                    "minutes": item["total_listen_minutes"],
                 }
-                for item in agg_res[:5]
+                for item in top_pois[:5]
             ]
         }
 
     async def get_admin_top_pois(self, limit: int = 100) -> List[Dict[str, Any]]:
         """Returns all POIs ranked by listen_started_count with device count and completion rates."""
-        # 1. Fetch all active POIs
-        all_pois = await self.db[COLLECTION_POI].find({"deleted_at": None}).to_list(500)
+        pois, metrics = await asyncio.gather(
+            self.db[COLLECTION_POI].find({"deleted_at": None}).to_list(None),
+            self._listen_rollup("$poi_id", include_devices=True),
+        )
+        return self._rank_poi_metrics(pois, metrics)[:limit]
 
-        # 2. Aggregate metrics from analytics_poi_daily_metrics
-        pipeline = [
-            {"$group": {
-                "_id": "$poi_id",
-                "listen_started": {"$sum": "$listen_started_count"},
-                "listen_completed": {"$sum": "$listen_completed_count"},
-                "total_ms": {"$sum": "$listened_ms"},
-                "all_devices": {"$push": "$unique_device_ids"}
-            }}
-        ]
-        agg_res = await self.aggregate_to_list(self.poi_daily_col, pipeline, length=500)
-        metrics_by_poi = {}
-        for item in agg_res:
-            dev_set = set()
-            for dev_list in item.get("all_devices", []):
-                if isinstance(dev_list, list):
-                    dev_set.update(dev_list)
-            metrics_by_poi[item["_id"]] = {
-                "started": item.get("listen_started", 0),
-                "completed": item.get("listen_completed", 0),
-                "total_ms": item.get("total_ms", 0),
-                "devices": len(dev_set)
-            }
-
-        # 3. Assemble full list for all POIs
+    @staticmethod
+    def _rank_poi_metrics(pois, metrics):
         result: List[Dict[str, Any]] = []
-        for p in all_pois:
-            pid = p["_id"]
+        for p in pois:
+            pid = str(p["_id"])
             name = p.get("name", pid)
             cat = p.get("category", "sightseeing")
-            m = metrics_by_poi.get(pid, {"started": 0, "completed": 0, "total_ms": 0, "devices": 0})
-            started = m["started"]
-            completed = m["completed"]
-            total_sec = round(m["total_ms"] / 1000.0, 1)
+            m = metrics.get(pid, {})
+            started = m.get("started", 0)
+            completed = m.get("completed", 0)
+            total_sec = round(m.get("ms", 0) / 1000.0, 1)
             comp_rate = round((completed / started * 100.0), 1) if started > 0 else 0.0
-            avg_duration = round((m["total_ms"] / 1000.0) / started, 1) if started > 0 else 0.0
+            avg_duration = round(total_sec / started, 1) if started > 0 else 0.0
 
             result.append({
                 "poi_id": pid,
@@ -533,7 +554,7 @@ class AnalyticsRepository(BaseRepository):
                 "category": cat,
                 "listen_started_count": started,
                 "listen_completed_count": completed,
-                "unique_devices": m["devices"],
+                "unique_devices": len(m.get("devices", ())),
                 "total_listened_seconds": total_sec,
                 "completion_rate_percent": comp_rate,
                 "avg_listen_duration_seconds": avg_duration,
@@ -541,8 +562,8 @@ class AnalyticsRepository(BaseRepository):
             })
 
         # Sort by listen_started_count descending, then by name
-        result.sort(key=lambda x: (x["listen_started_count"], x["listen_completed_count"]), reverse=True)
-        return result[:limit]
+        result.sort(key=lambda item: (-item["listen_started_count"], -item["listen_completed_count"], item["name"], str(item["poi_id"])))
+        return result
 
     async def get_admin_tours_analytics(self) -> List[Dict[str, Any]]:
         """Returns tour usage analytics by tour."""

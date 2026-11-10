@@ -5,20 +5,28 @@ Strictly adheres to Section 25 ERD Baseline and Section 9 Extensions.
 
 from datetime import datetime
 from typing import List, Optional, Any, Dict, Literal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.schemas.menu import MenuItemCreate, MenuItemUpdate, MenuItemResponse
 MenuItem = MenuItemResponse
 
 
 class GeoLocation(BaseModel):
-    type: str = "Point"
+    type: Literal["Point"] = "Point"
     coordinates: List[float] = Field(..., min_length=2, max_length=2, description="[longitude, latitude]")
+
+    @field_validator("coordinates")
+    @classmethod
+    def valid_coordinates(cls, value):
+        import math
+        if not all(math.isfinite(v) for v in value) or not -180 <= value[0] <= 180 or not -90 <= value[1] <= 90:
+            raise ValueError("Invalid longitude/latitude")
+        return value
 
 
 class POIBase(BaseModel):
     name: str = Field(..., min_length=2, max_length=200)
-    description: str = Field(..., min_length=5)
+    description: str = Field(..., min_length=5, max_length=10000)
     category: str = Field(default="sightseeing")
     address: str = Field(default="")
     location: GeoLocation
@@ -29,7 +37,7 @@ class POIBase(BaseModel):
     audio_duration_ms: Optional[int] = 0
     auto_translate: Optional[bool] = Field(default=False, description="Automatically translate to 6 languages and generate Google TTS")
     owner_id: Optional[str] = None
-    source_lang: str = Field(default="vi")
+    source_lang: Literal["vi"] = "vi"
     activation_requested: bool = Field(default=False)
 
 
@@ -39,8 +47,8 @@ class POICreate(POIBase):
 
 class POIUpdate(BaseModel):
     id: Optional[str] = None
-    name: Optional[str] = None
-    description: Optional[str] = None
+    name: Optional[str] = Field(None, min_length=2, max_length=200)
+    description: Optional[str] = Field(None, min_length=5, max_length=10000)
     category: Optional[str] = None
     address: Optional[str] = None
     location: Optional[GeoLocation] = None

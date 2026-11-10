@@ -1,3 +1,5 @@
+> Phạm vi hiện tại chỉ còn **Web App** từ 10/11/2026. Các mô tả native trong tài liệu này thuộc thiết kế trước đây; xem [phạm vi cập nhật](../WEB_APP_SCOPE.md).
+
 # Ma Trận Truy Xuất Yêu Cầu Bản Đồ & Tuyến Đường Thực Tế (Map & Routing Traceability Matrix)
 
 Ma trận này ánh xạ trực tiếp từ Yêu cầu Nghiệp vụ (Business Requirements), Ca sử dụng (Use Cases), Tiêu chí chấp nhận (Acceptance Criteria), Sơ đồ Thiết kế (Sequence & Activity Diagrams) tới Mã nguồn Thực thi (Backend, Web, Mobile) và Bộ Kiểm thử Tự động (Automated Tests).

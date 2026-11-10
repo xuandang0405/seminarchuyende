@@ -8,7 +8,9 @@ Adheres to VNPAY specifications:
 - Card method 'INTCARD' for International Cards (Visa / Mastercard).
 """
 
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+import uuid
+import httpx
 import hashlib
 import hmac
 from typing import Any, Dict, Optional
@@ -41,7 +43,9 @@ class VNPayProvider(PaymentProvider):
         return_url: Optional[str] = None
     ) -> Dict[str, Any]:
         """Creates VNPAY hosted checkout URL for international card payments."""
-        now = datetime.now(timezone.utc)
+        if not settings.is_development and (settings.VNPAY_TMN_CODE == "DEMO" or settings.VNPAY_HASH_SECRET.startswith("DEMO")):
+            raise RuntimeError("Chưa cấu hình VNPAY cho môi trường thật.")
+        now = datetime.now(timezone(timedelta(hours=7)))
         create_date = now.strftime("%Y%m%d%H%M%S")
         vnp_txn_ref = attempt["provider_reference"]
         
@@ -59,9 +63,12 @@ class VNPayProvider(PaymentProvider):
             "vnp_OrderType": "billpayment",
             "vnp_Locale": "vn",
             "vnp_ReturnUrl": return_url or settings.VNPAY_RETURN_URL,
-            "vnp_IpAddr": "127.0.0.1",
+            "vnp_IpAddr": settings.VNPAY_IP_ADDRESS,
             "vnp_CreateDate": create_date,
         }
+        if order.get("expires_at"):
+            expires = order["expires_at"].replace(tzinfo=timezone.utc).astimezone(now.tzinfo)
+            params["vnp_ExpireDate"] = expires.strftime("%Y%m%d%H%M%S")
 
         # If paying with Visa / International card, set bank code to INTCARD
         if attempt.get("payment_method") == "visa":
@@ -140,13 +147,38 @@ class VNPayProvider(PaymentProvider):
         order: Dict[str, Any],
         attempt: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """Queries VNPAY API or inspects attempt status."""
-        return {
-            "is_paid": attempt.get("state") == "succeeded",
-            "state": attempt.get("state", "pending"),
-            "provider_transaction_id": attempt.get("provider_transaction_id"),
-            "received_amount_vnd": attempt.get("received_amount_vnd")
-        }
+        # Protocol: https://sandbox.vnpayment.vn/apis/docs/truy-van-hoan-tien/querydr%26refund.html
+        original = (attempt.get("raw_response") or {}).get("query_params", {})
+        if not original.get("vnp_CreateDate"):
+            raise RuntimeError("Missing original VNPAY transaction date")
+        req = {"vnp_RequestId": uuid.uuid4().hex, "vnp_Version": "2.1.0", "vnp_Command": "querydr",
+               "vnp_TmnCode": settings.VNPAY_TMN_CODE, "vnp_TxnRef": attempt["provider_reference"],
+               "vnp_TransactionDate": original["vnp_CreateDate"],
+               "vnp_CreateDate": datetime.now(timezone(timedelta(hours=7))).strftime("%Y%m%d%H%M%S"),
+               "vnp_IpAddr": settings.VNPAY_IP_ADDRESS, "vnp_OrderInfo": "Query " + order["_id"]}
+        keys = ["vnp_RequestId", "vnp_Version", "vnp_Command", "vnp_TmnCode", "vnp_TxnRef",
+                "vnp_TransactionDate", "vnp_CreateDate", "vnp_IpAddr", "vnp_OrderInfo"]
+        req["vnp_SecureHash"] = self._calculate_hash("|".join(str(req[k]) for k in keys))
+        async with httpx.AsyncClient(timeout=15) as client:
+            response = await client.post(settings.VNPAY_API_URL, json=req)
+            response.raise_for_status()
+            data = response.json()
+        keys = ["vnp_ResponseId", "vnp_Command", "vnp_ResponseCode", "vnp_Message", "vnp_TmnCode",
+                "vnp_TxnRef", "vnp_Amount", "vnp_BankCode", "vnp_PayDate", "vnp_TransactionNo",
+                "vnp_TransactionType", "vnp_TransactionStatus", "vnp_OrderInfo", "vnp_PromotionCode", "vnp_PromotionAmount"]
+        expected = self._calculate_hash("|".join(str(data.get(k, "")) for k in keys))
+        if not hmac.compare_digest(expected, str(data.get("vnp_SecureHash", "")).lower()):
+            raise RuntimeError("Invalid VNPAY query signature")
+        if data.get("vnp_TxnRef") != attempt["provider_reference"] or data.get("vnp_TmnCode") != settings.VNPAY_TMN_CODE:
+            raise RuntimeError("VNPAY query does not match requested transaction")
+        if data.get("vnp_ResponseCode") != "00":
+            raise RuntimeError("VNPAY query rejected: " + str(data.get("vnp_ResponseCode")))
+        amount = int(data["vnp_Amount"])
+        if amount % 100:
+            raise RuntimeError("Invalid VNPAY amount")
+        return {"is_paid": data.get("vnp_TransactionStatus") == "00",
+                "state": data.get("vnp_TransactionStatus"), "received_amount_vnd": amount // 100,
+                "provider_transaction_id": data.get("vnp_TransactionNo")}
 
 
 vnpay_provider = VNPayProvider()

@@ -13,8 +13,8 @@ export const Card: React.FC<CardProps> = ({
 }) => {
   return (
     <div
-      className={`bg-slate-900/80 backdrop-blur-sm border border-slate-800/90 rounded-2xl p-6 transition-all duration-200 ${
-        hoverEffect ? 'hover:border-slate-700/90 hover:shadow-lg hover:shadow-black/20 hover:-translate-y-0.5' : ''
+      className={`console-panel p-4 sm:p-5 transition-colors duration-150 ${
+        hoverEffect ? 'hover:border-slate-700' : ''
       } ${className}`}
     >
       {children}
@@ -29,10 +29,10 @@ export const CardHeader: React.FC<{
   className?: string;
 }> = ({ title, description, action, className = '' }) => {
   return (
-    <div className={`flex items-start justify-between gap-4 pb-4 mb-4 border-b border-slate-800/80 ${className}`}>
-      <div>
-        <h3 className="text-base font-bold text-white tracking-tight">{title}</h3>
-        {description && <p className="text-xs text-slate-400 mt-1">{description}</p>}
+    <div className={`flex items-start justify-between gap-3 pb-3 mb-4 border-b border-slate-800/80 ${className}`}>
+      <div className="min-w-0">
+        <h2 className="text-base font-bold text-white tracking-tight">{title}</h2>
+        {description && <p className="text-sm text-slate-400 mt-1">{description}</p>}
       </div>
       {action && <div className="shrink-0">{action}</div>}
     </div>

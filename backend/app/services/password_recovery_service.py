@@ -11,6 +11,8 @@ from typing import Any, Dict, Optional
 from datetime import datetime, timezone, timedelta
 import uuid
 import logging
+import asyncio
+from app.services.email_service import send_password_reset
 
 from app.core.config import settings
 from app.core.security import (
@@ -56,15 +58,13 @@ class PasswordRecoveryService:
         )
 
         reset_link = f"{settings.FRONTEND_URL}/reset-password?token={raw_token}"
-        # In a real SMTP production deployment, this sends an email.
-        # For development / seminar demo, log without exposing credentials.
-        logger.info(f"Password reset requested for user {user['_id']}. Reset URL configured: {settings.FRONTEND_URL}/reset-password")
+        await send_password_reset(normalized_email, reset_link)
 
         return {
             "success": True,
             "message": self.GENERIC_FORGOT_MESSAGE,
             # In debug/local test environments, expose token if configured for automated tests
-            "debug_token": raw_token if settings.DEBUG else None
+            "debug_token": raw_token if settings.APP_ENV in ("test", "testing") else None
         }
 
     async def reset_password(self, token: str, new_password: str) -> Dict[str, Any]:

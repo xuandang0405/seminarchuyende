@@ -1,117 +1,93 @@
 #!/usr/bin/env bash
-# ==============================================================================
-# deploy/scripts/deploy.sh
-# Production Zero-Downtime Deployment Script (Local -> Host / On-Server Runner)
-# ==============================================================================
 set -Eeuo pipefail
+cd "$(dirname "${BASH_SOURCE[0]}")/../.."
 
-DEPLOY_HOST="${DEPLOY_HOST:-1.55.58.251}"
-DEPLOY_USER="${DEPLOY_USER:-deploy}"
-DEPLOY_ROOT="${DEPLOY_ROOT:-/opt/tour-guide}"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+export TOURVOICE_PORT="${TOURVOICE_PORT:-8080}"
+export TOURVOICE_ENV_FILE="${TOURVOICE_ENV_FILE:-./env/.env.production}"
+command_name="${1:-up}"
+project=tourvoice
+if [[ "$command_name" == demo || "$command_name" == admin-demo ]]; then project=tourvoice-demo; fi
+compose=(docker compose -p "${TOURVOICE_PROJECT:-$project}" -f deploy/docker-compose.prod.yml)
 
-RELEASE_TAG="$(date +%Y%m%d_%H%M%S)"
-RELEASE_DIR="${DEPLOY_ROOT}/releases/${RELEASE_TAG}"
-TARBALL_NAME="tourvoice_release_${RELEASE_TAG}.tar.gz"
+command -v docker >/dev/null || { echo "Cần Docker Engine và Docker Compose v2." >&2; exit 1; }
+docker compose version >/dev/null
+docker info >/dev/null
 
-echo "========================================================"
-echo "   TOURVOICE QUẬN 4 - PRODUCTION RELEASE DEPLOYMENT"
-echo "   Release Tag : ${RELEASE_TAG}"
-echo "   Target Host : ${DEPLOY_HOST}"
-echo "   Target Path : ${DEPLOY_ROOT}"
-echo "========================================================"
-
-# Step 1: Run Local Build Guard (No localhost in client code)
-echo -e "\n[1/6] Running Local Build Guard..."
-if [ -f "${PROJECT_ROOT}/scripts/assert-no-client-localhost.mjs" ]; then
-    node "${PROJECT_ROOT}/scripts/assert-no-client-localhost.mjs"
-else
-    echo "⚠️ Build guard script not found, skipping."
-fi
-
-# Step 2: Build Web Client (if apps/web-admin has package.json and node_modules)
-echo -e "\n[2/6] Checking Frontend Builds..."
-if [ -d "${PROJECT_ROOT}/apps/web-admin" ] && [ -f "${PROJECT_ROOT}/apps/web-admin/package.json" ]; then
-    if command -v npm &>/dev/null; then
-        echo "Building React Web Admin (production mode)..."
-        (cd "${PROJECT_ROOT}/apps/web-admin" && npm run build || true)
+case "$command_name" in
+  demo)
+    export TOURVOICE_ENV_FILE="./env/.env.demo"
+    env_file="deploy/${TOURVOICE_ENV_FILE}"
+    command -v openssl >/dev/null || { echo "Cần OpenSSL để tạo khóa demo." >&2; exit 1; }
+    if [[ ! -f "$env_file" ]]; then
+      umask 077
+      secret=$(openssl rand -hex 32)
+      offline_key=$(openssl rand -base64 32)
+      (
+        set -o noclobber
+        cat > "$env_file" <<EOF
+APP_ENV=development
+DEBUG=false
+ALLOW_MOCK_DATABASE=false
+PAYMENT_MODE=mock
+DATABASE_NAME=tourvoice_release_demo
+PUBLIC_WEB_URL=http://localhost:$TOURVOICE_PORT
+FRONTEND_URL=http://localhost:$TOURVOICE_PORT
+FRONTEND_CALLBACK_URL=http://localhost:$TOURVOICE_PORT/auth/callback
+TRUSTED_HOSTS=localhost,127.0.0.1
+COOKIE_SECURE=false
+SECRET_KEY=$secret
+OFFLINE_LICENSE_PRIVATE_KEY=$offline_key
+SUPERADMIN_BOOTSTRAP_MODE=disabled
+EOF
+      )
     fi
-fi
-
-# Step 3: Package Release Artifact (Exclude secrets, git, node_modules, temp files)
-echo -e "\n[3/6] Packaging Release Artifact..."
-TMP_PKG_DIR="$(mktemp -d)"
-TARBALL_PATH="${TMP_PKG_DIR}/${TARBALL_NAME}"
-
-tar --exclude='.git' \
-    --exclude='node_modules' \
-    --exclude='__pycache__' \
-    --exclude='*.pyc' \
-    --exclude='.pytest_cache' \
-    --exclude='.venv' \
-    --exclude='*.env*' \
-    --exclude='storage/audio/*' \
-    -czf "${TARBALL_PATH}" \
-    -C "${PROJECT_ROOT}" \
-    backend frontend apps deploy
-
-echo "✅ Artifact generated: $(ls -lh "${TARBALL_PATH}" | awk '{print $5, $9}')"
-
-# Step 4: Deploying on Host
-# If running directly on the production host:
-if [ "${DEPLOY_HOST}" = "localhost" ] || [ "${DEPLOY_HOST}" = "127.0.0.1" ]; then
-    echo -e "\n[4/6] Installing release locally on host..."
-    mkdir -p "${RELEASE_DIR}"
-    tar -xzf "${TARBALL_PATH}" -C "${RELEASE_DIR}"
-    
-    # Secure shared .env link
-    mkdir -p "${DEPLOY_ROOT}/shared"
-    if [ ! -f "${DEPLOY_ROOT}/shared/.env" ]; then
-        cp "${RELEASE_DIR}/deploy/env/.env.production.example" "${DEPLOY_ROOT}/shared/.env"
-        echo "⚠️ Created template ${DEPLOY_ROOT}/shared/.env. Please update secrets!"
+    "${compose[@]}" up --build -d --wait --wait-timeout 180
+    "${compose[@]}" exec -T backend python -m demo.seed
+    bash deploy/scripts/smoke-test.sh "http://127.0.0.1:$TOURVOICE_PORT"
+    echo "Demo sẵn sàng tại http://localhost:$TOURVOICE_PORT/client/"
+    echo "Tạo admin: bash deploy/scripts/deploy.sh admin-demo"
+    ;;
+  up)
+    "${compose[@]}" up --build -d --wait --wait-timeout 180
+    bash deploy/scripts/smoke-test.sh "http://127.0.0.1:$TOURVOICE_PORT"
+    ;;
+  admin|admin-demo)
+    if [[ "$1" == admin-demo ]]; then
+      export TOURVOICE_ENV_FILE="./env/.env.demo"
     fi
-    ln -sf "${DEPLOY_ROOT}/shared/.env" "${RELEASE_DIR}/backend/.env"
-    
-    # Storage persistence link
-    mkdir -p "${DEPLOY_ROOT}/shared/storage"
-    ln -sfn "${DEPLOY_ROOT}/shared/storage" "${RELEASE_DIR}/backend/storage"
-    
-    # Python Virtualenv setup
-    if [ ! -d "${RELEASE_DIR}/backend/.venv" ]; then
-        python3 -m venv "${RELEASE_DIR}/backend/.venv"
-        "${RELEASE_DIR}/backend/.venv/bin/pip" install --upgrade pip
-        "${RELEASE_DIR}/backend/.venv/bin/pip" install -r "${RELEASE_DIR}/backend/requirements.txt"
+    read -rp "Email quản trị viên: " SUPERADMIN_EMAIL
+    read -rsp "Mật khẩu mới (tối thiểu 12 ký tự): " SUPERADMIN_PASSWORD
+    echo
+    if [[ "$SUPERADMIN_EMAIL" != *@* || ${#SUPERADMIN_PASSWORD} -lt 12 ]]; then
+      echo "Email hoặc mật khẩu không hợp lệ." >&2
+      exit 1
     fi
+    export SUPERADMIN_EMAIL SUPERADMIN_PASSWORD
+    "${compose[@]}" run --rm --no-deps -T -e SUPERADMIN_EMAIL -e SUPERADMIN_PASSWORD \
+      -e SUPERADMIN_BOOTSTRAP_MODE=create backend python - <<'PY'
+import asyncio
+from app.core.config import settings
+from app.core.database import connect_to_mongo, close_mongo_connection, get_database
+from app.db.bootstrap import bootstrap
+from app.db.collections import COLLECTION_ADMIN_USERS
 
-    # Step 5: Test Nginx & Restart Services
-    echo -e "\n[5/6] Validating Nginx & Restarting Services..."
-    if command -v nginx &>/dev/null; then
-        sudo cp "${RELEASE_DIR}/deploy/nginx/tour-guide.conf" /etc/nginx/sites-available/tour-guide.conf
-        sudo ln -sf /etc/nginx/sites-available/tour-guide.conf /etc/nginx/sites-enabled/
-        sudo nginx -t
-        sudo systemctl reload nginx
-    fi
+async def main():
+    settings.validate_runtime()
+    await connect_to_mongo()
+    try:
+        db = get_database()
+        if await db[COLLECTION_ADMIN_USERS].find_one({"role": "super_admin"}):
+            raise SystemExit("Đã có tài khoản quản trị tối cao.")
+        await bootstrap(db)
+        print("Đã tạo tài khoản quản trị tối cao.")
+    finally:
+        await close_mongo_connection()
 
-    # Switch current symlink
-    ln -sfn "${RELEASE_DIR}" "${DEPLOY_ROOT}/current"
-    if command -v systemctl &>/dev/null; then
-        sudo systemctl restart tour-guide-api || true
-    fi
-
-    # Step 6: Execute Smoke Test
-    echo -e "\n[6/6] Running Post-Deployment Smoke Test..."
-    bash "${RELEASE_DIR}/deploy/scripts/smoke-test.sh" "http://127.0.0.1:8000"
-else
-    echo -e "\n[4/6] Remote deploy mode: Transferring artifact to ${DEPLOY_USER}@${DEPLOY_HOST}:${DEPLOY_ROOT}/releases/ ..."
-    echo "Lệnh chuyển giao thủ công hoặc qua SSH:"
-    echo "  scp ${TARBALL_PATH} ${DEPLOY_USER}@${DEPLOY_HOST}:${DEPLOY_ROOT}/"
-    echo "  ssh ${DEPLOY_USER}@${DEPLOY_HOST} 'tar -xzf ${DEPLOY_ROOT}/${TARBALL_NAME} -C ${RELEASE_DIR} && ...'"
-fi
-
-# Cleanup local temp
-rm -rf "${TMP_PKG_DIR}"
-
-echo -e "\n========================================================"
-echo "   🎉 DEPLOYMENT WORKFLOW COMPLETED SUCCESSFULLY"
-echo "========================================================"
+asyncio.run(main())
+PY
+    ;;
+  *)
+    echo "Cách dùng: bash deploy/scripts/deploy.sh [demo|admin-demo|up|admin]" >&2
+    exit 2
+    ;;
+esac

@@ -6,6 +6,7 @@ BR-PAY-01..06.
 
 from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional
+import hashlib
 import uuid
 
 from app.db.collections import COLLECTION_ORDERS, COLLECTION_PAYMENT_ATTEMPTS
@@ -34,6 +35,18 @@ class OrderRepository(BaseRepository):
         expires_minutes: int = 30
     ) -> Dict[str, Any]:
         now = datetime.now(timezone.utc)
+        checkout_key = hashlib.sha256(f"{user_id}:{tour_id}".encode()).hexdigest()
+        query = {"user_id": user_id, "tour_id": tour_id, "$or": [
+            {"status": "requires_review"},
+            {"status": {"$in": ["pending", "pending_payment"]}, "expires_at": {"$gt": now}},
+        ]}
+        await self.collection.update_many(
+            {"checkout_key": checkout_key, "status": {"$in": ["pending", "pending_payment"]}, "expires_at": {"$lte": now}},
+            {"$set": {"status": "expired", "updated_at": now}, "$unset": {"checkout_key": ""}},
+        )
+        existing = await self.collection.find_one(query, sort=[("created_at", -1)])
+        if existing:
+            return existing
         order_id = f"ORD-{now.strftime('%Y%m%d')}-{uuid.uuid4().hex[:8].upper()}"
         doc = {
             "_id": order_id,
@@ -45,6 +58,7 @@ class OrderRepository(BaseRepository):
             "pricing_version": pricing_version,
             "status": "pending_payment",  # pending_payment, paid, cancelled, expired, requires_review
             "idempotency_key": idempotency_key,
+            "checkout_key": checkout_key,
             "customer_name": customer_name,
             "customer_phone": customer_phone,
             "customer_email": customer_email,
@@ -53,14 +67,28 @@ class OrderRepository(BaseRepository):
             "paid_at": None,
             "updated_at": now
         }
-        await self.insert_one(doc)
+        from pymongo.errors import DuplicateKeyError
+        try:
+            await self.insert_one(doc)
+        except DuplicateKeyError:
+            if idempotency_key:
+                existing = await self.get_by_user_and_idempotency(user_id, idempotency_key)
+                if existing and existing["tour_id"] == tour_id:
+                    return existing
+            active = await self.collection.find_one(query, sort=[("created_at", -1)])
+            if active:
+                return active
+            raise
         return doc
 
     async def get_by_user_and_idempotency(self, user_id: str, idempotency_key: str) -> Optional[Dict[str, Any]]:
         return await self.find_one({"user_id": user_id, "idempotency_key": idempotency_key})
 
-    async def list_user_orders(self, user_id: str, skip: int = 0, limit: int = 50) -> List[Dict[str, Any]]:
-        return await self.list(query={"user_id": user_id}, skip=skip, limit=limit, sort=[("created_at", -1)])
+    async def list_user_orders(self, user_id: str, skip: int = 0, limit: int = 50, status_filter: Optional[str] = None) -> List[Dict[str, Any]]:
+        query = {"user_id": user_id}
+        if status_filter:
+            query["status"] = status_filter
+        return await self.list(query=query, skip=skip, limit=limit, sort=[("created_at", -1)])
 
     async def list_all_orders(self, skip: int = 0, limit: int = 50, status: Optional[str] = None) -> List[Dict[str, Any]]:
         query = {}
@@ -80,16 +108,23 @@ class OrderRepository(BaseRepository):
         if paid_at:
             update_doc["paid_at"] = paid_at
         kwargs = {"session": session} if session else {}
-        await self.collection.update_one({"_id": order_id}, {"$set": update_doc}, **kwargs)
-        return await self.get_by_id(order_id)
+        query = {"_id": order_id}
+        if status != "paid":
+            query["status"] = {"$ne": "paid"}
+        update = {"$set": update_doc}
+        if status in ("paid", "expired", "cancelled"):
+            update["$unset"] = {"checkout_key": ""}
+        await self.collection.update_one(query, update, **kwargs)
+        return await self.collection.find_one({"_id": order_id}, **kwargs)
 
     async def mark_order_cancelled(self, order_id: str) -> bool:
         """Cancels a pending order. Strictly rejects if order is already paid (Rule BR-PAY-03)."""
         order = await self.get_by_id(order_id)
         if not order or order.get("status") == "paid":
             return False
-        await self.update_order_status(order_id, "cancelled")
-        return True
+        res = await self.collection.update_one({"_id": order_id, "status": {"$in": ["pending", "pending_payment"]}},
+            {"$set": {"status": "cancelled", "updated_at": datetime.now(timezone.utc)}, "$unset": {"checkout_key": ""}})
+        return res.modified_count > 0
 
     # =========================================================================
     # PAYMENT ATTEMPTS
@@ -157,8 +192,11 @@ class OrderRepository(BaseRepository):
             update_doc["received_amount_vnd"] = received_amount_vnd
 
         kwargs = {"session": session} if session else {}
-        await self.attempt_collection.update_one({"_id": attempt_id}, {"$set": update_doc}, **kwargs)
-        return await self.attempt_collection.find_one({"_id": attempt_id})
+        query = {"_id": attempt_id}
+        if state != "succeeded":
+            query["state"] = {"$ne": "succeeded"}
+        await self.attempt_collection.update_one(query, {"$set": update_doc}, **kwargs)
+        return await self.attempt_collection.find_one({"_id": attempt_id}, **kwargs)
 
 
 order_repo = OrderRepository()

@@ -3,6 +3,8 @@
 import pytest
 from httpx import AsyncClient, ASGITransport
 from app.main import app
+from app.repositories.poi_repo import poi_repo
+from app.repositories.audio_repo import audio_repo
 
 
 @pytest.fixture
@@ -26,6 +28,53 @@ async def test_get_map_config(client: AsyncClient):
     assert "style_url" in data
     assert "attribution" in data
     assert data["capabilities"]["supports_routing"] is True
+
+
+@pytest.mark.asyncio
+async def test_public_catalog_revalidation_and_removed_point_delta(client: AsyncClient):
+    poi_id = "catalog-delta-test"
+    await poi_repo.collection.insert_one({
+        "_id": poi_id, "name": "Điểm kiểm tra đồng bộ", "description": "Bản gốc",
+        "location": {"type": "Point", "coordinates": [106.703, 10.764]}, "is_active": True,
+    })
+    full = await client.get("/api/v1/poi/load-all", params={"lang": "ja"})
+    assert full.status_code == 200
+    snapshot = full.json()
+    point = next(item for item in snapshot["items"] if item["id"] == poi_id)
+    assert point["resolved_lang"] == "vi" and point["is_fallback"]
+    unchanged = await client.get("/api/v1/poi/load-all", params={"lang": "ja"}, headers={"If-None-Match": full.headers["etag"]})
+    assert unchanged.status_code == 304
+    await poi_repo.collection.update_one({"_id": poi_id}, {"$set": {"is_active": False}})
+    delta = await client.get("/api/v1/poi/load-all", params={"lang": "ja", "updated_after": snapshot["sync_cursor"]})
+    assert delta.status_code == 200
+    assert delta.json()["sync_mode"] == "delta"
+    assert delta.json()["removed_poi_ids"] == [poi_id]
+    assert poi_id not in delta.json()["ordered_poi_ids"]
+
+
+@pytest.mark.asyncio
+async def test_visitor_localization_deduplicates_jobs(client: AsyncClient):
+    poi_id = "visitor-localization-test"
+    await poi_repo.collection.insert_one({
+        "_id": poi_id, "name": "Điểm kiểm tra thuyết minh", "description": "Nội dung gốc", "is_active": True,
+        "location": {"type": "Point", "coordinates": [106.703, 10.764]},
+    })
+    await poi_repo.localizations_collection.insert_one({
+        "poi_id": poi_id, "lang": "ja", "source_version": 1, "audio_status": "ready",
+        "audio_storage_key": "audio/nonexistent-test-audio.mp3", "audio_url": "/storage/audio/nonexistent-test-audio.mp3",
+    })
+    payload = {"poi_id": poi_id, "lang": "ja"}
+    assert (await client.post("/api/v1/localizations/on-demand", json=payload)).status_code == 401
+    assert (await client.post("/api/v1/guest-sessions")).status_code in (200, 201)
+    for _ in range(2):
+        response = await client.post("/api/v1/localizations/on-demand", json=payload)
+        assert response.status_code == 202
+        assert response.json() == {"status": "queued"}
+    hotset = await client.post("/api/v1/localizations/prepare-hotset", json={"poi_ids": [poi_id, poi_id], "lang": "ja"})
+    assert hotset.status_code == 202
+    assert hotset.json()["items"] == [{"poi_id": poi_id, "status": "queued"}]
+    jobs = await audio_repo.collection.find({"items.poi_id": poi_id}).to_list(None)
+    assert len(jobs) == 1
 
 
 @pytest.mark.asyncio

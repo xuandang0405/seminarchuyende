@@ -11,7 +11,28 @@ from typing import Any, Dict, List, Optional
 from datetime import datetime, timezone
 import re
 from app.repositories.base import BaseRepository, build_id_filter, serialize_mongo_doc
-from app.db.collections import COLLECTION_POI, COLLECTION_POI_LOCALIZATIONS
+from app.db.collections import COLLECTION_POI, COLLECTION_POI_LOCALIZATIONS, COLLECTION_MENU_ITEM
+
+
+VIETNAMESE_CHAR_MAP = {
+    'a': '[aàáảãạăằắẳẵặâầấẩẫậ]',
+    'e': '[eèéẻẽẹêềếểễệ]',
+    'i': '[iìíỉĩị]',
+    'o': '[oòóỏõọôồốổỗộơờớởỡợ]',
+    'u': '[uùúủũụưừứửữự]',
+    'y': '[yỳýỷỹỵ]',
+    'd': '[dđ]',
+}
+
+def to_vietnamese_regex(text: str) -> str:
+    result = []
+    for ch in text:
+        lower = ch.lower()
+        if lower in VIETNAMESE_CHAR_MAP:
+            result.append(VIETNAMESE_CHAR_MAP[lower])
+        else:
+            result.append(re.escape(ch))
+    return ''.join(result)
 
 
 class POIRepository(BaseRepository):
@@ -21,6 +42,21 @@ class POIRepository(BaseRepository):
     @property
     def localizations_collection(self):
         return self.db[COLLECTION_POI_LOCALIZATIONS]
+
+    def content_query(self, poi_id, version):
+        query = {**build_id_filter(poi_id), "deleted_at": None, "content_version": version}
+        if version == 1:
+            query.pop("content_version")
+            query["$or"] = [{"content_version": 1}, {"content_version": {"$exists": False}}]
+        return query
+
+    async def fence_content(self, poi_id, version, session=None):
+        result = await self.collection.update_one(
+            self.content_query(poi_id, version),
+            {"$inc": {"localization_revision": 1}},
+            **({"session": session} if session else {}),
+        )
+        return bool(result.matched_count)
 
     async def get_public_by_id(self, poi_id: str) -> Optional[Dict[str, Any]]:
         """Fetch POI if active and not soft-deleted."""
@@ -36,7 +72,7 @@ class POIRepository(BaseRepository):
         limit: int = 50,
         category: Optional[str] = None,
         search: Optional[str] = None,
-        include_inactive: bool = True,
+        include_inactive: bool = False,
     ) -> List[Dict[str, Any]]:
         query: Dict[str, Any] = {
             "deleted_at": None,
@@ -52,7 +88,7 @@ class POIRepository(BaseRepository):
                 {"description": {"$regex": safe_search, "$options": "i"}},
                 {"address": {"$regex": safe_search, "$options": "i"}},
             ]
-        cursor = self.collection.find(query).skip(skip).limit(limit).sort("audio_priority", -1)
+        cursor = self.collection.find(query).sort([("audio_priority", -1), ("_id", 1)]).skip(skip).limit(limit)
         return await cursor.to_list(length=limit)
 
     async def find_nearby_geo_near(
@@ -140,39 +176,67 @@ class POIRepository(BaseRepository):
         skip: int = 0,
         limit: int = 20
     ) -> List[Dict[str, Any]]:
-        """Searches POIs across name, description, address, and localized content."""
-        clean_q = re.escape(query.strip()[:100])
-        if not clean_q:
+        """Searches POIs across name, description, address, menu dishes, and localized content without fake coords."""
+        raw_query = query.strip()[:100]
+        if not raw_query:
             return []
+        viet_pattern = to_vietnamese_regex(raw_query)
 
-        # Find POI IDs matching localized names (e.g. English or French search terms)
+        # 1. Match localized content (multilingual)
         loc_cursor = self.localizations_collection.find(
             {
                 "$or": [
-                    {"name": {"$regex": clean_q, "$options": "i"}},
-                    {"description": {"$regex": clean_q, "$options": "i"}}
+                    {"name": {"$regex": viet_pattern, "$options": "i"}},
+                    {"description": {"$regex": viet_pattern, "$options": "i"}}
                 ]
             },
             {"poi_id": 1}
         ).limit(50)
         matched_loc_ids = [doc["poi_id"] for doc in await loc_cursor.to_list(length=50) if "poi_id" in doc]
 
+        # 2. Match dishes in menu_items collection
+        menu_cursor = self.db[COLLECTION_MENU_ITEM].find(
+            {
+                "$or": [
+                    {"name": {"$regex": viet_pattern, "$options": "i"}},
+                    {"description": {"$regex": viet_pattern, "$options": "i"}}
+                ],
+                "is_available": True
+            },
+            {"poi_id": 1}
+        ).limit(50)
+        matched_menu_poi_ids = [doc["poi_id"] for doc in await menu_cursor.to_list(length=50) if "poi_id" in doc]
+
+        all_matched_ids = list(set(matched_loc_ids + matched_menu_poi_ids))
+
         poi_query: Dict[str, Any] = {
             "is_active": True,
             "deleted_at": None,
+            "location.coordinates": {"$exists": True, "$type": "array"},
             "$or": [
-                {"name": {"$regex": clean_q, "$options": "i"}},
-                {"description": {"$regex": clean_q, "$options": "i"}},
-                {"address": {"$regex": clean_q, "$options": "i"}},
-                {"code": {"$regex": clean_q, "$options": "i"}},
-                {"_id": {"$in": matched_loc_ids}}
+                {"name": {"$regex": viet_pattern, "$options": "i"}},
+                {"description": {"$regex": viet_pattern, "$options": "i"}},
+                {"address": {"$regex": viet_pattern, "$options": "i"}},
+                {"code": {"$regex": re.escape(raw_query), "$options": "i"}},
             ]
         }
+        if all_matched_ids:
+            poi_query["$or"].append({"_id": {"$in": all_matched_ids}})
+
         if category and category != "all":
             poi_query["category"] = category
 
         cursor = self.collection.find(poi_query).skip(skip).limit(limit).sort("audio_priority", -1)
-        return await cursor.to_list(length=limit)
+        results = await cursor.to_list(length=limit)
+
+        # Filter out missing, null, or (0, 0) dummy/fake coordinates
+        valid_results = []
+        for doc in results:
+            coords = doc.get("location", {}).get("coordinates")
+            if coords and len(coords) >= 2 and isinstance(coords[0], (int, float)) and isinstance(coords[1], (int, float)):
+                if abs(coords[0]) > 0.0001 and abs(coords[1]) > 0.0001:
+                    valid_results.append(doc)
+        return valid_results
 
     async def find_in_bounds(
         self,
@@ -231,7 +295,7 @@ class POIRepository(BaseRepository):
         cursor = self.collection.find(query).skip(skip).limit(limit).sort("created_at", -1)
         return await cursor.to_list(length=limit)
 
-    async def count_public(self, category: Optional[str] = None, include_inactive: bool = True) -> int:
+    async def count_public(self, category: Optional[str] = None, include_inactive: bool = False) -> int:
         query: Dict[str, Any] = {"deleted_at": None}
         if not include_inactive:
             query["is_active"] = True
@@ -239,7 +303,7 @@ class POIRepository(BaseRepository):
             query["category"] = category
         return await self.collection.count_documents(query)
 
-    async def create_poi(self, doc: Dict[str, Any]) -> Dict[str, Any]:
+    async def create_poi(self, doc: Dict[str, Any], session=None) -> Dict[str, Any]:
         now = datetime.now(timezone.utc)
         doc.setdefault("version", 1)
         doc.setdefault("content_version", 1)
@@ -248,7 +312,7 @@ class POIRepository(BaseRepository):
         doc.setdefault("deleted_at", None)
         doc.setdefault("created_at", now)
         doc.setdefault("updated_at", now)
-        await self.collection.insert_one(doc)
+        await self.collection.insert_one(doc, **({"session": session} if session else {}))
         return doc
 
     async def update_poi_with_version(
@@ -256,7 +320,8 @@ class POIRepository(BaseRepository):
         poi_id: str,
         update_fields: Dict[str, Any],
         expected_version: int,
-        content_changed: bool = False
+        content_changed: bool = False,
+        session=None
     ) -> Optional[Dict[str, Any]]:
         """Optimistic concurrency update."""
         now = datetime.now(timezone.utc)
@@ -276,7 +341,8 @@ class POIRepository(BaseRepository):
                 "$set": update_fields,
                 "$inc": inc_fields
             },
-            return_document=True
+            return_document=True,
+            **({"session": session} if session else {})
         )
         return serialize_mongo_doc(result)
 
@@ -301,13 +367,14 @@ class POIRepository(BaseRepository):
     async def get_localization_by_lang(self, poi_id: str, lang: str) -> Optional[Dict[str, Any]]:
         return await self.localizations_collection.find_one({"poi_id": poi_id, "lang": lang})
 
-    async def upsert_localization(self, loc_doc: Dict[str, Any]) -> Dict[str, Any]:
+    async def upsert_localization(self, loc_doc: Dict[str, Any], session=None) -> Dict[str, Any]:
         now = datetime.now(timezone.utc)
         loc_doc["updated_at"] = now
         await self.localizations_collection.update_one(
             {"poi_id": loc_doc["poi_id"], "lang": loc_doc["lang"]},
             {"$set": loc_doc},
-            upsert=True
+            upsert=True,
+            **({"session": session} if session else {})
         )
         return loc_doc
 

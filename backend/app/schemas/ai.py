@@ -34,9 +34,9 @@ class POIAssistantResponse(BaseModel):
     description: str = ""
     narration_script: str = ""
     specialties: List[str] = Field(default_factory=list)
-    latitude: Optional[float] = 10.7635
-    longitude: Optional[float] = 106.7042
-    confidence: Optional[str] = "high"
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    confidence: Optional[str] = "requires_review"
 
 
 class AIRefineDescriptionRequest(BaseModel):

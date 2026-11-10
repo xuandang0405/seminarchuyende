@@ -1,3 +1,5 @@
+> Phạm vi hiện tại chỉ còn **Web App** từ 10/11/2026. Các mô tả native trong tài liệu này thuộc thiết kế trước đây; xem [phạm vi cập nhật](WEB_APP_SCOPE.md).
+
 # Tài Liệu Cấu Hình & Tinh Chỉnh LocationService (Location Tuning Guide)
 
 > **Mã quy tắc liên quan:** `BR-GEO-01`, `BR-GEO-02`, `BR-GEO-03`, `BR-GEO-04`, `BR-MAP-01`, `BR-MAP-02`, `BR-MAP-03`.

@@ -5,7 +5,7 @@ Clean Router -> Service -> Repository.
 """
 
 from typing import Any, Dict, List, Optional
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, Response, status
 
 from app.services.poi_service import poi_service
 from app.services.poi_admin_service import poi_admin_service
@@ -13,6 +13,23 @@ from app.schemas.poi import POICreate, POIUpdate, POIPublicResponse, POIAdminRes
 from app.api.v1.endpoints.auth import get_current_user, get_current_admin
 
 router = APIRouter(prefix="/pois", tags=["POIs (Points of Interest)"])
+sync_router = APIRouter(prefix="/poi", tags=["POIs (Points of Interest)"])
+
+
+@sync_router.get("/load-all")
+async def sync_public_pois(
+    request: Request,
+    response: Response,
+    lang: str = Query("vi", pattern=r"^(vi|en|ja|ko|fr|zh)$"),
+    updated_after: Optional[str] = Query(None, pattern=r"^[a-f0-9]{64}$"),
+):
+    dataset = await poi_service.sync_public_pois(lang, updated_after)
+    etag = f'"{dataset["dataset_version"]}"'
+    headers = {"ETag": etag, "Cache-Control": "private, no-cache", "Content-Language": lang}
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers=headers)
+    response.headers.update(headers)
+    return dataset
 
 
 # =============================================================================
@@ -98,7 +115,10 @@ async def get_pois_in_bounds_endpoint(
 ):
     """Use Case T01 / SD-MAP-01: Fetch POIs inside map viewport bounding box with language fallback."""
     from app.services.geo_service import validate_bbox
-    validate_bbox(min_lon, min_lat, max_lon, max_lat)
+    try:
+        validate_bbox(min_lon, min_lat, max_lon, max_lat)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
     effective_lang = lang or getattr(request.state, "lang", "vi")
     return await poi_service.get_pois_in_bounds(
         min_lon=min_lon,
@@ -130,9 +150,7 @@ async def get_poi_detail(
 async def get_active_poi_content(poi_id: str, lang: str):
     """Legacy compatibility endpoint: Fetch active content for a POI in a given language."""
     from app.repositories.poi_repo import poi_repo
-    poi = await poi_repo.get_by_id(poi_id)
-    if not poi:
-        poi = await poi_repo.get_public_by_id(poi_id)
+    poi = await poi_repo.get_public_by_id(poi_id)
     if not poi:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="POI không tồn tại.")
 
@@ -227,7 +245,7 @@ async def update_poi_admin(
 
     has_explicit_version = payload.expected_version is not None
     if expected_version is None:
-        expected_version = current_poi.get("content_version") or current_poi.get("version", 1)
+        expected_version = current_poi.get("version", 1)
 
     content_changed = bool("name" in update_data or "description" in update_data)
 
@@ -238,28 +256,8 @@ async def update_poi_admin(
         content_changed=content_changed
     )
     if not updated:
-        if has_explicit_version:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="Xung đột phiên bản (Version conflict). Dữ liệu đã bị người khác thay đổi."
-            )
-        # Resilient retry without strict version lock for admin editing
-        latest_poi = await poi_repo.get_by_id(target_id) or await poi_repo.get_public_by_id(target_id)
-        latest_ver = (latest_poi.get("version") if latest_poi else 1) or 1
-        updated = await poi_admin_service.update_poi(
-            poi_id=target_id,
-            update_fields=update_data,
-            expected_version=latest_ver,
-            content_changed=content_changed
-        )
-
-    # Asynchronously synchronize 6-language translation & Google TTS in background
-    if auto_translate or content_changed:
-        final_name = update_data.get("name") or current_poi.get("name") or current_poi.get("code")
-        final_desc = update_data.get("description") or current_poi.get("description") or ""
-        background_tasks.add_task(background_sync_poi_multilingual, target_id, final_name, final_desc)
-
-    return updated or {"status": "success", "id": target_id}
+        raise HTTPException(409, "Dữ liệu đã thay đổi; vui lòng tải lại trước khi lưu.")
+    return updated
 
 
 @router.post("/{poi_id}/sync-multilingual")
@@ -278,19 +276,9 @@ async def sync_single_poi_multilingual(
 
     name = poi.get("name") or poi.get("code", "Điểm tham quan")
     description = poi.get("description", "")
-    trans = await translation_service.sync_poi_multilingual(
-        poi_id=poi_id,
-        name=name,
-        description=description,
-        db=db_manager.db
-    )
-    return {
-        "status": "success",
-        "poi_id": poi_id,
-        "name": name,
-        "languages": list(trans.keys()),
-        "translations": trans
-    }
+    from app.services.poi_admin_service import background_sync_poi_multilingual
+    task = await background_sync_poi_multilingual(poi_id, name, description)
+    return {"status": "queued", "poi_id": poi_id, "task_id": task["_id"]}
 
 
 @router.post("/batch-sync-all")
@@ -306,32 +294,15 @@ async def batch_sync_all_pois(
     if db is None:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Database chưa kết nối.")
 
-    pois = await db[COLLECTION_POI].find({"deleted_at": None}).to_list(200)
+    pois = await db[COLLECTION_POI].find({"deleted_at": None}).to_list(None)
     synced_count = 0
     results = []
 
-    for p in pois:
-        pid = p["_id"]
-        name = p.get("name") or p.get("code", f"POI {pid}")
-        desc = p.get("description", "")
-        try:
-            trans = await translation_service.sync_poi_multilingual(
-                poi_id=pid,
-                name=name,
-                description=desc,
-                db=db
-            )
-            synced_count += 1
-            results.append({"poi_id": pid, "name": name, "status": "success", "languages": len(trans)})
-        except Exception as e:
-            results.append({"poi_id": pid, "name": name, "status": "error", "error": str(e)})
-
-    return {
-        "status": "success",
-        "total_pois": len(pois),
-        "synced_count": synced_count,
-        "items": results
-    }
+    from app.services.poi_admin_service import background_sync_poi_multilingual
+    from app.repositories.audio_repo import audio_repo
+    task = await audio_repo.create_task(current_user["_id"],
+        [{"poi_id": p["_id"], "input_version": p.get("content_version", 1)} for p in pois])
+    return {"status": "queued", "total_pois": len(pois), "task_ids": [task["_id"]]}
 
 
 @router.delete("/{poi_id}", status_code=status.HTTP_204_NO_CONTENT)

@@ -1,3 +1,5 @@
+> Phạm vi hiện tại chỉ còn **Web App** từ 10/11/2026. Các mô tả native trong tài liệu này thuộc thiết kế trước đây; xem [phạm vi cập nhật](../WEB_APP_SCOPE.md).
+
 # N01 & N02 — Subflows Điều Phối Phát & Chuẩn Bị Thuyết Minh
 
 ## 1. Thông Tin Nhận Diện

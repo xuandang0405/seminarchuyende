@@ -1,6 +1,9 @@
 """Pytest configuration and async test client fixtures using mongomock."""
 
 import asyncio
+import os
+os.environ.update(APP_ENV="test", PAYMENT_MODE="mock", DEBUG="false", ALLOW_MOCK_DATABASE="true",
+                  SECRET_KEY="isolated-test-key-not-used-outside-test-process-2026")
 import pytest
 import mongomock
 from httpx import AsyncClient, ASGITransport
@@ -119,19 +122,31 @@ def event_loop():
 
 
 @pytest.fixture(autouse=True)
-async def setup_test_db():
+async def setup_test_db(tmp_path):
     """Initializes in-memory test database with seeded collections."""
     mock_db = AsyncMockDatabase()
     db_manager.db = mock_db
     db_manager.is_connected = True
+    db_manager.is_mock = True
 
-    # Seed initial test data
+    # Isolate generated/uploaded media from user data.
+    from app.core.config import settings
+    from pathlib import Path
+    from app.services.audio_service import audio_service
+    previous_media = settings.MEDIA_STORAGE_DIR
+    settings.MEDIA_STORAGE_DIR = str(tmp_path)
+    (tmp_path / "audio").mkdir()
+    (tmp_path / "images").mkdir()
+    # Fixtures use real test bytes; runtime must never fabricate missing audio.
+    (tmp_path / "audio" / "poi_test_01_vi.mp3").write_bytes(b"ID3" + b"review-audio" * 30)
+    (tmp_path / "audio" / "poi_test_02_vi.mp3").write_bytes(b"ID3" + b"review-audio" * 30)
     await seed_database(mock_db)
     yield mock_db
+    settings.MEDIA_STORAGE_DIR = previous_media
 
 
 @pytest.fixture
 async def client():
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+    async with AsyncClient(transport=transport, base_url="http://test", headers={"Origin": "http://test"}) as ac:
         yield ac

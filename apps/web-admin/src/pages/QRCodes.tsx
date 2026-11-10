@@ -243,7 +243,7 @@ export const QRCodes: React.FC = () => {
             return (
               <div 
                 key={qr.id} 
-                className={`bg-slate-900 border rounded-2xl p-6 flex flex-col justify-between transition-all ${
+                className={`bg-slate-900 border rounded p-6 flex flex-col justify-between transition-all ${
                   qr.is_active ? 'border-slate-800 hover:border-slate-700 shadow-sm' : 'border-rose-900/30 bg-slate-950/60 opacity-80'
                 }`}
               >
@@ -251,7 +251,7 @@ export const QRCodes: React.FC = () => {
                   {/* Top Status & Target Badge */}
                   <div className="flex items-start justify-between mb-4">
                     <div className="flex items-center space-x-2">
-                      <span className="font-mono text-xs font-bold text-indigo-300 bg-indigo-500/10 border border-indigo-500/20 px-2.5 py-0.5 rounded-lg">
+                      <span className="font-mono text-xs font-bold text-indigo-300 bg-indigo-500/10 border border-indigo-500/20 px-2.5 py-0.5 rounded-sm">
                         {qr.code}
                       </span>
                       <Badge variant={isTour ? 'purple' : 'info'} size="sm" showDot>
@@ -259,7 +259,7 @@ export const QRCodes: React.FC = () => {
                       </Badge>
                     </div>
 
-                    <span className={`px-2 py-0.5 rounded-full text-[11px] font-semibold ${
+                    <span className={`px-2 py-0.5 rounded-sm text-[11px] font-semibold ${
                       qr.is_active ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
                     }`}>
                       {qr.is_active ? 'Đang hiệu lực' : 'Đã vô hiệu'}
@@ -270,7 +270,7 @@ export const QRCodes: React.FC = () => {
                   <div className="flex items-start space-x-4 mb-4">
                     <div 
                       onClick={() => setPreviewQr(qr)}
-                      className="p-2 bg-white rounded-xl shadow cursor-pointer hover:scale-105 transition-transform shrink-0 border border-slate-200"
+                      className="p-2 bg-white rounded shadow-sm cursor-pointer hover:opacity-90 transition-opacity shrink-0 border border-slate-200"
                       title="Bấm để xem phóng to mã QR"
                     >
                       <QRCodeSVG 
@@ -292,11 +292,11 @@ export const QRCodes: React.FC = () => {
                 </div>
 
                 {/* Card Actions */}
-                <div className="pt-4 border-t border-slate-800/80 flex items-center justify-between gap-2">
+                <div className="pt-4 border-t border-slate-800 flex items-center justify-between gap-2">
                   <div className="flex items-center space-x-1.5">
                     <button
                       onClick={() => setPreviewQr(qr)}
-                      className="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-medium transition-colors flex items-center space-x-1 border border-slate-700/60"
+                      className="px-2.5 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-medium transition-colors flex items-center space-x-1 border border-slate-700"
                       title="Xem chi tiết mã QR"
                     >
                       <Eye className="w-3.5 h-3.5" />
@@ -305,7 +305,7 @@ export const QRCodes: React.FC = () => {
 
                     <button
                       onClick={() => handlePrint(qr)}
-                      className="px-2.5 py-1.5 rounded-xl bg-indigo-600/15 hover:bg-indigo-600/25 text-indigo-300 text-xs font-medium transition-colors flex items-center space-x-1 border border-indigo-500/25"
+                      className="px-2.5 py-1.5 rounded bg-indigo-600/15 hover:bg-indigo-600/25 text-indigo-300 text-xs font-medium transition-colors flex items-center space-x-1 border border-indigo-500/25"
                       title="In poster / standee mã QR"
                     >
                       <Printer className="w-3.5 h-3.5" />
@@ -318,7 +318,7 @@ export const QRCodes: React.FC = () => {
                       <button
                         onClick={() => handleDeactivate(qr.id)}
                         disabled={actionLoading === `deact_${qr.id}`}
-                        className="px-2.5 py-1.5 rounded-xl bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 text-xs font-medium transition-colors border border-amber-500/20 disabled:opacity-50"
+                        className="px-2.5 py-1.5 rounded bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 text-xs font-medium transition-colors border border-amber-500/20 disabled:opacity-50"
                         title="Vô hiệu hóa mã QR"
                       >
                         Khóa
@@ -327,7 +327,7 @@ export const QRCodes: React.FC = () => {
                       <button
                         onClick={() => handleActivate(qr.id)}
                         disabled={actionLoading === `act_${qr.id}`}
-                        className="px-2.5 py-1.5 rounded-xl bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 text-xs font-medium transition-colors border border-emerald-500/20 disabled:opacity-50"
+                        className="px-2.5 py-1.5 rounded bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 text-xs font-medium transition-colors border border-emerald-500/20 disabled:opacity-50"
                         title="Kích hoạt lại mã QR"
                       >
                         Mở
@@ -337,10 +337,11 @@ export const QRCodes: React.FC = () => {
                     {(user?.role === 'admin' || user?.role === 'super_admin') && (
                       <button
                         onClick={() => setDeleteConfirmQr(qr)}
-                        className="p-1.5 rounded-xl bg-rose-500/10 text-rose-400 hover:bg-rose-500/25 border border-rose-500/20 transition-colors"
+                        className="px-2.5 py-1.5 rounded bg-rose-500/10 text-rose-400 hover:bg-rose-500/25 border border-rose-500/20 text-xs font-medium transition-colors flex items-center space-x-1"
                         title="Xóa mã QR vĩnh viễn"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
+                        <span>Xóa</span>
                       </button>
                     )}
                   </div>
@@ -353,8 +354,8 @@ export const QRCodes: React.FC = () => {
 
       {/* Modal: View QR Code Detail */}
       {previewQr && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 w-full max-w-sm shadow-2xl text-center animate-in zoom-in-95 duration-200">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 animate-in fade-in duration-200">
+          <div className="bg-slate-900 border border-slate-800 rounded p-6 w-full max-w-sm shadow-xl text-center animate-in zoom-in-95 duration-200">
             <div className="mb-2">
               <Badge variant={previewQr.target_type === 'tour' || previewQr.tour_id ? 'purple' : 'info'} size="sm" showDot>
                 {previewQr.target_type === 'tour' || previewQr.tour_id ? 'Mã QR Tuyến Tour' : 'Mã QR Điểm Đến'}
@@ -363,7 +364,7 @@ export const QRCodes: React.FC = () => {
             <h2 className="text-base font-bold text-white mb-0.5">{previewQr.target_name || previewQr.poi_name}</h2>
             <p className="text-xs text-indigo-400 font-mono mb-4">{previewQr.code}</p>
 
-            <div className="bg-white p-4 rounded-2xl inline-block shadow-inner mb-4 border border-slate-200">
+            <div className="bg-white p-4 rounded inline-block shadow-sm mb-4 border border-slate-200">
               <QRCodeSVG 
                 value={getQrTargetUrl(previewQr)} 
                 size={210} 
@@ -375,7 +376,7 @@ export const QRCodes: React.FC = () => {
             <p className="text-xs text-slate-400 mb-2">
               Vị trí: <span className="text-white">{previewQr.location_description || 'Bảng thông tin du lịch'}</span>
             </p>
-            <div className="bg-slate-950 p-2.5 rounded-xl text-[11px] font-mono text-slate-400 break-all mb-5 text-left border border-slate-800">
+            <div className="bg-slate-950 p-2.5 rounded text-[11px] font-mono text-slate-400 break-all mb-5 text-left border border-slate-800">
               {getQrTargetUrl(previewQr)}
             </div>
 
@@ -399,7 +400,7 @@ export const QRCodes: React.FC = () => {
                 href={getQrTargetUrl(previewQr)}
                 target="_blank"
                 rel="noreferrer"
-                className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-medium flex items-center space-x-1.5 transition-colors"
+                className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded text-xs font-medium flex items-center space-x-1.5 transition-colors"
               >
                 <ExternalLink className="w-3.5 h-3.5" />
                 <span>Mở Link</span>
@@ -411,10 +412,10 @@ export const QRCodes: React.FC = () => {
 
       {/* Delete Confirmation Modal */}
       {deleteConfirmQr && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 w-full max-w-md shadow-2xl animate-in zoom-in-95 duration-200">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 animate-in fade-in duration-200">
+          <div className="bg-slate-900 border border-slate-800 rounded p-6 w-full max-w-md shadow-xl animate-in zoom-in-95 duration-200">
             <div className="flex items-center space-x-3 text-rose-400 mb-3">
-              <div className="p-2 rounded-xl bg-rose-500/10 border border-rose-500/20">
+              <div className="p-2 rounded bg-rose-500/10 border border-rose-500/20">
                 <Trash2 className="w-5 h-5" />
               </div>
               <h2 className="text-base font-bold text-white tracking-tight">Xác Nhận Xóa Mã QR</h2>
@@ -422,7 +423,7 @@ export const QRCodes: React.FC = () => {
             <p className="text-sm text-slate-300 mb-2">
               Bạn có chắc chắn muốn xóa mã QR <strong className="text-white font-mono">"{deleteConfirmQr.code}"</strong> ({deleteConfirmQr.target_name || deleteConfirmQr.poi_name}) không?
             </p>
-            <p className="text-xs text-slate-400 mb-6 bg-slate-950 p-3 rounded-xl border border-slate-800">
+            <p className="text-xs text-slate-400 mb-6 bg-slate-950 p-3 rounded border border-slate-800">
               ⚠️ Du khách sẽ không thể quét mã này để mở hành trình hoặc nghe thuyết minh nữa.
             </p>
             <div className="flex justify-end space-x-2.5">
@@ -449,11 +450,11 @@ export const QRCodes: React.FC = () => {
       {/* Printable Badge Frame */}
       {printQr && (
         <div className="hidden print:block fixed inset-0 bg-white text-black p-8 z-[9999]">
-          <div className="max-w-md mx-auto border-4 border-black p-8 rounded-2xl text-center space-y-4">
+          <div className="max-w-md mx-auto border-4 border-black p-8 rounded text-center space-y-4">
             <div className="text-xs uppercase tracking-widest font-extrabold text-slate-700">
               Hệ Thống Thuyết Minh Du Lịch Tự Động Quận 4
             </div>
-            <div className="inline-block px-3 py-1 rounded-full text-xs font-bold border border-black uppercase">
+            <div className="inline-block px-3 py-1 rounded-sm text-xs font-bold border border-black uppercase">
               {printQr.target_type === 'tour' || printQr.tour_id ? 'Mã QR Tuyến Tour Khám Phá' : 'Mã QR Điểm Đến Thuyết Minh'}
             </div>
             <h1 className="text-2xl font-black text-black">{printQr.target_name || printQr.poi_name}</h1>
@@ -479,8 +480,8 @@ export const QRCodes: React.FC = () => {
 
       {/* Create Modal */}
       {showCreateModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 w-full max-w-md shadow-2xl animate-in zoom-in-95 duration-200">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 animate-in fade-in duration-200">
+          <div className="bg-slate-900 border border-slate-800 rounded p-6 w-full max-w-md shadow-xl animate-in zoom-in-95 duration-200">
             <h2 className="text-xl font-bold text-white mb-1 tracking-tight">Tạo Mã QR Mới</h2>
             <p className="text-xs text-slate-400 mb-4">Chọn tạo mã cho Tuyến Tour hoặc Địa Điểm đơn lẻ</p>
 

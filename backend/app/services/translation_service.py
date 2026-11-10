@@ -14,7 +14,7 @@ import logging
 import hashlib
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timezone
-from gtts import gTTS
+from app.services.tts_service import tts_service
 
 from app.core.config import settings
 
@@ -396,7 +396,7 @@ class TranslationService:
         except Exception as e:
             logger.warning(f"GoogleTranslator error for '{text[:25]}...' ({target_lang}): {e}")
 
-        return text
+        raise RuntimeError(f"Translation unavailable for {target_lang}")
 
     async def get_or_create_translations(
         self,
@@ -405,28 +405,20 @@ class TranslationService:
         description: str
     ) -> Dict[str, Dict[str, str]]:
         """Produces translations for all 6 languages (vi, en, fr, ja, ko, zh)."""
-        # 1. Check curated database first
-        curated = self._find_curated(poi_id) or self._find_curated(name)
-        if curated:
-            result = {}
-            for lang in SUPPORTED_LANGUAGES:
-                if lang in curated:
-                    result[lang] = curated[lang]
-                else:
-                    result[lang] = {
-                        "name": await self.translate_text(curated["vi"]["name"], lang),
-                        "description": await self.translate_text(curated["vi"]["description"], lang),
-                    }
-            return result
-
-        # 2. For custom POI, translate dynamically
+        # Always translate the saved source; curated seed text must never overwrite edits.
         translations = {
             "vi": {"name": name, "description": description}
         }
 
         for lang in ["en", "fr", "ja", "ko", "zh"]:
-            trans_name = await self.translate_text(name, lang)
-            trans_desc = await self.translate_text(description, lang)
+            try:
+                trans_name = await self.translate_text(name, lang)
+                trans_desc = await self.translate_text(description, lang)
+            except Exception:
+                if lang == "en":
+                    raise
+                logger.warning("Translation deferred for %s/%s", poi_id, lang)
+                continue
             translations[lang] = {
                 "name": trans_name or name,
                 "description": trans_desc or description
@@ -434,94 +426,64 @@ class TranslationService:
 
         return translations
 
-    async def generate_tts_for_poi(
-        self,
-        poi_id: str,
-        translations: Dict[str, Dict[str, str]]
-    ) -> Dict[str, Dict[str, Any]]:
-        """Generates Google TTS (gTTS) audio MP3 files for all 6 languages."""
-        audio_results = {}
-
-        for lang in SUPPORTED_LANGUAGES:
-            item = translations.get(lang, {})
-            raw_title = item.get("name", "")
-            raw_desc = item.get("description", "")
-            # Strip any legacy bracket tags like [EN], [JA], [KO], [ZH]
-            clean_title = re.sub(r"^\[[A-Za-z]{2,3}\]\s*", "", raw_title).strip()
-            clean_desc = re.sub(r"^\[[A-Za-z]{2,3}\]\s*", "", raw_desc).strip()
-            text_to_speak = f"{clean_title}. {clean_desc}".strip()
-            if not text_to_speak:
-                text_to_speak = f"Địa điểm {poi_id}"
-
-            gtts_lang = LANGUAGE_INFO[lang]["gtts_code"]
-            filename = f"{poi_id}_{lang}.mp3"
-            file_path = os.path.join(self.audio_dir, filename)
-            storage_key = f"audio/{filename}"
-            audio_url = f"/storage/{storage_key}"
-
-            try:
-                def _synthesize(text=text_to_speak, lang_code=gtts_lang, path=file_path):
-                    tts = gTTS(text=text, lang=lang_code, slow=False)
-                    tts.save(path)
-
-                await asyncio.to_thread(_synthesize)
-                file_size = os.path.getsize(file_path)
-                duration_ms = max(int((file_size / 4000.0) * 1000), 4000)
-
-                audio_results[lang] = {
-                    "audio_url": audio_url,
-                    "audio_storage_key": storage_key,
-                    "audio_duration_ms": duration_ms,
-                    "file_size": file_size,
-                    "status": "ready"
-                }
-                logger.info(f"Generated Google TTS audio for POI {poi_id} in {lang}: {file_path}")
-            except Exception as e:
-                logger.error(f"Failed to generate gTTS for {poi_id}_{lang}: {e}")
-                audio_results[lang] = {
-                    "audio_url": f"/storage/audio/{poi_id}_vi.mp3",
-                    "audio_storage_key": f"audio/{poi_id}_vi.mp3",
-                    "audio_duration_ms": 10000,
-                    "status": "fallback"
-                }
-
-        return audio_results
+    async def generate_tts_for_poi(self, poi_id, translations):
+        semaphore = asyncio.Semaphore(3)
+        async def generate(lang):
+            async with semaphore:
+                item = translations[lang]
+                audio = await tts_service.generate_with_google_tts(f"{item['name']}. {item['description']}", lang)
+                if not audio["success"]:
+                    raise RuntimeError("Audio generation unavailable for " + lang)
+                return lang, {**audio, "status": "ready"}
+        results = await asyncio.gather(*(generate(lang) for lang in translations), return_exceptions=True)
+        audio_map = {}
+        for lang, result in zip(translations, results):
+            if isinstance(result, BaseException):
+                if lang == "en":
+                    raise result
+                audio_map[lang] = {"status": "failed"}
+            else:
+                audio_map[result[0]] = result[1]
+        return audio_map
 
     async def sync_poi_multilingual(
         self,
         poi_id: str,
         name: str,
         description: str,
-        db: Any
+        db: Any,
+        expected_version: Optional[int] = None,
+        can_commit=None
     ) -> Dict[str, Any]:
         """Complete workflow:
         1. Translates name & description into 6 languages.
         2. Generates Google TTS audio MP3 for all 6 languages.
         3. Saves translations & audio URLs to MongoDB `pois` and `poi_localizations`.
         """
+        from app.repositories.poi_repo import poi_repo
+        before = await poi_repo.get_by_id(poi_id)
+        if not before or before.get("deleted_at"):
+            raise RuntimeError("POI unavailable")
+        source_version = expected_version or before.get("content_version", 1)
         now = datetime.now(timezone.utc)
         translations_text = await self.get_or_create_translations(poi_id, name, description)
         audio_map = await self.generate_tts_for_poi(poi_id, translations_text)
-
         # Assemble unified multilingual payload
         translations_doc = {}
-        for lang in SUPPORTED_LANGUAGES:
-            t = translations_text[lang]
+        for lang, t in translations_text.items():
             a = audio_map.get(lang, {})
             translations_doc[lang] = {
                 "lang": lang,
                 "name": t["name"],
                 "title": t["name"],
                 "description": t["description"],
-                "audio_url": a.get("audio_url", f"/storage/audio/{poi_id}_{lang}.mp3"),
+                "audio_url": a.get("audio_url"),
                 "audio_storage_key": a.get("audio_storage_key"),
-                "audio_duration_ms": a.get("audio_duration_ms", 12000),
-                "audio_status": a.get("status", "ready"),
+                "audio_duration_ms": a.get("audio_duration_ms", 0),
+                "audio_status": a.get("status", "failed"),
                 "updated_at": now.isoformat(),
+                "source_version": source_version,
             }
-
-        # 1. Update POI collection document
-        from app.repositories.poi_repo import poi_repo
 
         vi_data = translations_doc["vi"]
         poi_update = {
@@ -529,65 +491,43 @@ class TranslationService:
             "description": vi_data["description"],
             "audio_url": vi_data["audio_url"],
             "audio_duration_ms": vi_data["audio_duration_ms"],
-            "audio_status": "ready",
+            "audio_status": vi_data["audio_status"],
             "translations": translations_doc,
             "published_contents": translations_doc,
             "updated_at": now,
         }
 
-        try:
-            await poi_repo.collection.update_one(
-                {"_id": poi_id},
-                {"$set": poi_update},
-                upsert=False
+        from app.services.unit_of_work import run_transaction
+        async def commit(session):
+            if can_commit is not None and not await can_commit(session, fence=True):
+                raise RuntimeError("Task interrupted before publication")
+            kwargs = {"session": session} if session else {}
+            result = await poi_repo.collection.update_one(
+                poi_repo.content_query(poi_id, source_version),
+                {"$set": poi_update, "$inc": {"localization_revision": 1}}, **kwargs,
             )
-        except Exception as e:
-            logger.warning(f"Could not update poi_repo.collection for {poi_id}: {e}")
-
-        # Also update by slug if original _id was UUID
-        curated_key = None
-        for k, v in DISTRICT_4_CURATED_POIS.items():
-            if v["vi"]["name"].lower() == vi_data["name"].lower():
-                curated_key = k
-                break
-
-        # 2. Update localizations collection (upsert each language)
-        for lang, item in translations_doc.items():
-            loc_doc = {
-                "_id": f"{poi_id}_{lang}",
-                "poi_id": poi_id,
-                "lang": lang,
-                "name": item["name"],
-                "description": item["description"],
-                "audio_url": item["audio_url"],
-                "audio_storage_key": item.get("audio_storage_key"),
-                "audio_duration_ms": item["audio_duration_ms"],
-                "audio_status": "ready",
-                "audio_source": "google_tts",
-                "translation_status": "ready",
-                "updated_at": now,
-                "version": 1
-            }
-            try:
+            if not result.matched_count:
+                return False
+            for lang, item in translations_doc.items():
+                # Keep existing IDs stable; old documents can have non-deterministic IDs.
+                loc_doc = {
+                    "poi_id": poi_id, "lang": lang, "name": item["name"], "description": item["description"],
+                    "audio_url": item["audio_url"], "audio_storage_key": item.get("audio_storage_key"),
+                    "audio_duration_ms": item["audio_duration_ms"], "audio_status": item["audio_status"],
+                    "source_version": source_version, "audio_content_hash": audio_map.get(lang, {}).get("audio_content_hash"),
+                    "audio_source": audio_map.get(lang, {}).get("provider"), "translation_status": "ready", "updated_at": now,
+                    "version": source_version
+                }
                 await poi_repo.localizations_collection.update_one(
-                    {"poi_id": poi_id, "lang": lang},
-                    {"$set": loc_doc},
-                    upsert=True
+                    {"poi_id": poi_id, "lang": lang}, {"$set": loc_doc}, upsert=True, **kwargs,
                 )
-
-                # If this POI has a known slug ID (e.g. poi_ben_nha_rong), update that slug too
-                if curated_key and curated_key != poi_id:
-                    loc_slug_doc = dict(loc_doc)
-                    loc_slug_doc["_id"] = f"{curated_key}_{lang}"
-                    loc_slug_doc["poi_id"] = curated_key
-                    await poi_repo.localizations_collection.update_one(
-                        {"poi_id": curated_key, "lang": lang},
-                        {"$set": loc_slug_doc},
-                        upsert=True
-                    )
-            except Exception as e:
-                logger.warning(f"Could not update localizations_collection for {poi_id}_{lang}: {e}")
-
+            return True
+        if not await run_transaction(commit):
+            if can_commit is not None:
+                return {}
+            raise RuntimeError("Stale localization result discarded")
+        from app.services.poi_admin_service import poi_admin_service
+        await poi_admin_service.toggle_activation(poi_id, True, expected_version=source_version, automatic=True)
         return translations_doc
 
 

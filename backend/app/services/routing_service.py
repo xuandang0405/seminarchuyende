@@ -1,8 +1,11 @@
 """Routing service orchestrator: validation, POI resolution, caching, and tour routing."""
 
+import asyncio
 import hashlib
+import json
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+import time
+from typing import Any, Awaitable, Callable, Optional, Tuple
 
 from app.core.config import settings
 from app.integrations.routing.osrm_provider import osrm_provider
@@ -25,6 +28,9 @@ from app.services.geo_service import (
 
 logger = logging.getLogger("uvicorn")
 
+_MEMORY_ROUTE_CACHE: dict[str, tuple[float, RouteResultDTO]] = {}
+_MEMORY_CACHE_TTL_SECONDS = 3600
+
 
 def generate_route_fingerprint(
     lat1: float,
@@ -37,7 +43,7 @@ def generate_route_fingerprint(
     """Generates a quantized deterministic MD5 fingerprint for route caching."""
     qlat1, qlon1 = quantize_coordinate(lat1, lon1, precision=4)
     qlat2, qlon2 = quantize_coordinate(lat2, lon2, precision=4)
-    raw_key = f"{qlat1:.4f},{qlon1:.4f}->{qlat2:.4f},{qlon2:.4f}:{mode}:{locale}"
+    raw_key = f"osrm-profile-v2:{qlat1:.4f},{qlon1:.4f}->{qlat2:.4f},{qlon2:.4f}:{mode}:{locale}"
     return hashlib.md5(raw_key.encode("utf-8")).hexdigest()
 
 
@@ -53,9 +59,6 @@ class RoutingService:
         """Resolves either explicit CoordinateDTO or POI ID to (latitude, longitude, label)."""
         if poi_id:
             poi = await poi_repo.get_public_by_id(poi_id)
-            if not poi:
-                # Also try regular get_by_id for admin preview
-                poi = await poi_repo.get_by_id(poi_id)
             if not poi:
                 raise ValueError(f"Không tìm thấy địa điểm POI có mã: {poi_id}")
             loc = poi.get("location", {}).get("coordinates")
@@ -84,27 +87,41 @@ class RoutingService:
             origin_lat, origin_lon, dest_lat, dest_lon, mode_str, req.locale
         )
 
-        # 1. Check cache
+        return await self._cached_route(fingerprint, mode_str, lambda: self.provider.route(
+            origin=(origin_lat, origin_lon), destination=(dest_lat, dest_lon),
+            mode=req.mode, locale=req.locale,
+        ))
+
+    async def _cached_route(
+        self,
+        fingerprint: str,
+        mode: str,
+        calculate: Callable[[], Awaitable[RouteResultDTO]],
+    ) -> RouteResultDTO:
+        now_ts = time.time()
+        if fingerprint in _MEMORY_ROUTE_CACHE:
+            expire_at, mem_route = _MEMORY_ROUTE_CACHE[fingerprint]
+            if now_ts < expire_at:
+                return mem_route
+            else:
+                _MEMORY_ROUTE_CACHE.pop(fingerprint, None)
+
         cached = await route_cache_repo.get_by_fingerprint(fingerprint)
         if cached and "route" in cached:
             try:
-                return RouteResultDTO(**cached["route"])
+                dto = RouteResultDTO(**cached["route"])
+                _MEMORY_ROUTE_CACHE[fingerprint] = (now_ts + _MEMORY_CACHE_TTL_SECONDS, dto)
+                return dto
             except Exception as e:
                 logger.warning(f"Could not deserialize cached route: {e}")
 
-        # 2. Query Routing Engine
-        route_dto = await self.provider.route(
-            origin=(origin_lat, origin_lon),
-            destination=(dest_lat, dest_lon),
-            mode=req.mode,
-            locale=req.locale,
-        )
+        route_dto = await calculate()
+        _MEMORY_ROUTE_CACHE[fingerprint] = (now_ts + _MEMORY_CACHE_TTL_SECONDS, route_dto)
 
-        # 3. Save to cache
         try:
             await route_cache_repo.save_route(
                 fingerprint=fingerprint,
-                mode=mode_str,
+                mode=mode,
                 route_data=route_dto.model_dump(mode="json"),
                 ttl_hours=settings.ROUTING_CACHE_TTL_HOURS
             )
@@ -119,88 +136,70 @@ class RoutingService:
         locale: str = "vi",
         mode: TravelMode = TravelMode.WALKING
     ) -> TourRouteSummaryResponse:
-        """Calculates the actual walking route across all stops in a tour sequentially."""
+        """Route through ordered tour stops with a single request per waypoint batch."""
         tour = await tour_repo.get_by_id(tour_id)
         if not tour:
             raise ValueError(f"Không tìm thấy tour có mã: {tour_id}")
 
         poi_ids = tour.get("poi_ids", [])
-        tour_name = tour.get("name", "Tour Tham Quan")
-
-        if len(poi_ids) < 2:
-            return TourRouteSummaryResponse(
-                tour_id=tour_id,
-                tour_name=tour_name,
-                stop_count=len(poi_ids),
-                total_distance_m=0.0,
-                total_duration_s=0.0,
-                total_distance_display="0 m",
-                total_duration_display="< 1 phút" if locale == "vi" else "< 1 min",
-                geometry={"type": "LineString", "coordinates": []},
-                legs=[]
-            )
-
-        total_dist_m = 0.0
-        total_dur_s = 0.0
-        combined_coords: List[List[float]] = []
-        legs_summary: List[Dict[str, Any]] = []
-
-        for i in range(len(poi_ids) - 1):
-            from_poi_id = poi_ids[i]
-            to_poi_id = poi_ids[i + 1]
-
+        points: list[tuple[float, float]] = []
+        geometry: list[list[float]] = []
+        legs: list[dict[str, Any]] = []
+        total_distance = total_duration = 0.0
+        limit = max(2, settings.ROUTING_MAX_POINTS_PER_REQUEST)
+        for start in range(0, len(poi_ids) - 1, limit - 1):
+            ids = poi_ids[start:start + limit]
             try:
-                preview_req = RoutePreviewRequest(
-                    origin_poi_id=from_poi_id,
-                    destination_poi_id=to_poi_id,
-                    mode=mode,
-                    locale=locale
-                )
-                leg_route = await self.get_route_preview(preview_req)
-                leg_coords = leg_route.coordinates or leg_route.geometry.get("coordinates", [])
-
-                total_dist_m += leg_route.route_distance_m
-                total_dur_s += leg_route.route_duration_s
-
-                # Stitch line coordinates without duplicating joining vertex
-                if not combined_coords:
-                    combined_coords.extend(leg_coords)
+                if not points:
+                    resolved = await asyncio.gather(*(self._resolve_coordinate(None, id_) for id_ in ids))
                 else:
-                    if leg_coords:
-                        combined_coords.extend(leg_coords[1:] if len(leg_coords) > 1 else leg_coords)
+                    # Reuse the shared endpoint between consecutive batches.
+                    resolved = await asyncio.gather(*(self._resolve_coordinate(None, id_) for id_ in ids[1:]))
+                batch = (points[-1:] if start else []) + [(lat, lon) for lat, lon, _ in resolved]
+                points.extend(batch[1:] if start else batch)
+                key = json.dumps(["tour-waypoints-v1", batch, mode.value, locale], separators=(",", ":"))
+                fingerprint = hashlib.sha256(key.encode()).hexdigest()
+                route = await self._cached_route(
+                    fingerprint, mode.value, lambda: self.provider.route_waypoints(batch, mode, locale),
+                )
+                if len(route.legs) != len(ids) - 1:
+                    raise RoutingUnavailableError("Dịch vụ chỉ đường trả thiếu chặng.")
+            except (ValueError, RouteNotFoundError, RoutingUnavailableError) as error:
+                logger.warning("Could not calculate tour %s at leg %s: %s", tour_id, start + 1, error)
+                # Publish only a diagram for the stops already resolved. The UI
+                # distinguishes this from a valid route via the missing legs.
+                geometry = [[lon, lat] for lat, lon in points]
+                legs.clear()
+                total_distance = total_duration = 0.0
+                break
 
-                legs_summary.append({
-                    "leg_index": i + 1,
-                    "from_poi_id": from_poi_id,
-                    "to_poi_id": to_poi_id,
-                    "distance_m": leg_route.route_distance_m,
-                    "duration_s": leg_route.route_duration_s,
-                    "distance_display": leg_route.distance_display,
-                    "duration_display": leg_route.duration_display,
-                    "step_count": len(leg_route.steps)
+            total_distance += route.route_distance_m
+            total_duration += route.route_duration_s
+            coordinates = route.coordinates or route.geometry["coordinates"]
+            geometry.extend(coordinates[1:] if geometry and geometry[-1] == coordinates[0] else coordinates)
+            for index, leg in enumerate(route.legs):
+                legs.append({
+                    "leg_index": start + index + 1,
+                    "from_poi_id": ids[index],
+                    "to_poi_id": ids[index + 1],
+                    "distance_m": leg.distance_m,
+                    "duration_s": leg.duration_s,
+                    "distance_display": leg.distance_display,
+                    "duration_display": leg.duration_display,
+                    "step_count": len(leg.steps),
+                    "steps": [step.model_dump(mode="json") for step in leg.steps],
                 })
-            except Exception as e:
-                logger.warning(f"Error calculating leg {from_poi_id} -> {to_poi_id}: {e}")
-                # Provide straight-line fallback for this leg if network down
-                try:
-                    poi_a = await poi_repo.get_by_id(from_poi_id)
-                    poi_b = await poi_repo.get_by_id(to_poi_id)
-                    loc_a = poi_a.get("location", {}).get("coordinates", [106.7, 10.7])
-                    loc_b = poi_b.get("location", {}).get("coordinates", [106.7, 10.7])
-                    combined_coords.extend([loc_a, loc_b])
-                except Exception:
-                    pass
 
         return TourRouteSummaryResponse(
             tour_id=tour_id,
-            tour_name=tour_name,
+            tour_name=tour.get("name", "Tour Tham Quan"),
             stop_count=len(poi_ids),
-            total_distance_m=round(total_dist_m, 1),
-            total_duration_s=round(total_dur_s, 1),
-            total_distance_display=format_distance_display(total_dist_m, lang=locale),
-            total_duration_display=format_duration_display(total_dur_s, lang=locale),
-            geometry={"type": "LineString", "coordinates": combined_coords},
-            legs=legs_summary
+            total_distance_m=round(total_distance, 1),
+            total_duration_s=round(total_duration, 1),
+            total_distance_display=format_distance_display(total_distance, lang=locale),
+            total_duration_display=format_duration_display(total_duration, lang=locale),
+            geometry={"type": "LineString", "coordinates": geometry},
+            legs=legs,
         )
 
 

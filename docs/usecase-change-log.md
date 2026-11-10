@@ -1,3 +1,5 @@
+> Phạm vi hiện tại chỉ còn **Web App** từ 10/11/2026. Các mô tả native trong tài liệu này thuộc thiết kế trước đây; xem [phạm vi cập nhật](WEB_APP_SCOPE.md).
+
 # Use Case Change Log — Lịch Sử Cập Nhật Hồ Sơ Nghiệp Vụ
 
 Tài liệu này ghi nhận toàn bộ các thay đổi về mô hình Use Case, cấu trúc đặc tả và sơ đồ nghiệp vụ theo tiêu chuẩn **Focused Use Cases**.

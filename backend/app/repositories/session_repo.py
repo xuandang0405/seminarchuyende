@@ -68,6 +68,7 @@ class SessionRepository(BaseRepository):
         session_id = f"sess_{uuid.uuid4().hex[:12]}"
         doc = {
             "_id": session_id,
+            "session_id": session_id,
             "device_id": device_id,
             "user_id": user_id,
             "guest_session_id": guest_session_id,

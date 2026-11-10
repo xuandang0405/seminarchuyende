@@ -1,3 +1,5 @@
+> Phạm vi hiện tại chỉ còn **Web App** từ 10/11/2026. Các mô tả native trong tài liệu này thuộc thiết kế trước đây; xem [phạm vi cập nhật](WEB_APP_SCOPE.md).
+
 # Version Lockfile & Dependency Baseline
 
 Tài liệu này khóa các phiên bản công nghệ chính thức của dự án nhằm đảm bảo tính tương thích và ngăn ngừa xung đột phiên bản.

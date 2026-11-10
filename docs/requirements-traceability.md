@@ -1,3 +1,5 @@
+> Phạm vi hiện tại chỉ còn **Web App** từ 10/11/2026. Các mô tả native trong tài liệu này thuộc thiết kế trước đây; xem [phạm vi cập nhật](WEB_APP_SCOPE.md).
+
 # Requirements Traceability Matrix (RTM) — Focused Step-Level Traceability
 
 Tài liệu ma trận truy vết yêu cầu phần mềm mở rộng. Ánh xạ chi tiết từ Use Case, hồ sơ đặc tả Focused Use Case, các bước và nhánh sự kiện (Flow/Step ID), quy tắc nghiệp vụ (`BR_ID`), sơ đồ Sequence (`SD*`), Activity (`AD*`), giao diện (Screen), API Endpoint, Service/Engine, Cơ sở dữ liệu và bằng chứng kiểm thử tự động.

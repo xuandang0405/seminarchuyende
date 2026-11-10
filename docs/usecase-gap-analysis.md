@@ -1,3 +1,5 @@
+> Phạm vi hiện tại chỉ còn **Web App** từ 10/11/2026. Các mô tả native trong tài liệu này thuộc thiết kế trước đây; xem [phạm vi cập nhật](WEB_APP_SCOPE.md).
+
 # Use Case Gap Analysis — Hệ thống Thuyết minh Du lịch Đa ngôn ngữ
 
 Tài liệu đối chiếu và phân tích khoảng cách (Gap Analysis) giữa mô hình Use Case ban đầu, mẫu đặc tả Focused Use Cases (`FocusedUseCases.doc`), và hiện trạng triển khai thực tế trong codebase.

@@ -31,21 +31,26 @@ __pycache__/
 *.so
 .Python
 .venv/
+.venv-*/
+.review-bundle/
+*.review-backup.json
 venv/
 ENV/
 env/
+!deploy/env/
+deploy/env/*
+!deploy/env/*.example
 .pytest_cache/
 .coverage
 htmlcov/
 
 # ==============================================================================
-# Node / Frontend / Mobile
+# Node / Frontend
 # ==============================================================================
 node_modules/
 dist/
 build/
 .npm
-.expo/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
@@ -76,3 +81,7 @@ Thumbs.db
 *.tmp
 *.bak
 scratch/
+scratch-browser-*.png
+/deploy/env/.env.demo
+!deploy/demo/audio/*.mp3
+/release/

@@ -9,8 +9,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.api.v1.endpoints.auth import get_current_admin, get_current_user
 from app.services.offline_package_service import offline_package_service
-from app.repositories.tour_repo import tour_repo
-from app.repositories.entitlement_repo import entitlement_repo
 
 router = APIRouter(prefix="/packages", tags=["Offline Data Packages"])
 
@@ -21,7 +19,7 @@ class PackageBuildRequest(BaseModel):
 
 
 @router.get("", response_model=List[Dict[str, Any]])
-async def list_packages():
+async def list_packages(_admin=Depends(get_current_admin)):
     """Lists all available offline packages."""
     return await offline_package_service.list_packages()
 
@@ -33,18 +31,8 @@ async def get_tour_package(
     current_user: dict = Depends(get_current_user)
 ):
     """Fetches or builds an offline package for a specific tour. Requires active tour entitlement if tour is paid."""
-    tour = await tour_repo.get_public_tour(tour_id)
-    if not tour:
-        raise HTTPException(status_code=404, detail="Không tìm thấy dữ liệu tour.")
-
-    is_paid = tour.get("is_purchasable") or tour.get("is_paid")
-    if is_paid and current_user.get("role") not in ("admin", "super_admin"):
-        ent = await entitlement_repo.get_entitlement(user_id=current_user["_id"], tour_id=tour_id)
-        if not ent:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Yêu cầu mua vé tour để tải gói dữ liệu ngoại tuyến."
-            )
+    if current_user.get("role") not in ("admin", "super_admin"):
+        await offline_package_service.require_access(tour_id, current_user["_id"])
 
     pkg = await offline_package_service.generate_tour_package(tour_id=tour_id, language_code=language_code)
     if not pkg:
@@ -53,12 +41,33 @@ async def get_tour_package(
 
 
 @router.get("/{package_id}/manifest")
-async def get_package_manifest(package_id: str):
+async def get_package_manifest(package_id: str, current_user: dict = Depends(get_current_user)):
     """Fetches raw JSON manifest of an offline package."""
     pkg = await offline_package_service.get_package_by_id(package_id)
     if not pkg:
         raise HTTPException(status_code=404, detail="Gói offline không tồn tại.")
+    await offline_package_service.require_access(pkg["tour_id"], current_user["_id"])
     return pkg.get("manifest", pkg)
+
+
+@router.get("/{package_id}/assets/{asset_id}")
+async def download_package_asset(package_id: str, asset_id: str, current_user: dict = Depends(get_current_user)):
+    from pathlib import Path
+    from fastapi.responses import FileResponse
+    from app.core.config import settings
+    from app.services.audio_service import audio_service
+    pkg = await offline_package_service.get_package_by_id(package_id)
+    if not pkg:
+        raise HTTPException(404, "Gói không tồn tại.")
+    await offline_package_service.require_access(pkg["tour_id"], current_user["_id"])
+    asset = next((a for a in pkg["manifest"]["files"] if a["asset_id"] == asset_id), None)
+    if not asset:
+        raise HTTPException(404, "File không thuộc gói.")
+    base = Path(settings.MEDIA_STORAGE_DIR).resolve()
+    path = Path(audio_service.get_audio_filepath(asset["storage_key"])) if asset["kind"] == "audio" else (base / asset["storage_key"]).resolve()
+    if not path.is_relative_to(base) or not path.is_file():
+        raise HTTPException(404, "File không tồn tại.")
+    return FileResponse(path, headers={"Cache-Control": "private, no-store", "ETag": asset["sha256"]})
 
 
 @router.post("/build")

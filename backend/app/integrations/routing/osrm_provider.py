@@ -1,10 +1,12 @@
 """OSRM (Open Source Routing Machine) routing provider implementation."""
 
+import asyncio
 import inspect
 import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Tuple
+from urllib.parse import urlsplit
 import httpx
 
 from app.core.config import settings
@@ -35,6 +37,24 @@ class OSRMRoutingProvider(RoutingProvider):
     def __init__(self, base_url: str = None, timeout_s: float = None):
         self.base_url = (base_url or settings.ROUTING_PROVIDER_URL).rstrip("/")
         self.timeout_s = timeout_s or settings.ROUTING_TIMEOUT_SECONDS
+        self._demo_lock = asyncio.Lock()
+        self._next_demo_request = 0.0
+
+    def base_url_for(self, mode: TravelMode) -> str:
+        profile = self._map_profile(mode)
+        server = "car" if mode == TravelMode.DRIVING else profile
+        # The old public OSRM host runs a car graph even for a /foot request.
+        if self.base_url == "https://router.project-osrm.org" and mode != TravelMode.DRIVING:
+            return f"https://routing.openstreetmap.de/routed-{server}"
+        return self.base_url.replace("{mode}", server)
+
+    async def _pace_demo_requests(self) -> None:
+        async with self._demo_lock:
+            loop = asyncio.get_running_loop()
+            delay = self._next_demo_request - loop.time()
+            if 0 < delay <= 1.05:
+                await asyncio.sleep(delay)
+            self._next_demo_request = loop.time() + 0.4
 
     def _map_profile(self, mode: TravelMode) -> str:
         """Maps travel mode enum to OSRM service profile."""
@@ -89,17 +109,26 @@ class OSRMRoutingProvider(RoutingProvider):
         locale: str = "vi",
         alternatives: bool = False,
     ) -> RouteResultDTO:
-        lat1, lon1 = origin
-        lat2, lon2 = destination
-        validate_coordinates(lat1, lon1)
-        validate_coordinates(lat2, lon2)
+        return await self.route_waypoints([origin, destination], mode, locale)
+
+    async def route_waypoints(
+        self,
+        points: list[tuple[float, float]],
+        mode: TravelMode = TravelMode.WALKING,
+        locale: str = "vi",
+    ) -> RouteResultDTO:
+        if len(points) < 2:
+            raise ValueError("Cần ít nhất hai điểm để tính lộ trình.")
+        for latitude, longitude in points:
+            validate_coordinates(latitude, longitude)
+        (lat1, lon1), (lat2, lon2) = points[0], points[-1]
 
         # Micro-distance short-circuit (< 8 meters)
-        straight_dist = haversine_distance_meters(lat1, lon1, lat2, lon2)
+        straight_dist = sum(haversine_distance_meters(*a, *b) for a, b in zip(points, points[1:]))
         now = datetime.now(timezone.utc)
         expires_at = now + timedelta(hours=settings.ROUTING_CACHE_TTL_HOURS)
 
-        if straight_dist < 8.0:
+        if len(points) == 2 and straight_dist < 8.0:
             return RouteResultDTO(
                 route_id=f"route_{uuid.uuid4().hex[:12]}",
                 mode=mode.value,
@@ -147,9 +176,11 @@ class OSRMRoutingProvider(RoutingProvider):
             )
 
         profile = self._map_profile(mode)
-        # OSRM expects coordinates in [lon, lat] format: {lon1},{lat1};{lon2},{lat2}
+        base_url = self.base_url_for(mode)
+        # OSRM follows the supplied waypoint order and returns one leg per pair.
+        coordinates = ";".join(f"{longitude:.6f},{latitude:.6f}" for latitude, longitude in points)
         url = (
-            f"{self.base_url}/route/v1/{profile}/{lon1:.6f},{lat1:.6f};{lon2:.6f},{lat2:.6f}"
+            f"{base_url}/route/v1/{profile}/{coordinates}"
             f"?overview=full&geometries=geojson&steps=true&annotations=false"
         )
         headers = {
@@ -157,14 +188,16 @@ class OSRMRoutingProvider(RoutingProvider):
         }
 
         try:
-            async with httpx.AsyncClient(timeout=self.timeout_s) as client:
+            async with httpx.AsyncClient(timeout=self.timeout_s, limits=httpx.Limits(max_keepalive_connections=20, max_connections=50)) as client:
+                if urlsplit(base_url).hostname == "routing.openstreetmap.de":
+                    await self._pace_demo_requests()
                 res = await client.get(url, headers=headers)
         except httpx.TimeoutException:
             logger.warning(f"OSRM Routing timeout ({self.timeout_s}s) for {url}")
-            raise RoutingUnavailableError("Thời gian kết nối đến máy chủ chỉ đường quá hạn.")
+            raise RoutingUnavailableError("Thời gian kết nối đến máy chủ chỉ đường quá hạn. Vui lòng thử lại sau.")
         except Exception as e:
             logger.error(f"OSRM Routing connection error: {e}")
-            raise RoutingUnavailableError("Không thể kết nối đến hệ thống định tuyến bản đồ.")
+            raise RoutingUnavailableError("Không thể kết nối đến hệ thống định tuyến đường bộ thực tế.")
 
         if res.status_code == 400:
             data = res.json() if res.headers.get("content-type", "").startswith("application/json") else {}
@@ -187,8 +220,10 @@ class OSRMRoutingProvider(RoutingProvider):
         raw_route = data["routes"][0]
         route_dist_m = float(raw_route.get("distance", straight_dist))
         route_dur_s = float(raw_route.get("duration", (route_dist_m / 1.1)))  # default 1.1 m/s walk
-        geometry = raw_route.get("geometry", {"type": "LineString", "coordinates": [[lon1, lat1], [lon2, lat2]]})
+        geometry = raw_route.get("geometry") or {}
         line_coords = geometry.get("coordinates", [])
+        if geometry.get("type") != "LineString" or len(line_coords) < 2:
+            raise RoutingUnavailableError("Máy chủ định tuyến chưa trả về tuyến đường hợp lệ.")
 
         # Parse legs and steps
         parsed_legs: List[RouteLegDTO] = []
@@ -232,7 +267,7 @@ class OSRMRoutingProvider(RoutingProvider):
         snapped_dest_dist = 0.0
         if len(waypoints) >= 2:
             snapped_orig_dist = float(waypoints[0].get("distance", 0.0))
-            snapped_dest_dist = float(waypoints[1].get("distance", 0.0))
+            snapped_dest_dist = float(waypoints[-1].get("distance", 0.0))
 
         route_id = f"route_{uuid.uuid4().hex[:12]}"
         return RouteResultDTO(

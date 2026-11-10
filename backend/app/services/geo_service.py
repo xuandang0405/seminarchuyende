@@ -27,6 +27,8 @@ def validate_coordinates(latitude: float, longitude: float) -> None:
         raise ValueError(f"Latitude must be between -90 and 90 degrees. Got: {latitude}")
     if not (-180.0 <= longitude <= 180.0):
         raise ValueError(f"Longitude must be between -180 and 180 degrees. Got: {longitude}")
+    if abs(latitude) < 0.0001 and abs(longitude) < 0.0001:
+        raise ValueError("Tọa độ (0, 0) không hợp lệ (tọa độ rỗng/ảo).")
 
 
 def validate_bbox(min_lon: float, min_lat: float, max_lon: float, max_lat: float) -> None:

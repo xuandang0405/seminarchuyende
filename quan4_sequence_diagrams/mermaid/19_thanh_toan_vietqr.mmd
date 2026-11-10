@@ -1,23 +1,24 @@
-%% SD19 - Khách hàng đặt vé và quét mã VietQR
+%% SD19 - Khách hàng đặt mua vé tour và quét mã VietQR
 sequenceDiagram
     autonumber
     actor User as Du khách
-    participant App as Web / Mobile App
-    participant API as FastAPI
+    participant App as Giao diện Web Client
+    participant API as FastAPI Server
     participant Service as PaymentService
-    participant VietQR as Cổng VietQR API
-    participant DB as MongoDB
+    participant VietQR as VietQR API (Napas 247)
+    participant DB as MongoDB Atlas
 
-    User->>App: Chọn Tour / Món ăn và bấm Đặt mua
-    App-->>User: Form nhập thông tin (Họ tên, SĐT, Email, Số lượng)
-    User->>App: Nhập thông tin & bấm Tạo mã VietQR
-    App->>API: POST /api/v1/payments/orders {order_type, item_title, customer_name, quantity, ...}
+    User->>App: Xem danh sách Tour và bấm Mua Vé Ngay
+    App-->>User: Hiển thị Modal nhập thông tin nhận vé
+    User->>App: Xác nhận thông tin và bấm Tạo mã VietQR
+    App->>API: POST /api/v1/payments/orders {order_type: tour_ticket, item_id, customer_name, ...}
     API->>Service: create_order()
-    Service->>Service: Sinh mã đơn TV-ORD-XXXXXX & tính tổng tiền
+    Service->>Service: Sinh mã đơn TV-ORD-XXXXXX & tính tiền
     Service->>VietQR: Tạo URL mã QR động Napas 247
-    Service->>DB: Lưu đơn hàng mới (status="pending")
-    DB-->>Service: Đã lưu
-    Service-->>API: Order data kèm vietqr_url
+    Service->>DB: Lưu đơn hàng (status="pending")
+    DB-->>Service: Đã lưu thành công
+    Service-->>API: Order data kèm vietqr_url & bank_info
     API-->>App: 201 Created
-    App-->>User: Hiển thị mã VietQR động, Số TK MB Bank, Số tiền & Nội dung chuyển khoản
+    App->>App: Hiển thị mã VietQR động, Số TK MB Bank, Nội dung CK & bật Polling 3s
+    App-->>User: Màn hình quét mã QR chuyển khoản
     User->>User: Mở App Ngân hàng quét mã QR chuyển tiền

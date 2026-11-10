@@ -1,3 +1,5 @@
+> Phạm vi hiện tại chỉ còn **Web App** từ 10/11/2026. Các mô tả native trong tài liệu này thuộc thiết kế trước đây; xem [phạm vi cập nhật](WEB_APP_SCOPE.md).
+
 # Offline Architecture & Native Sync Protocol
 
 Tài liệu này đặc tả cơ chế đóng gói (packaging), tải về (download staging), xác thực (verification), kích hoạt (activation), sửa lỗi (repair) và sử dụng dữ liệu ngoại tuyến (offline usage).

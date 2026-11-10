@@ -101,7 +101,7 @@ export const AccountSecurity: React.FC = () => {
     setLinkError(null);
     setLinkLoading(true);
     try {
-      const res = await fetchWithAuth('/api/v1/auth/google/link-start');
+      const res = await fetchWithAuth('/api/v1/auth/google/link/start', { method: 'POST' });
       const data = await res.json();
       if (!res.ok || !data.auth_url) {
         throw new Error(data.detail || 'Không thể lấy URL liên kết Google.');

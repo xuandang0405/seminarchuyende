@@ -19,6 +19,7 @@ import urllib.parse
 import hashlib
 
 from app.core.config import settings
+from app.services.rate_limit_service import enforce_rate_limit
 from app.core.security import (
     generate_csrf_token,
     verify_csrf_token,
@@ -94,8 +95,11 @@ def get_browser_binding(request: Request) -> str:
     return hashlib.sha256(ua.encode("utf-8")).hexdigest()[:32]
 
 
-def set_refresh_cookie(response: Response, session_id: str, refresh_token: str):
+def set_refresh_cookie(response: Response, session_id: str, refresh_token: str, access_token: Optional[str] = None):
     """Sets secure HttpOnly cookie for refresh token rotation."""
+    if access_token:
+        response.set_cookie("tourvoice_access_token", access_token, httponly=True, secure=settings.COOKIE_SECURE,
+                            samesite=settings.COOKIE_SAMESITE, max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60, path="/")
     cookie_value = f"{session_id}:{refresh_token}"
     response.set_cookie(
         key=settings.SESSION_COOKIE_NAME,
@@ -109,7 +113,8 @@ def set_refresh_cookie(response: Response, session_id: str, refresh_token: str):
 
 
 def clear_refresh_cookie(response: Response):
-    """Clears refresh token cookie."""
+    """Clears both access and refresh cookies."""
+    response.delete_cookie("tourvoice_access_token", path="/")
     response.delete_cookie(
         key=settings.SESSION_COOKIE_NAME,
         path="/",
@@ -125,6 +130,8 @@ async def get_current_user(
     request: Request = None
 ) -> Dict[str, Any]:
     """Resolves authenticated user from Bearer access token."""
+    if not token and request:
+        token = request.cookies.get("tourvoice_access_token")
     if not token:
         # Check Authorization header directly if oauth2_scheme returned None
         auth_header = request.headers.get("Authorization") if request else None
@@ -140,7 +147,7 @@ async def get_current_user(
 
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
-    except Exception:
+    except jwt.InvalidTokenError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token không hợp lệ hoặc đã hết hạn.",
@@ -159,6 +166,10 @@ async def get_current_user(
     token_auth_version = payload.get("auth_version", 1)
     if user.get("auth_version", 1) != token_auth_version:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Phiên đăng nhập đã bị vô hiệu hóa.")
+    session_id = payload.get("sid")
+    if session_id and not await auth_repo.is_session_active(session_id, user_id, token_auth_version):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Phiên đăng nhập đã hết hiệu lực.")
+    user["session_id"] = session_id
 
     # Attach permissions
     role_name = user.get("role", "user")
@@ -174,6 +185,7 @@ async def get_optional_current_user(
 ) -> Optional[Dict[str, Any]]:
     """Resolves authenticated user from Bearer access token if present, returns None if not authenticated."""
     if not token and request:
+        token = request.cookies.get("tourvoice_access_token")
         auth_header = request.headers.get("Authorization")
         if auth_header and auth_header.startswith("Bearer "):
             token = auth_header.split(" ")[1]
@@ -182,30 +194,23 @@ async def get_optional_current_user(
         return None
 
     try:
-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
-        user_id = payload.get("sub")
-        if not user_id:
-            return None
-
-        user = await auth_repo.get_user_by_id(user_id)
-        if not user or not user.get("is_active", True):
-            return None
-
-        token_auth_version = payload.get("auth_version", 1)
-        if user.get("auth_version", 1) != token_auth_version:
-            return None
-
-        role_name = user.get("role", "user")
-        role_doc = await auth_repo.get_role_by_name(role_name)
-        user["permissions"] = role_doc.get("permissions", []) if role_doc else []
-        return user
-    except Exception:
+        return await get_current_user(token=token, request=request)
+    except HTTPException as error:
+        if error.status_code != 401:
+            raise
         return None
 
 
 async def get_current_admin(current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     if current_user.get("role") not in ("super_admin", "admin"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Yêu cầu quyền Quản trị viên (Admin).")
+    return current_user
+
+
+async def get_verified_owner(current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    if current_user.get("role") not in ("admin", "super_admin") and not (
+        current_user.get("role") == "poi_owner" and current_user.get("is_poi_owner_verified")):
+        raise HTTPException(403, "Yêu cầu tài khoản chủ quán đã được xác minh.")
     return current_user
 
 
@@ -254,6 +259,7 @@ async def login(
     client_ip = request.client.host if request.client else None
     ua = request.headers.get("User-Agent")
 
+    await enforce_rate_limit("login:" + str(client_ip) + ":" + req.email.lower(), 10, 300)
     res = await auth_service.login(
         email=req.email,
         password=req.password,
@@ -263,7 +269,12 @@ async def login(
     if not res.get("success"):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=res.get("error"))
 
-    set_refresh_cookie(response, res["session_id"], res["refresh_token"])
+    guest_credential = request.cookies.get("guest_session_credential")
+    if guest_credential and res.get("user", {}).get("role") == "user":
+        from app.services.guest_service import guest_service
+        await guest_service.claim_guest_session(res["user"]["id"], guest_credential)
+        response.delete_cookie("guest_session_credential", path="/")
+    set_refresh_cookie(response, res["session_id"], res["refresh_token"], res.get("access_token"))
     return res
 
 
@@ -277,6 +288,7 @@ async def admin_login(
     client_ip = request.client.host if request.client else None
     ua = request.headers.get("User-Agent")
 
+    await enforce_rate_limit("login:" + str(client_ip) + ":" + req.email.lower(), 10, 300)
     res = await auth_service.login(
         email=req.email,
         password=req.password,
@@ -293,7 +305,7 @@ async def admin_login(
             detail="Tài khoản này là tài khoản Người dùng / Du khách, không có quyền truy cập Cổng Quản Trị. Vui lòng đăng nhập qua Cổng Du Khách bằng Google."
         )
 
-    set_refresh_cookie(response, res["session_id"], res["refresh_token"])
+    set_refresh_cookie(response, res["session_id"], res["refresh_token"], res.get("access_token"))
     return res
 
 
@@ -333,7 +345,7 @@ async def refresh_token(
         clear_refresh_cookie(response)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=res.get("error"))
 
-    set_refresh_cookie(response, res["session_id"], res["refresh_token"])
+    set_refresh_cookie(response, res["session_id"], res["refresh_token"], res.get("access_token"))
     return res
 
 
@@ -342,17 +354,17 @@ async def logout(
     request: Request,
     response: Response,
     body: Optional[RefreshRequest] = None,
+    current_user: Optional[Dict[str, Any]] = Depends(get_optional_current_user),
 ):
     """Revokes current session and clears HttpOnly refresh cookie."""
-    session_id = None
     cookie_val = request.cookies.get(settings.SESSION_COOKIE_NAME)
-    if cookie_val and ":" in cookie_val:
-        session_id = cookie_val.split(":", 1)[0]
-    elif body and body.session_id:
-        session_id = body.session_id
-
-    if session_id:
-        await auth_service.logout(session_id=session_id)
+    if current_user and current_user.get("session_id"):
+        await auth_repo.revoke_user_session(current_user["_id"], current_user["session_id"])
+    elif cookie_val and ":" in cookie_val:
+        session_id, token = cookie_val.split(":", 1)
+        await auth_repo.revoke_by_refresh_token(session_id, token)
+    elif body and body.session_id and body.refresh_token:
+        await auth_repo.revoke_by_refresh_token(body.session_id, body.refresh_token)
 
     clear_refresh_cookie(response)
     return {"success": True, "message": "Đăng xuất thành công."}
@@ -504,7 +516,7 @@ async def google_link_start(
     """Initiates Google account linking transaction for logged-in user."""
     binding = get_browser_binding(request)
     return_to = body.return_to if body else "/account/security"
-    session_id = request.cookies.get(settings.SESSION_COOKIE_NAME, "").split(":")[0]
+    session_id = current_user.get("session_id") or ""
     redirect_uri = get_google_redirect_uri(request)
 
     res = await google_auth_service.start_google_link(
@@ -573,7 +585,7 @@ async def google_callback(
         return_to = "/client"
     redirect_url = f"{callback_frontend}?return_to={urllib.parse.quote(return_to)}"
     redirect_response = RedirectResponse(url=redirect_url)
-    set_refresh_cookie(redirect_response, res["session_id"], res["refresh_token"])
+    set_refresh_cookie(redirect_response, res["session_id"], res["refresh_token"], res.get("access_token"))
     return redirect_response
 
 
@@ -582,7 +594,8 @@ async def google_callback(
 # =============================================================================
 
 @router.post("/forgot-password")
-async def forgot_password(req: ForgotPasswordRequest):
+async def forgot_password(req: ForgotPasswordRequest, request: Request):
+    await enforce_rate_limit("forgot:" + str(request.client.host if request.client else "") + ":" + req.email.lower(), 3, 900)
     """Requests a password reset link. Always returns a generic response."""
     return await password_recovery_service.request_password_reset(req.email)
 
@@ -686,7 +699,7 @@ async def register_tourist_endpoint(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=res.get("error"))
 
     if "session_id" in res and "refresh_token" in res:
-        set_refresh_cookie(response, res["session_id"], res["refresh_token"])
+        set_refresh_cookie(response, res["session_id"], res["refresh_token"], res.get("access_token"))
     return res
 
 

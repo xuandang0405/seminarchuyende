@@ -3,11 +3,46 @@
 AD01 / SD01 / T01 / T04 / T05 / N01.
 """
 
+import hashlib
+import json
+from collections import OrderedDict
 from typing import Any, Dict, List, Optional
 from app.repositories.poi_repo import poi_repo
 
 
 class POIService:
+    def __init__(self):
+        self._catalog_versions = OrderedDict()
+
+    async def sync_public_pois(self, lang: str, updated_after: Optional[str]):
+        """Return a consistent snapshot or a delta against a recent revision."""
+        items = []
+        skip = 0
+        while True:
+            page = await poi_repo.find_public(skip=skip, limit=100)
+            items.extend([await self._resolve_poi_localization(poi, lang) for poi in page])
+            if len(page) < 100:
+                break
+            skip += len(page)
+        revisions = {
+            item["id"]: hashlib.sha256(json.dumps(item, sort_keys=True, default=str).encode()).hexdigest()
+            for item in items
+        }
+        version = hashlib.sha256(json.dumps(revisions, sort_keys=True).encode()).hexdigest()
+        previous = self._catalog_versions.get((lang, updated_after))
+        self._catalog_versions[(lang, version)] = revisions
+        self._catalog_versions.move_to_end((lang, version))
+        if len(self._catalog_versions) > 24:
+            self._catalog_versions.popitem(last=False)
+        return {
+            "dataset_version": version,
+            "sync_cursor": version,
+            "sync_mode": "delta" if previous is not None else "full",
+            "removed_poi_ids": sorted(previous.keys() - revisions.keys()) if previous is not None else [],
+            "ordered_poi_ids": list(revisions),
+            "items": [item for item in items if previous.get(item["id"]) != revisions[item["id"]]] if previous is not None else items,
+        }
+
     async def get_public_pois(
         self,
         skip: int = 0,
@@ -122,39 +157,33 @@ class POIService:
         include_all_localizations: bool = False
     ) -> Dict[str, Any]:
         """Resolves content by fallback order: requested_lang -> en -> vi."""
+        from app.services.audio_service import audio_service
+
+        def audio_ready(localization):
+            return bool(localization and localization.get("audio_status") == "ready" and audio_service.localization_file_exists(localization))
+
         poi_id = poi["_id"]
         
-        # Fast path: Check embedded translations to eliminate N+1 DB round-trips
-        poi_trans = poi.get("translations") or poi.get("published_contents") or {}
-        if poi_trans and isinstance(poi_trans, dict) and len(poi_trans) > 0:
-            loc_map = {}
-            for l_code, t_doc in poi_trans.items():
-                if isinstance(t_doc, dict):
-                    loc_map[l_code] = {
-                        "lang": l_code,
-                        "name": t_doc.get("name") or t_doc.get("title") or poi.get("name"),
-                        "description": t_doc.get("description") or poi.get("description"),
-                        "audio_url": t_doc.get("audio_url"),
-                        "audio_duration_ms": t_doc.get("audio_duration_ms", 12000),
-                    }
-        else:
-            locs = await poi_repo.get_localizations(poi_id)
-            loc_map = {l["lang"]: l for l in locs}
+        locs = await poi_repo.get_localizations(poi_id)
+        source_version = poi.get("content_version", 1)
+        loc_map = {(l.get("lang") or l.get("language_code")): l for l in locs if (l.get("lang") or l.get("language_code")) and l.get("source_version", source_version) == source_version
+                   and l.get("translation_status") in (None, "ready")}
 
         resolved_lang = requested_lang
         is_fallback = False
         target_loc = loc_map.get(requested_lang)
 
-        if not target_loc:
-            # Fallback to en, then vi
-            if "en" in loc_map:
-                target_loc = loc_map["en"]
-                resolved_lang = "en"
-                is_fallback = (requested_lang != "en")
-            elif "vi" in loc_map:
-                target_loc = loc_map["vi"]
+        if not audio_ready(target_loc):
+            fallback = next((code for code in ("en", "vi") if code != requested_lang and audio_ready(loc_map.get(code))), None)
+            if fallback:
+                resolved_lang = fallback
+                target_loc = loc_map[fallback]
+            elif target_loc is None:
                 resolved_lang = "vi"
-                is_fallback = (requested_lang != "vi")
+                target_loc = loc_map.get("vi")
+            # Keep a translated description visible if all narration files are missing.
+            is_fallback = requested_lang != resolved_lang
+        narration_ready = audio_ready(target_loc)
 
         # Build published_contents map for multi-language access
         published_contents = {}
@@ -164,33 +193,26 @@ class POIService:
                 "name": l_doc.get("name", poi.get("name")),
                 "description": l_doc.get("description", poi.get("description")),
                 "narration_text": l_doc.get("description", poi.get("description")),
-                "audio_url": l_doc.get("audio_url") or f"/storage/audio/{poi_id}_{l_code}.mp3",
-                "audio_asset_id": l_doc.get("audio_asset_id") or f"audio_{poi_id}_{l_code}",
+                "audio_url": l_doc.get("audio_url") if l_doc.get("audio_status") == "ready" else None,
+                "audio_asset_id": l_doc.get("audio_asset_id"),
                 "duration_ms": l_doc.get("audio_duration_ms", 0),
             }
 
-        name_val = target_loc["name"] if target_loc else poi.get("name", poi.get("code", "POI"))
-        desc_val = target_loc["description"] if target_loc else poi.get("description", "")
+        name_val = (target_loc or {}).get("name") or poi.get("name") or poi.get("code", "POI")
+        desc_val = (target_loc or {}).get("description") or poi.get("description", "")
         images = poi.get("images", [])
         image_key = (images[0] if images else None) or poi.get("image_key")
         trigger_radius = float(poi.get("trigger_radius") or poi.get("radius_enter_m") or 30.0)
         radius_enter_m = float(poi.get("radius_enter_m") or trigger_radius)
         radius_exit_m = float(poi.get("radius_exit_m") or (trigger_radius * 1.5))
-        cooldown_seconds = int(poi.get("cooldown_seconds") or 60)
+        cooldown_seconds = int(poi.get("cooldown_seconds") or 300)
 
         loc_data = poi.get("location", {"type": "Point", "coordinates": [106.7035, 10.7655]})
         coords = loc_data.get("coordinates", [106.7035, 10.7655]) if isinstance(loc_data, dict) else [106.7035, 10.7655]
         poi_lon = float(coords[0]) if len(coords) >= 1 else 106.7035
         poi_lat = float(coords[1]) if len(coords) >= 2 else 10.7655
 
-        # Audio URL for requested/resolved language
-        active_audio = (
-            (target_loc.get("audio_url") if target_loc else None)
-            or published_contents.get(resolved_lang, {}).get("audio_url")
-            or f"/storage/audio/{poi_id}_{resolved_lang}.mp3"
-            or poi.get("audio_url")
-        )
-
+        active_audio = published_contents.get(resolved_lang, {}).get("audio_url") if narration_ready else None
         # Map to client DTO (dual schema compatibility)
         result = {
             "id": poi["_id"],
@@ -211,14 +233,16 @@ class POIService:
             "radius_exit_m": radius_exit_m,
             "cooldown_seconds": cooldown_seconds,
             "audio_priority": poi.get("audio_priority", 1),
+            "priority": poi.get("audio_priority", poi.get("priority", 1)),
             "audio_url": active_audio,
-            "audio_duration_ms": (target_loc.get("audio_duration_ms", 0) if target_loc else 0) or poi.get("audio_duration_ms", 12000),
+            "narration_ready": narration_ready,
+            "audio_duration_ms": (target_loc.get("audio_duration_ms", 0) if target_loc else 0) or 0,
             "requested_lang": requested_lang,
             "resolved_lang": resolved_lang,
             "is_fallback": is_fallback,
             "published_contents": published_contents,
             "translations": published_contents,
-            "available_languages": list(set(list(loc_map.keys()) + ["vi", "en", "fr", "ja", "ko", "zh"])),
+            "available_languages": list(loc_map.keys()),
             "version": poi.get("version", 1),
         }
 

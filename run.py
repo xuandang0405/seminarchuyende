@@ -36,6 +36,7 @@ import uvicorn
 from app.core.config import settings
 
 if __name__ == "__main__":
+    os.environ.setdefault("TOURVOICE_LOCAL_WORKER", "1")
     reload_env = os.environ.get("UVICORN_RELOAD")
     if reload_env is not None:
         reload_flag = reload_env.lower() in ("1", "true", "yes")
@@ -62,7 +63,7 @@ if __name__ == "__main__":
     print(f"📡 Truy cập mạng LAN   : http://{server_ip}:{settings.PORT}/admin/ | Docs: /docs")
     if settings.PUBLIC_WEB_URL:
         print(f"🌍 Truy cập từ xa/WAN  : {settings.PUBLIC_WEB_URL}/admin/ | Docs: /docs")
-    print(f"📱 Ứng Dụng Mobile      : React Native Expo (kết nối trực tiếp server này)")
+    print(f"🌐 Web du khách        : http://localhost:{settings.PORT}/client/")
     print(f"🔄 Tự động Reload       : {reload_flag}")
     print("=" * 72)
 

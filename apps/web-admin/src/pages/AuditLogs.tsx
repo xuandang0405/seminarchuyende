@@ -14,7 +14,7 @@ interface AuditLog {
 }
 
 export const AuditLogs: React.FC = () => {
-  const { token } = useAuth();
+  const { token, fetchWithAuth } = useAuth();
   const [logs, setLogs] = useState<AuditLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -23,7 +23,7 @@ export const AuditLogs: React.FC = () => {
     try {
       setLoading(true);
       setError(null);
-      const res = await fetch('/api/v1/admin/audit-logs?limit=50', {
+      const res = await fetchWithAuth('/api/v1/admin/audit-logs?limit=50', {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) throw new Error('Không thể nạp nhật ký kiểm toán');

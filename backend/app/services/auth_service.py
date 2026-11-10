@@ -17,10 +17,11 @@ from app.repositories.owner_repo import owner_repo
 
 
 class AuthService:
-    def create_access_token(self, user_id: str, role: str, auth_version: int) -> str:
+    def create_access_token(self, user_id: str, role: str, auth_version: int, session_id: str) -> str:
         expire = datetime.now(timezone.utc) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
         payload = {
             "sub": user_id,
+            "sid": session_id,
             "role": role,
             "auth_version": auth_version,
             "exp": expire,
@@ -75,7 +76,7 @@ class AuthService:
             authenticated_at=datetime.now(timezone.utc),
         )
 
-        access_token = self.create_access_token(user["_id"], role_name, auth_version)
+        access_token = self.create_access_token(user["_id"], role_name, auth_version, session_id)
 
         return {
             "success": True,
@@ -127,7 +128,7 @@ class AuthService:
             return {"success": False, "error": "Phiên đăng nhập đã bị vô hiệu hóa."}
 
         role_name = user.get("role", "user")
-        access_token = self.create_access_token(user["_id"], role_name, user.get("auth_version", 1))
+        access_token = self.create_access_token(user["_id"], role_name, user.get("auth_version", 1), session_id)
 
         return {
             "success": True,
@@ -135,9 +136,6 @@ class AuthService:
             "refresh_token": new_refresh_token,
             "session_id": session_id
         }
-
-    async def logout(self, session_id: str) -> bool:
-        return await auth_repo.revoke_session(session_id)
 
     async def logout_all(self, user_id: str) -> bool:
         """Revokes all active sessions for user and increments auth_version."""

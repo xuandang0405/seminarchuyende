@@ -12,6 +12,7 @@ import hashlib
 import hmac
 import json
 import logging
+from urllib.parse import urlencode
 from typing import Any, Dict, Optional
 import httpx
 
@@ -45,11 +46,11 @@ class PayOSProvider(PaymentProvider):
         """Creates dynamic VietQR payment request via payOS API."""
         ref_id = attempt["provider_reference"]
         # Generate numeric orderCode (integer up to 9007199254740991)
-        numeric_code = int(hashlib.md5(ref_id.encode("utf-8")).hexdigest()[:10], 16) % 9000000000 + 1000000000
+        numeric_code = int(ref_id) if ref_id.isdecimal() else int(hashlib.sha256(ref_id.encode("utf-8")).hexdigest()[:13], 16)
 
         amount = int(order["amount_vnd"])
         description = f"Tour {order['_id']}"[:25]
-        ret_url = return_url or f"{settings.PUBLIC_WEB_URL}/admin/orders"
+        ret_url = return_url or f"{settings.PUBLIC_WEB_URL.rstrip('/')}/client/?{urlencode({'tour': order['tour_id']})}"
         cancel_url = ret_url
 
         req_data = {
@@ -60,9 +61,13 @@ class PayOSProvider(PaymentProvider):
             "returnUrl": ret_url,
         }
 
-        checksum_key = settings.PAYOS_CHECKSUM_KEY or "demo-checksum-key"
+        if not all((settings.PAYOS_CLIENT_ID, settings.PAYOS_API_KEY, settings.PAYOS_CHECKSUM_KEY)):
+            raise RuntimeError("Chưa cấu hình đầy đủ payOS.")
+        checksum_key = settings.PAYOS_CHECKSUM_KEY
         signature = self._generate_signature(req_data, checksum_key)
         req_data["signature"] = signature
+        if order.get("expires_at"):
+            req_data["expiredAt"] = int(order["expires_at"].replace(tzinfo=timezone.utc).timestamp())
 
         # If live credentials exist and PAYMENT_MODE is live, call payOS API
         if settings.PAYMENT_MODE == "live" and settings.PAYOS_CLIENT_ID and settings.PAYOS_API_KEY:
@@ -88,23 +93,9 @@ class PayOSProvider(PaymentProvider):
                             "raw_response": res_json
                         }
             except Exception as e:
-                logger.error(f"payOS live API call failed: {e}. Falling back to dynamic VietQR.")
+                logger.error("payOS live API call failed: %s", type(e).__name__)
 
-        # Fallback or Test mode VietQR format (Napas 247 dynamic URL)
-        vietqr_url = f"https://img.vietqr.io/image/970422-0909123456-compact2.png?amount={amount}&addInfo={description}&accountName=TOURVOICE%20DISTRICT%204"
-        return {
-            "checkout_url": vietqr_url,
-            "qr_code_data": vietqr_url,
-            "provider_reference": str(numeric_code),
-            "bank_account_info": {
-                "bank_name": "MB Bank (Quân Đội)",
-                "account_number": "0909123456",
-                "account_name": "TOURVOICE DISTRICT 4",
-                "amount": amount,
-                "transfer_content": description
-            },
-            "raw_response": req_data
-        }
+        raise RuntimeError("payOS checkout unavailable; no fallback bank account is permitted.")
 
     async def verify_notification(
         self,
@@ -127,7 +118,9 @@ class PayOSProvider(PaymentProvider):
                 "error_detail": "Missing signature in payOS webhook"
             }
 
-        checksum_key = settings.PAYOS_CHECKSUM_KEY or "demo-checksum-key"
+        if not settings.PAYOS_CHECKSUM_KEY:
+            return {"is_valid": False, "outcome": "invalid_signature", "provider_reference": str(data.get("orderCode", ""))}
+        checksum_key = settings.PAYOS_CHECKSUM_KEY
         expected_signature = self._generate_signature(data, checksum_key)
 
         if not hmac.compare_digest(received_signature.lower(), expected_signature.lower()):
@@ -141,8 +134,8 @@ class PayOSProvider(PaymentProvider):
                 "error_detail": "payOS HMAC SHA256 signature mismatch"
             }
 
-        code = payload.get("code")
-        is_success = (code == "00" or payload.get("desc") == "success")
+        code = data.get("code")
+        is_success = (code == "00")
         received_amount = data.get("amount")
         ref = str(data.get("orderCode", ""))
         tx_id = data.get("reference") or f"PAYOS-TX-{ref}"
@@ -162,13 +155,21 @@ class PayOSProvider(PaymentProvider):
         order: Dict[str, Any],
         attempt: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """Queries payOS transaction status."""
-        return {
-            "is_paid": attempt.get("state") == "succeeded",
-            "state": attempt.get("state", "pending"),
-            "provider_transaction_id": attempt.get("provider_transaction_id"),
-            "received_amount_vnd": attempt.get("received_amount_vnd")
-        }
+        """Query the provider, independently of local webhook delivery."""
+        if not settings.PAYOS_CLIENT_ID or not settings.PAYOS_API_KEY:
+            raise RuntimeError("payOS credentials are not configured")
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.get(
+                f"{settings.PAYOS_ENDPOINT}/v2/payment-requests/{attempt['provider_reference']}",
+                headers={"x-client-id": settings.PAYOS_CLIENT_ID, "x-api-key": settings.PAYOS_API_KEY})
+            response.raise_for_status()
+            payload = response.json()
+        if payload.get("code") != "00":
+            raise RuntimeError("payOS could not verify this payment")
+        data = payload.get("data") or {}
+        return {"is_paid": data.get("status") == "PAID", "state": data.get("status"),
+                "received_amount_vnd": data.get("amountPaid"),
+                "provider_transaction_id": data.get("id")}
 
 
 payos_provider = PayOSProvider()

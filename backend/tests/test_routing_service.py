@@ -48,6 +48,17 @@ async def test_micro_distance_short_circuit():
     assert "ngay điểm đến" in result.steps[0].instruction
 
 
+def test_osrm_uses_a_separate_graph_for_each_transport_mode():
+    provider = OSRMRoutingProvider("https://routing.openstreetmap.de/routed-{mode}")
+    assert provider.base_url_for(TravelMode.WALKING).endswith("/routed-foot")
+    assert provider.base_url_for(TravelMode.CYCLING).endswith("/routed-bike")
+    assert provider.base_url_for(TravelMode.DRIVING).endswith("/routed-car")
+    legacy = OSRMRoutingProvider("https://router.project-osrm.org")
+    assert legacy.base_url_for(TravelMode.WALKING) == provider.base_url_for(TravelMode.WALKING)
+    custom = OSRMRoutingProvider("https://osrm.example.org")
+    assert custom.base_url_for(TravelMode.WALKING) == "https://osrm.example.org"
+
+
 @pytest.mark.asyncio
 async def test_osrm_normalizer_mock():
     """Validates normalization of OSRM response into RouteResultDTO with Vietnamese steps."""
@@ -161,3 +172,41 @@ async def test_routing_service_cache_hit():
         assert result.route_distance_m == 300.0
         # Provider should NOT be called on cache hit
         mock_provider.route.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_tour_batches_ordered_stops_and_reuses_result():
+    """A four-stop tour requires one provider request and keeps the stop order on cache hits."""
+    service = RoutingService(provider=OSRMRoutingProvider("https://osrm.example.org"))
+    ids = ["a", "b", "c", "d"]
+    coords = [[106.701, 10.761], [106.702, 10.762], [106.703, 10.763], [106.704, 10.764]]
+    by_id = dict(zip(ids, coords))
+
+    async def resolve(_, poi_id):
+        lon, lat = by_id[poi_id]
+        return lat, lon, poi_id
+
+    response = AsyncMock(status_code=200)
+    response.json.return_value = {
+        "code": "Ok",
+        "routes": [{
+            "distance": 360,
+            "duration": 300,
+            "geometry": {"type": "LineString", "coordinates": coords},
+            "legs": [{"distance": 120, "duration": 100}] * 3,
+        }],
+    }
+
+    with (
+        patch("app.services.routing_service.tour_repo.get_by_id", new=AsyncMock(return_value={"poi_ids": ids})),
+        patch.object(service, "_resolve_coordinate", side_effect=resolve),
+        patch("httpx.AsyncClient.get", new=AsyncMock(return_value=response)) as request,
+    ):
+        first = await service.calculate_tour_legs("batch-test")
+        second = await service.calculate_tour_legs("batch-test")
+
+    request.assert_awaited_once()
+    assert "/foot/106.701000,10.761000;106.702000,10.762000;106.703000,10.763000;106.704000,10.764000" in request.call_args.args[0]
+    assert first == second
+    assert first.geometry["coordinates"] == coords
+    assert [(leg["from_poi_id"], leg["to_poi_id"]) for leg in first.legs] == list(zip(ids, ids[1:]))

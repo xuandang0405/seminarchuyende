@@ -118,7 +118,7 @@ echo   1. Quan Tri React Web (Truy cap tai may chu) : http://localhost:8000/admi
 echo   2. Quan Tri React Web (Mang LAN/Dien thoai)   : http://!SERVER_IP!:8000/admin/
 if "!HAS_VITE!"=="1" echo   3. Cong React Vite Dev (Port 5173)          : http://localhost:5173/
 echo   4. Tai Lieu API Swagger UI                   : http://localhost:8000/docs
-echo   5. App Mobile React Native (Expo)            : cd mobile ^&^& npm start (da tro toi server !SERVER_IP!)
+echo   5. Web Khach Du Lich                        : http://localhost:8000/client/
 echo.
 echo  [TAI KHOAN DEMO CO SAN]:
 echo   - Super Admin   : superadmin@tourvoice.vn   - Pass: Admin@123456
@@ -131,7 +131,7 @@ echo  [PHIM TAT DIEU KHIEN]:
 echo   [1] Mo Cong Quan Tri React (http://localhost:8000/admin/)
 if "!HAS_VITE!"=="1" echo   [2] Mo React Vite Dev Server (http://localhost:5173/)
 echo   [3] Mo API Docs Swagger UI (http://localhost:8000/docs)
-echo   [4] Khoi Chay App Mobile React Native Expo
+echo   [4] Mo Web Khach Du Lich (http://localhost:8000/client/)
 echo   [Q] TAT TOAN BO HE THONG (Giai phong port 8000, 5173 va dong cua so)
 echo ======================================================================
 echo.
@@ -139,7 +139,7 @@ echo.
 :menu_loop
 choice /C 1234Q /N /M "Nhap lua chon cua ban [1, 2, 3, 4, Q]: "
 if errorlevel 5 goto shutdown
-if errorlevel 4 goto run_mobile
+if errorlevel 4 goto open_client
 if errorlevel 3 goto open_docs
 if errorlevel 2 goto open_vite
 if errorlevel 1 goto open_admin
@@ -161,8 +161,8 @@ goto menu_loop
 start http://localhost:8000/docs
 goto menu_loop
 
-:run_mobile
-start "TourVoice_Mobile" cmd /k "title TourVoice - React Native Expo && cd /d "%PROJECT_DIR%mobile" && npm start"
+:open_client
+start http://localhost:8000/client/
 goto menu_loop
 
 :shutdown

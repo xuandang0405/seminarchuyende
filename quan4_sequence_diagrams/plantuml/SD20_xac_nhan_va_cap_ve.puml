@@ -5,13 +5,13 @@ skinparam shadowing false
 skinparam defaultFontName "Arial"
 
 actor "Du khách / Ngân hàng" as Sender
-participant "Ứng dụng / Web Client" as App
-participant "FastAPI\nPayment Router" as API
+participant "Giao diện Web / Client\n(TouristMap Modal)" as App
+participant "FastAPI Server\n(/api/v1/payments)" as API
 participant "PaymentService" as Service
-participant "MongoDB\n(orders, payments)" as DB
-participant "QR Generator\nService" as QRGen
+participant "EntitlementService" as Entitlement
+participant "MongoDB Atlas\n(orders, payments, entitlements)" as DB
 
-Sender -> App: Bấm "Tôi Đã Chuyển Khoản (Xác Nhận Tức Thì - Demo)"\nhoặc Ngân hàng gửi Webhook IPN
+Sender -> App: Bấm "⚡ Xác Nhận Đã Chuyển Khoản (Kích Hoạt Vé Ngay)"\nhoặc Ngân hàng gửi Webhook IPN
 App -> API: POST /api/v1/payments/orders/{order_id}/simulate-success
 API -> Service: simulate_payment_success(order_id)
 Service -> DB: find_one({"_id": order_id})
@@ -21,12 +21,17 @@ Service -> Service: Sinh mã vé điện tử: ticket_code = "TICKET-Q4-XXXXXX"
 Service -> Service: Tạo bản ghi thanh toán: payment_id = "PAY-XXXXXX"
 Service -> DB: update_one(orders, status="paid", ticket_code, paid_at=now)
 Service -> DB: insert_one(payments, payment_doc)
-DB --> Service: Cập nhật thành công
 
+opt Đơn hàng mua vé tour (order_type == "tour_ticket")
+    Service -> Entitlement: grant_entitlement(user_id/guest_id, tour_id, source_order_id)
+    Entitlement -> DB: insert_one(entitlements, entitlement_doc)
+end
+
+DB --> Service: Cập nhật thành công
 Service --> API: Paid Order Data kèm ticket_code
 API --> App: 200 OK { status: "success", data: paid_order }
 
-App -> QRGen: Tạo ảnh mã QR Check-in dựa trên ticket_code
-QRGen --> App: Image QR Code Check-in
-App --> Sender: Hiển thị màn hình Vé Điện Tử (E-Ticket):\n- Mã vé TICKET-Q4-XXXXXX\n- Huy hiệu ĐÃ THANH TOÁN\n- Mã QR Check-in tại điểm tham quan\n- Cho phép tải về hoặc xem lại trong "Vé của tôi"
+App -> App: Dừng Polling\nLưu tour_id vào danh sách đã mua (localStorage: tourvoice_purchased_tours)\nChuyển sang Bước 3: Hiển thị Thẻ Vé Điện Tử (E-Ticket)
+App --> Sender: Hiển thị Thẻ Vé Điện Tử (E-Ticket):\n- Mã vé TICKET-Q4-XXXXXX\n- Huy hiệu ĐÃ THANH TOÁN\n- Mã QR Check-in điểm di tích\n- Nút "🚀 Bắt Đầu Trải Nghiệm Tuyến Tour Ngay!"
+Sender -> App: Bấm bắt đầu -> Tuyến tour được kích hoạt ngay trên bản đồ
 @enduml

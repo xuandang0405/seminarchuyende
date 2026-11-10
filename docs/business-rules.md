@@ -1,3 +1,5 @@
+> Phạm vi hiện tại chỉ còn **Web App** từ 10/11/2026. Các mô tả native trong tài liệu này thuộc thiết kế trước đây; xem [phạm vi cập nhật](WEB_APP_SCOPE.md).
+
 # Danh Mục Business Rules (Quy Tắc Nghiệp Vụ Dùng Chung)
 
 Tài liệu này chuẩn hóa toàn bộ 23 Business Rules của hệ thống Thuyết minh Du lịch Đa ngôn ngữ Quận 4. Mỗi quy tắc có mã định danh duy nhất, mô tả ràng buộc, tham số kỹ thuật, thành phần thực thi và kiểm thử liên quan.

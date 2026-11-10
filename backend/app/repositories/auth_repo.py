@@ -170,11 +170,25 @@ class AuthRepository(BaseRepository):
             update_fields["user_agent"] = user_agent
 
         updated = await self.sessions_col.find_one_and_update(
-            {"_id": session_id},
+            {"_id": session_id, "refresh_token_hash": incoming_hash,
+             "revoked_at": None, "expires_at": {"$gt": now}},
             {"$set": update_fields},
             return_document=True
         )
         return updated
+
+    async def is_session_active(self, session_id: str, user_id: str, auth_version: int) -> bool:
+        return bool(await self.sessions_col.find_one({
+            "_id": session_id, "user_id": user_id, "auth_version": auth_version,
+            "revoked_at": None, "expires_at": {"$gt": datetime.now(timezone.utc)},
+        }, {"_id": 1}))
+
+    async def revoke_by_refresh_token(self, session_id: str, token: str) -> bool:
+        result = await self.sessions_col.update_one(
+            {"_id": session_id, "refresh_token_hash": self.hash_token(token), "revoked_at": None},
+            {"$set": {"revoked_at": datetime.now(timezone.utc)}},
+        )
+        return result.modified_count > 0
 
     async def revoke_session(self, session_id: str) -> bool:
         now = datetime.now(timezone.utc)
@@ -324,12 +338,16 @@ class AuthRepository(BaseRepository):
     async def get_and_consume_oauth_transaction(self, state: str) -> Optional[Dict[str, Any]]:
         """Atomically retrieves and deletes OAuth transaction, validating expiry."""
         now = datetime.now(timezone.utc)
-        return await self.oauth_transactions_col.find_one_and_delete(
-            {
-                "state": state,
-                "expires_at": {"$gt": now}
-            }
-        )
+        query = {
+            "state": state,
+            "expires_at": {"$gt": now}
+        }
+        if hasattr(self.oauth_transactions_col, "find_one_and_delete"):
+            return await self.oauth_transactions_col.find_one_and_delete(query)
+        doc = await self.oauth_transactions_col.find_one(query)
+        if doc:
+            await self.oauth_transactions_col.delete_one({"_id": doc.get("_id")})
+        return doc
 
 
 auth_repo = AuthRepository()

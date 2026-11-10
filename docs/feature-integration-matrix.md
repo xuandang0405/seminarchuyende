@@ -1,3 +1,5 @@
+> Phạm vi hiện tại chỉ còn **Web App** từ 10/11/2026. Các mô tả native trong tài liệu này thuộc thiết kế trước đây; xem [phạm vi cập nhật](WEB_APP_SCOPE.md).
+
 # Ma Trận Tích Hợp Tính Năng Hệ Thống (Feature Integration Matrix)
 
 Tài liệu này chuẩn hóa sự liên kết xuyên suốt từ Giao diện (Màn hình/Nút bấm) → API Endpoint → Tầng Dịch vụ (Service) → Kho dữ liệu (Repository / Collection) → Điều kiện quyền hạn → Kết quả UI → Kiểm thử nghiệm thu và Sơ đồ tương ứng.

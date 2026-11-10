@@ -1,3 +1,5 @@
+> Phạm vi hiện tại chỉ còn **Web App** từ 10/11/2026. Các mô tả native trong tài liệu này thuộc thiết kế trước đây; xem [phạm vi cập nhật](../WEB_APP_SCOPE.md).
+
 # Ma Trận Truy Xuất Mạng & Triển Khai (Deployment & Network Traceability Matrix)
 
 Tài liệu này ánh xạ chi tiết luồng xử lý từ Thao tác Người dùng -> URL Phân giải -> Định tuyến Reverse Proxy Nginx -> Endpoint FastAPI -> Chính sách CORS/Bảo mật -> Cấu hình Môi trường -> Lệnh Kiểm thử -> Mã nguồn Sơ đồ.

@@ -32,7 +32,6 @@ class TrialService:
         tour_id: str,
         poi_id: str,
         lang: str,
-        idempotency_key: Optional[str] = None
     ) -> Tuple[bool, Optional[str], str]:
         """Atomically reserves the single trial quota for a narration session."""
         success, res_id, doc = await trial_repo.reserve_quota_atomic(
@@ -42,7 +41,6 @@ class TrialService:
             tour_id=tour_id,
             poi_id=poi_id,
             lang=lang,
-            idempotency_key=idempotency_key
         )
         if success:
             return True, res_id, "RESERVED"
@@ -53,15 +51,17 @@ class TrialService:
         subject_type: str,
         subject_id: str,
         reservation_id: str,
-        playback_id: str
+        playback_id: str,
+        session=None,
     ) -> bool:
-        """Permanently marks the trial quota as consumed upon media delivery."""
+        """Permanently marks the trial quota as consumed when its grant is issued."""
         return await trial_repo.consume_quota_atomic(
             subject_type=subject_type,
             subject_id=subject_id,
             policy_version=self.policy_version,
             reservation_id=reservation_id,
-            playback_id=playback_id
+            playback_id=playback_id,
+            session=session,
         )
 
     async def release_trial_quota(

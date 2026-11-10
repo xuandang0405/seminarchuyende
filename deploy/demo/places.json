@@ -1,0 +1,84 @@
+[
+  {
+    "_id": "poi_ben_nha_rong",
+    "name": "Bến Nhà Rồng - Bảo tàng Hồ Chí Minh",
+    "description": "Di tích lịch sử văn hóa nổi tiếng nơi Bác Hồ ra đi tìm đường cứu nước năm 1911.",
+    "category": "historical",
+    "address": "Số 01 Nguyễn Tất Thành, Phường 12, Quận 4, TP.HCM",
+    "location": {
+      "type": "Point",
+      "coordinates": [
+        106.70678,
+        10.76815
+      ]
+    },
+    "trigger_radius": 50.0,
+    "audio_priority": 10,
+    "localizations": {
+      "vi": {
+        "name": "Bến Nhà Rồng - Bảo tàng Hồ Chí Minh",
+        "description": "Di tích lịch sử tiêu biểu của Quận 4 và TP.HCM, kiến trúc kết hợp Á - Âu bên bờ sông Sài Gòn."
+      },
+      "en": {
+        "name": "Dragon Wharf - Ho Chi Minh Museum",
+        "description": "Historic landmark where President Ho Chi Minh departed in 1911 to seek a path for national liberation."
+      },
+      "fr": {
+        "name": "Quai du Dragon - Musée Ho Chi Minh",
+        "description": "Site historique emblématique du 4e arrondissement au bord de la rivière Saigon."
+      }
+    }
+  },
+  {
+    "_id": "poi_cau_mong",
+    "name": "Cầu Mống",
+    "description": "Cây cầu bộ hành cổ kính nối Quận 1 và Quận 4, xây dựng thời Pháp thuộc từ cuối thế kỷ 19.",
+    "category": "sightseeing",
+    "address": "Bến Vân Đồn, Phường 12, Quận 4, TP.HCM",
+    "location": {
+      "type": "Point",
+      "coordinates": [
+        106.7042,
+        10.7689
+      ]
+    },
+    "trigger_radius": 35.0,
+    "audio_priority": 7,
+    "localizations": {
+      "vi": {
+        "name": "Cầu Mống",
+        "description": "Một trong những cây cầu cổ nhất Sài Gòn với kiến trúc vòm thép màu xanh ngọc đặc trưng bắc qua kênh Bến Nghé."
+      },
+      "en": {
+        "name": "Mong Bridge (Rainbow Bridge)",
+        "description": "One of the oldest historical bridges in Saigon with iconic green steel arch architecture."
+      }
+    }
+  },
+  {
+    "_id": "poi_cho_xom_chieu",
+    "name": "Chợ Xóm Chiếu",
+    "description": "Khu chợ truyền thống sầm uất với khu ăn vặt nổi tiếng bậc nhất Sài Gòn.",
+    "category": "food",
+    "address": "Đường Lê Quốc Hưng, Phường 12, Quận 4, TP.HCM",
+    "location": {
+      "type": "Point",
+      "coordinates": [
+        106.7031,
+        10.7629
+      ]
+    },
+    "trigger_radius": 35.0,
+    "audio_priority": 7,
+    "localizations": {
+      "vi": {
+        "name": "Chợ Xóm Chiếu (Chợ 200)",
+        "description": "Thiên đường ẩm thực bình dân với các món phá lấu, súp cua, ốc và chè truyền thống."
+      },
+      "en": {
+        "name": "Xom Chieu Traditional Market",
+        "description": "Vibrant local market renowned for diverse and authentic Vietnamese street food stalls."
+      }
+    }
+  }
+]

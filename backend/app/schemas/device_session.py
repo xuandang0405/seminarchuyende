@@ -47,7 +47,7 @@ class VisitorSessionStartRequest(BaseModel):
     platform: PlatformEnum = Field(default=PlatformEnum.WEB)
     app_version: Optional[str] = Field(default="1.0.0")
     locale: str = Field(default="vi")
-    consent_granted: bool = Field(default=True)
+    consent_granted: Optional[bool] = None
     consent_version: int = Field(default=1)
 
 
@@ -86,7 +86,7 @@ class TourSessionStatus(str, Enum):
 class TourSessionStartRequest(BaseModel):
     tour_id: str = Field(..., min_length=1)
     visitor_session_id: str = Field(..., min_length=1)
-    idempotency_key: str = Field(..., min_length=1, description="Client UUID for double-click protection")
+    idempotency_key: str = Field(..., min_length=1, max_length=100, description="Client UUID for double-click protection")
     start_poi_id: Optional[str] = None
 
 
@@ -184,6 +184,7 @@ class EventBatchResponse(BaseModel):
 # ==============================================================================
 
 class AnalyticsOverviewResponse(BaseModel):
+    live_web_sessions: int = 0
     active_visitor_sessions_now: int
     daily_visitor_sessions: int
     unique_devices_count: int
@@ -196,6 +197,7 @@ class AnalyticsOverviewResponse(BaseModel):
     listen_completion_rate_percent: float
     average_listening_time_seconds: float
     total_listening_time_minutes: float
+    total_listened_seconds: float = 0.0
     total_revenue_vnd: int = 0
     total_orders_count: int = 0
     paid_orders_count: int = 0

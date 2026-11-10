@@ -20,7 +20,7 @@ class MockPaymentProvider(PaymentProvider):
         return "mock"
 
     def _ensure_mock_mode_allowed(self):
-        if settings.PAYMENT_MODE != "mock":
+        if settings.PAYMENT_MODE != "mock" or not settings.is_development:
             raise RuntimeError("Mock payment provider is disabled in production environments!")
 
     async def create_payment(
@@ -32,24 +32,13 @@ class MockPaymentProvider(PaymentProvider):
         self._ensure_mock_mode_allowed()
 
         ref = attempt["provider_reference"]
-        amount = order["amount_vnd"]
-        title = order.get("tour_title_snapshot", "Tour District 4")
-
         base_url = return_url.split("?")[0] if return_url else f"{settings.PUBLIC_WEB_URL}/admin/orders"
         mock_checkout_url = f"{base_url}?mock_payment=true&order_id={order['_id']}&ref={ref}"
-        mock_qr = f"https://img.vietqr.io/image/970422-0909123456-compact2.png?amount={amount}&addInfo=MOCK-{order['_id']}&accountName=TOURVOICE%20DEMO"
 
         return {
             "checkout_url": mock_checkout_url,
-            "qr_code_data": mock_qr,
+            "qr_code_data": None,
             "provider_reference": ref,
-            "bank_account_info": {
-                "bank_name": "MB Bank (MÔ PHỎNG — KHÔNG CHUYỂN TIỀN THẬT)",
-                "account_number": "0909123456",
-                "account_name": "TOURVOICE DEMO MOCK",
-                "amount": amount,
-                "transfer_content": f"MOCK-{order['_id']}"
-            },
             "mock_mode": True,
             "notice": "MÔ PHỎNG — KHÔNG CHUYỂN TIỀN THẬT",
             "raw_response": {"status": "mock_created", "ref": ref}
@@ -83,7 +72,7 @@ class MockPaymentProvider(PaymentProvider):
             "is_valid": True,
             "outcome": "success",
             "provider_reference": ref,
-            "provider_transaction_id": f"MOCK-TX-{uuid.uuid4().hex[:8].upper()}",
+            "provider_transaction_id": payload.get("transaction_id") or f"MOCK-{ref}",
             "received_amount_vnd": int(amount) if amount is not None else None,
             "raw_data": payload,
             "error_detail": None

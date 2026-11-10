@@ -1,3 +1,5 @@
+> Phạm vi hiện tại chỉ còn **Web App** từ 10/11/2026. Các mô tả native trong tài liệu này thuộc thiết kế trước đây; xem [phạm vi cập nhật](WEB_APP_SCOPE.md).
+
 # Architecture Decisions Record (ADR) & Scope Reconciliation
 
 Tài liệu này ghi nhận các quyết định kỹ thuật, sự khác biệt giữa các nguồn tài liệu ban đầu và các giải pháp chuẩn hóa cho dự án **Hệ thống Thuyết minh Du lịch Tự động Đa ngôn ngữ**.

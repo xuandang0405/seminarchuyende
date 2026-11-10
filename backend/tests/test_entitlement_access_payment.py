@@ -666,7 +666,7 @@ async def test_scenario_19_offline_pack_requires_entitlement(client: AsyncClient
     )
     assert res.status_code == 403
 
-    # Grant entitlement and download -> 200 OK with signed 7-day license
+    # Ownership cannot turn an incomplete package into a valid offline download.
     await db[COLLECTION_TOUR_ENTITLEMENTS].update_one(
         {"user_id": user_id, "tour_id": tour["_id"]},
         {"$set": {"user_id": user_id, "tour_id": tour["_id"], "status": "active"}},
@@ -677,10 +677,23 @@ async def test_scenario_19_offline_pack_requires_entitlement(client: AsyncClient
         headers={"Authorization": f"Bearer {user_token}"},
         json={"device_id": "phone_test"}
     )
-    assert res_ok.status_code == 200
+    assert res_ok.status_code == 409
+    from pathlib import Path
+    from app.db.collections import COLLECTION_POI_LOCALIZATIONS
+    for pid in tour['poi_ids']:
+        Path(settings.MEDIA_STORAGE_DIR, 'audio', f'{pid}_vi.mp3').write_bytes(b'ID3-test-audio')
+        await db[COLLECTION_POI_LOCALIZATIONS].insert_one({
+            'poi_id': pid, 'lang': 'vi', 'name': 'Test', 'description': 'Test narration',
+            'content_status': 'ready', 'audio_status': 'ready', 'source_version': 1,
+            'audio_url': f'/storage/audio/{pid}_vi.mp3', 'audio_storage_key': f'audio/{pid}_vi.mp3'})
+    res_ok = await client.post(f"/api/v1/tours/{tour['_id']}/offline-pack",
+        headers={"Authorization": f"Bearer {user_token}"}, json={"device_id": "phone_test"})
+    assert res_ok.status_code == 200, res_ok.text
     pack = res_ok.json()
     assert "license" in pack
-    assert pack["license"]["scope"] == "offline_7days"
+    assert pack["license"]["scope"] == "offline"
+    assert pack['license']['license_signature']
+    assert all(asset['sha256'] and asset['file_size_bytes'] for asset in pack['manifest']['files'])
 
 
 # =============================================================================

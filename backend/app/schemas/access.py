@@ -23,7 +23,7 @@ class TourAccessResponse(BaseModel):
 
 
 class PlaybackGrantRequest(BaseModel):
-    tour_id: str = Field(..., description="ID của tour chứa POI")
+    tour_id: Optional[str] = Field(None, description="Tour context; server resolves POI access when omitted")
     poi_id: str = Field(..., description="ID của POI cần phát thuyết minh")
     lang: str = Field("vi", description="Mã ngôn ngữ (vi, en, zh, ja)")
     language: Optional[str] = None
@@ -31,7 +31,7 @@ class PlaybackGrantRequest(BaseModel):
     trigger_type: Optional[str] = None
     consent_trial: bool = Field(False, description="Xác nhận đồng ý dùng lượt nghe thử nếu chưa mua tour")
     user_consent_trial: Optional[bool] = None
-    idempotency_key: Optional[str] = Field(None, description="Khóa chống trùng lặp")
+    idempotency_key: Optional[str] = Field(None, max_length=100, description="Khóa chống trùng lặp")
 
     def model_post_init(self, __context):
         if self.language:

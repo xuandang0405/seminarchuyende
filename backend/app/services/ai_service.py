@@ -1,6 +1,7 @@
 import logging
 from typing import Optional
 import httpx
+from fastapi import HTTPException
 
 import json
 from app.core.config import settings
@@ -52,13 +53,7 @@ def safe_parse_json(raw_text: str) -> dict:
 class AIService:
     @classmethod
     def get_gemini_models(cls) -> list:
-        configured = getattr(settings, "GEMINI_MODEL", "gemini-3.5-flash")
-        candidates = [configured, "gemini-3.5-flash", "gemini-3.7-flash", "gemini-3.8-flash", "gemini-3.6-flash", "gemini-flash-latest"]
-        res = []
-        for m in candidates:
-            if m and m not in res:
-                res.append(m)
-        return res
+        return [settings.GEMINI_MODEL]
 
     @classmethod
     async def generate_narration(cls, req: AINarrationRequest) -> AINarrationResponse:
@@ -136,41 +131,7 @@ class AIService:
             except Exception as ex:
                 logger.warning(f"Failed to generate narration via Gemini AI: {ex}. Falling back to template.")
 
-        # 2. Fallback template generator
-        weather_phrase = ""
-        if "mưa" in weather.lower() or "rain" in weather.lower():
-            weather_phrase = "Trong tiết trời se lạnh của cơn mưa Sài Gòn, không gì tuyệt vời hơn khi dừng chân thưởng thức hương vị nóng hổi tại đây."
-        elif "nắng" in weather.lower() or "sun" in weather.lower():
-            weather_phrase = "Dưới ánh nắng rực rỡ của thành phố, nơi đây mang đến cho bạn không gian sôi động và những trải nghiệm khó quên."
-        else:
-            weather_phrase = f"Trong không khí {weather} hôm nay, bạn hãy dành chút thời gian lắng nghe câu chuyện đầy thú vị về địa điểm này."
-
-        if req.language_code.startswith("en"):
-            title = f"Discovering {name}"
-            description = f"An authentic {category} destination in District 4 featuring {specialties_str}."
-            narration = (
-                f"Welcome to {name}! Located in the heart of Saigon's District 4, "
-                f"this spot is renowned for its incredible culinary delights, especially {specialties_str}. "
-                f"{weather_phrase} "
-                f"Take a moment to savor the aromas, watch the lively local life around you, and enjoy every bite!"
-            )
-        else:
-            title = f"Khám phá {name}"
-            description = f"Điểm đến {category} đặc sắc tại Quận 4 với {specialties_str}."
-            narration = (
-                f"Chào mừng bạn đến với {name}! Tọa lạc giữa lòng Quận 4 - mảnh đất nổi danh với văn hóa ẩm thực bình dân độc đáo, "
-                f"nơi đây chào đón bạn bằng hương vị thơm lừng của {specialties_str}. "
-                f"{weather_phrase} "
-                f"Hãy cùng thả chậm bước chân, ngắm nhìn nhịp sống rộn ràng và thưởng thức trọn vẹn hương vị tinh túy của nơi này nhé!"
-            )
-
-        return AINarrationResponse(
-            title=title,
-            description=description,
-            narration_text=narration,
-            suggested_voice=suggested_voice,
-            weather_context_applied=weather
-        )
+        raise HTTPException(502, "Dịch vụ AI chưa trả về kết quả hợp lệ. Vui lòng thử lại hoặc nhập nội dung thủ công.")
 
     @classmethod
     async def generate_poi_profile(cls, req: POIAssistantRequest) -> POIAssistantResponse:
@@ -255,11 +216,8 @@ class AIService:
                                     else:
                                         final_cat = "sightseeing"
 
-                                    parsed_lat = float(parsed.get("latitude") or 10.7635)
-                                    parsed_lng = float(parsed.get("longitude") or 106.7042)
-                                    if not (10.0 <= parsed_lat <= 11.5 and 106.0 <= parsed_lng <= 107.5):
-                                        parsed_lat = 10.7635
-                                        parsed_lng = 106.7042
+                                    # Coordinates must be confirmed on the map by the editor.
+                                    parsed_lat, parsed_lng = None, None
 
                                     return POIAssistantResponse(
                                         name=parsed.get("name") or name,
@@ -270,7 +228,7 @@ class AIService:
                                         specialties=parsed.get("specialties") or ["Món ngon đặc sản Quận 4"],
                                         latitude=parsed_lat,
                                         longitude=parsed_lng,
-                                        confidence="high"
+                                        confidence="requires_review"
                                     )
                         else:
                             logger.warning(f"Gemini API ({model_name}) returned status {resp.status_code}: {resp.text[:120]}. Trying next model if available...")
@@ -278,34 +236,7 @@ class AIService:
                     logger.warning(f"Gemini POI profile error on {model_name}: {e}. Trying next model...")
 
 
-        # 2. Intelligent Heuristic Fallback
-        is_food = any(k in name.lower() for k in ["quán", "ốc", "bánh", "phá lấu", "cơm", "hủ tiếu", "bún", "trà", "cà phê", "ẩm thực", "ăn vặt"])
-        is_hist = any(k in name.lower() for k in ["chùa", "nhà thờ", "đình", "bảo tàng", "di tích", "bến", "cảng", "cầu"])
-        cat = "food_drink" if is_food else ("historical" if is_hist else (category_hint or "sightseeing"))
-
-        desc = (
-            f"{name} là một trong những điểm dừng chân thú vị mang đậm nét văn hóa đặc trưng của Quận 4, TP. Hồ Chí Minh. "
-            f"Nơi đây thu hút du khách bởi không gian gần gũi, ẩm thực đặc sắc cùng lòng hiếu khách nồng hậu của người dân địa phương. "
-            f"Đừng quên dành thời gian trải nghiệm trọn vẹn những hương vị độc đáo và lưu lại những khoảnh khắc đáng nhớ khi ghé thăm."
-        )
-
-        narration = (
-            f"Chào mừng bạn đến với {name}! Tọa lạc giữa lòng Quận 4 sôi động, "
-            f"đây là điểm đến không thể bỏ qua để bạn cảm nhận rõ nét nhịp sống và hương vị ẩm thực đường phố Sài Gòn. "
-            f"Hãy bước vào, thưởng thức những món ăn thơm nức và tận hưởng chuyến hành trình đầy thú vị nhé!"
-        )
-
-        return POIAssistantResponse(
-            name=name,
-            category=cat,
-            address=address_hint or "Đường Vĩnh Khánh, Phường 8, Quận 4, TP. Hồ Chí Minh",
-            description=desc,
-            narration_script=narration,
-            specialties=["Đặc sản Quận 4", "Hương vị truyền thống"],
-            latitude=10.7635,
-            longitude=106.7042,
-            confidence="medium"
-        )
+        raise HTTPException(502, "Dịch vụ AI chưa trả về kết quả hợp lệ. Vui lòng thử lại hoặc nhập nội dung thủ công.")
 
     @classmethod
     async def refine_poi_description(cls, req: AIRefineDescriptionRequest) -> AIRefineDescriptionResponse:
@@ -374,19 +305,7 @@ class AIService:
                 except Exception as ex:
                     logger.warning(f"Failed to refine description with {model_name}: {ex}")
 
-        # Fallback refinement if Gemini fails
-        fallback_desc = current_desc if len(current_desc) > 30 else (
-            f"Tọa lạc tại Quận 4 sôi động, {name} là điểm hẹn lý tưởng để du khách trải nghiệm nét ẩm thực đường phố và văn hóa bản địa độc đáo. "
-            f"Mỗi món ăn hay góc nhỏ nơi đây đều chứa đựng hương vị truyền thống đậm đà, được tạo nên từ sự tài hoa và lòng hiếu khách của người dân Sài Gòn. "
-            f"Đừng quên ghé thăm để cùng bạn bè tận hưởng không khí náo nhiệt và lưu lại những kỷ niệm khó quên."
-        )
-        return AIRefineDescriptionResponse(
-            poi_name=name,
-            refined_description=fallback_desc,
-            suggested_title=f"Khám phá ẩm thực {name}",
-            highlights=["Đặc sản Quận 4", "Hương vị đậm đà", "Không gian sôi động"],
-            narration_script=f"Chào mừng bạn đến với {name}! Hãy sẵn sàng thưởng thức những trải nghiệm tuyệt vời nhất tại đây nhé."
-        )
+        raise HTTPException(502, "Dịch vụ AI chưa trả về kết quả hợp lệ. Vui lòng thử lại hoặc nhập nội dung thủ công.")
 
     @classmethod
     async def multilingual_cultural_translate(cls, req: AIMultilingualTranslateRequest) -> AIMultilingualTranslateResponse:
@@ -464,16 +383,7 @@ class AIService:
                 except Exception as ex:
                     logger.warning(f"Failed Gemini multilingual translation with {model_name}: {ex}")
 
-        # Fallback to simple mapping
-        fallback_trans = {
-            "vi": MultilingualItem(name=name, description=desc),
-            "en": MultilingualItem(name=name, description=f"{name} is a renowned {category} destination in District 4, Ho Chi Minh City. {desc}"),
-            "fr": MultilingualItem(name=name, description=f"{name} est une destination culinaire réputée du 4ème arrondissement d'Hô-Chi-Minh-Ville. {desc}"),
-            "ja": MultilingualItem(name=name, description=f"{name}はホーチミン市4区で有名な{category}スポットです。{desc}"),
-            "ko": MultilingualItem(name=name, description=f"{name}은(는) 호치민 4구의 유명한 {category} 명소입니다. {desc}"),
-            "zh": MultilingualItem(name=name, description=f"{name}是胡志明市第四郡著名的{category}景点。{desc}"),
-        }
-        return AIMultilingualTranslateResponse(poi_id=req.poi_id, translations=fallback_trans)
+        raise HTTPException(502, "Dịch vụ AI chưa trả về kết quả hợp lệ. Vui lòng thử lại hoặc nhập nội dung thủ công.")
 
 
 ai_service = AIService()

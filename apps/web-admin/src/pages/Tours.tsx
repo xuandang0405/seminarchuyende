@@ -294,7 +294,7 @@ export const Tours: React.FC = () => {
               Danh Sách Tuyến Tour ({tours.length})
             </h2>
             {tours.length === 0 ? (
-              <div className="p-8 text-center text-slate-500 bg-slate-900/50 rounded-2xl border border-slate-800">
+              <div className="p-8 text-center text-slate-500 bg-slate-900 border border-slate-800 rounded">
                 Chưa có tour nào. Hãy bấm "Thêm Tour Mới" để tạo lộ trình đầu tiên.
               </div>
             ) : (
@@ -303,45 +303,47 @@ export const Tours: React.FC = () => {
                 const isSelected = selectedTour?.id === tourId || (selectedTour as any)?._id === tourId;
                 const isTourPaid = t.is_paid || (t.price_amount && t.price_amount > 0);
                 return (
-                  <div
+                  <button
                     key={tourId}
+                    type="button"
+                    aria-pressed={isSelected}
                     onClick={() => fetchTourDetail(tourId)}
-                    className={`p-5 rounded-2xl border transition-all cursor-pointer ${
+                    className={`block w-full p-4 rounded-xl border text-left transition-colors ${
                       isSelected
-                        ? 'bg-slate-900 border-indigo-500/80 shadow-lg shadow-indigo-500/10'
-                        : 'bg-slate-900/60 border-slate-800 hover:border-slate-700'
+                        ? 'bg-slate-800 border-indigo-500'
+                        : 'bg-slate-900 border-slate-800 hover:bg-slate-800'
                     }`}
                   >
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center space-x-2 text-indigo-400">
+                    <span className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                      <span className="flex items-center space-x-2 text-indigo-400">
                         <Route className="w-4 h-4" />
                         <span className="text-xs font-semibold">{t.poi_count || t.poi_ids?.length || 0} điểm dừng</span>
-                      </div>
+                      </span>
                       {isTourPaid ? (
-                        <span className="text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 font-bold border border-amber-500/20">
+                        <span className="text-xs px-2 py-0.5 rounded-sm bg-amber-500/10 text-amber-400 font-bold border border-amber-500/20">
                           {formatVND(t.price_vnd || t.price_amount || 0)}
                         </span>
                       ) : (
-                        <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 font-medium">
+                        <span className="text-xs px-2 py-0.5 rounded-sm bg-emerald-500/10 text-emerald-400 font-medium">
                           Miễn Phí
                         </span>
                       )}
-                    </div>
-                    <h3 className="font-bold text-white text-base">{t.name || t.title}</h3>
-                    <p className="text-xs text-slate-400 mt-1 line-clamp-2">{t.description || 'Chưa có mô tả chi tiết'}</p>
-                  </div>
+                    </span>
+                    <span className="block font-bold text-white text-base break-words">{t.name || t.title}</span>
+                    <span className="text-sm text-slate-400 mt-1 line-clamp-2">{t.description || 'Chưa có mô tả chi tiết'}</span>
+                  </button>
                 );
               })
             )}
           </div>
 
           {/* Tour Details & Ordered Stops */}
-          <div className="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-3xl p-6 flex flex-col justify-between">
+          <div className="lg:col-span-2 bg-slate-900 border border-slate-800 rounded p-6 flex flex-col justify-between">
             {selectedTour ? (
               <div className="space-y-6">
                 <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
                   <div>
-                    <span className="text-xs font-semibold px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-400 uppercase">
+                    <span className="text-xs font-semibold px-2.5 py-1 rounded-sm bg-emerald-500/10 text-emerald-400 uppercase">
                       Chi Tiết Tuyến Tour
                     </span>
                     <h2 className="text-xl font-bold text-white mt-2">{selectedTour.name || selectedTour.title}</h2>
@@ -350,7 +352,7 @@ export const Tours: React.FC = () => {
                     <div className="flex flex-wrap items-center gap-2 mt-4">
                       <button
                         onClick={() => setQrTourModal(selectedTour)}
-                        className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 border border-indigo-500/20 text-xs font-medium transition-all"
+                        className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 border border-indigo-500/20 text-xs font-medium transition-all"
                         title="Tạo mã QR & quét mở tuyến tour này"
                       >
                         <QrCode className="w-3.5 h-3.5" />
@@ -361,14 +363,14 @@ export const Tours: React.FC = () => {
                         <>
                           <button
                             onClick={handleOpenEditModal}
-                            className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium transition-all"
+                            className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium transition-all"
                           >
                             <Edit3 className="w-3.5 h-3.5" />
                             <span>Chỉnh Sửa Lộ Trình</span>
                           </button>
                           <button
                             onClick={() => setShowDeleteModal(true)}
-                            className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-red-500/10 hover:bg-red-500/25 text-red-400 border border-red-500/20 text-xs font-medium transition-all"
+                            className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded bg-red-500/10 hover:bg-red-500/25 text-red-400 border border-red-500/20 text-xs font-medium transition-all"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                             <span>Xóa Tuyến Tour</span>
@@ -379,7 +381,7 @@ export const Tours: React.FC = () => {
                   </div>
 
                   {/* Pricing Info Card */}
-                  <div className="bg-slate-950 border border-slate-800 rounded-2xl p-4 shrink-0 min-w-[220px]">
+                  <div className="bg-slate-950 border border-slate-800 rounded p-4 shrink-0 min-w-[220px]">
                     <div className="text-xs text-slate-400 uppercase font-semibold">Chính Sách Vé</div>
                     <div className="text-lg font-bold text-white mt-1">
                       {selectedTour.is_paid || (selectedTour.price_amount && selectedTour.price_amount > 0)
@@ -393,7 +395,7 @@ export const Tours: React.FC = () => {
                     {(user?.role === 'admin' || user?.role === 'super_admin') && (
                       <button
                         onClick={() => setShowPricingModal(true)}
-                        className="mt-3 w-full inline-flex items-center justify-center space-x-1.5 px-3 py-1.5 rounded-xl bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 text-xs font-semibold transition-all"
+                        className="mt-3 w-full inline-flex items-center justify-center space-x-1.5 px-3 py-1.5 rounded bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 text-xs font-semibold transition-all"
                       >
                         <SlidersHorizontal className="w-3.5 h-3.5" />
                         <span>Cài Đặt Giá Vé</span>
@@ -409,7 +411,7 @@ export const Tours: React.FC = () => {
                   </h3>
 
                   {(!selectedTour.pois || selectedTour.pois.length === 0) ? (
-                    <div className="p-6 text-center text-slate-500 bg-slate-950 rounded-xl border border-slate-800">
+                    <div className="p-6 text-center text-slate-500 bg-slate-950 rounded border border-slate-800">
                       Tuyến tour này chưa có điểm dừng nào. Bấm "Chỉnh Sửa Lộ Trình" để thêm điểm dừng.
                     </div>
                   ) : (
@@ -417,16 +419,16 @@ export const Tours: React.FC = () => {
                       {selectedTour.pois.map((p: any, index: number) => (
                         <div
                           key={p.id || p._id || index}
-                          className="flex items-center space-x-4 p-4 rounded-xl bg-slate-950 border border-slate-800"
+                          className="flex items-center space-x-4 p-4 rounded bg-slate-950 border border-slate-800"
                         >
-                          <div className="w-8 h-8 rounded-full bg-indigo-600/20 text-indigo-400 font-bold flex items-center justify-center shrink-0 border border-indigo-500/30">
+                          <div className="w-8 h-8 rounded bg-indigo-600/20 text-indigo-400 font-bold flex items-center justify-center shrink-0 border border-indigo-500/30">
                             {index + 1}
                           </div>
                           <div className="flex-1 min-w-0">
                             <h4 className="font-bold text-white text-sm truncate">{p.name}</h4>
                             <p className="text-xs text-slate-400 truncate">{p.address || 'Quận 4, TP.HCM'}</p>
                           </div>
-                          <span className="text-xs font-semibold px-2 py-0.5 rounded bg-slate-800 text-slate-300 capitalize">
+                          <span className="text-xs font-semibold px-2 py-0.5 rounded-sm bg-slate-800 text-slate-300 capitalize">
                             {p.category || 'Điểm tham quan'}
                           </span>
                         </div>
@@ -566,7 +568,7 @@ export const Tours: React.FC = () => {
               </div>
 
               {/* Pricing Settings */}
-              <div className="p-4 bg-slate-950 border border-slate-800 rounded-2xl space-y-3">
+              <div className="p-4 bg-slate-950 border border-slate-800 rounded space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-semibold text-white">Thu Phí Tham Quan (Tour Có Trả Phí)</span>
                   <input
@@ -867,7 +869,7 @@ export const Tours: React.FC = () => {
           maxWidth="md"
         >
           <div className="flex flex-col items-center text-center space-y-4 pt-2">
-            <div className="p-4 bg-white rounded-2xl shadow-xl border border-slate-200">
+            <div className="p-4 bg-white rounded shadow-sm border border-slate-200">
               <QRCodeSVG
                 id="tour-qr-code-svg"
                 value={`${window.location.origin}/client/?type=tour&id=${qrTourModal.id || (qrTourModal as any)._id}`}
@@ -882,7 +884,7 @@ export const Tours: React.FC = () => {
               <p className="text-xs text-slate-400">
                 Quét mã này sẽ mở trực tiếp trang bản đồ du khách với lộ trình {qrTourModal.pois?.length || 0} điểm dừng và âm thanh thuyết minh
               </p>
-              <div className="mt-2 text-[11px] text-indigo-400 font-mono bg-slate-950 px-3 py-1.5 rounded-lg border border-slate-800 break-all select-all">
+              <div className="mt-2 text-[11px] text-indigo-400 font-mono bg-slate-950 px-3 py-1.5 rounded border border-slate-800 break-all select-all">
                 {`${window.location.origin}/client/?type=tour&id=${qrTourModal.id || (qrTourModal as any)._id}`}
               </div>
             </div>

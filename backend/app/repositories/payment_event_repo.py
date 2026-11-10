@@ -42,8 +42,11 @@ class PaymentEventRepository(BaseRepository):
             "received_at": now,
             "processed_at": now
         }
-        await self.insert_one(doc)
-        return doc
+        values = {k: v for k, v in doc.items() if k != "_id"}
+        return await self.collection.find_one_and_update(
+            {"provider": provider, "event_key": event_key},
+            {"$set": values, "$setOnInsert": {"_id": doc["_id"]}},
+            upsert=True, return_document=True)
 
 
 payment_event_repo = PaymentEventRepository()

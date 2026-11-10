@@ -6,6 +6,11 @@
 
 import { apiUrl } from '../config/runtime';
 
+let memoryToken: string | null = null;
+let refreshHandler: (() => Promise<string | null>) | null = null;
+export const setApiAccessToken = (token: string | null) => { memoryToken = token; };
+export const setApiRefreshHandler = (handler: () => Promise<string | null>) => { refreshHandler = handler; };
+
 export interface RequestOptions extends RequestInit {
   token?: string | null;
   params?: Record<string, string | number | boolean | undefined | null>;
@@ -35,7 +40,7 @@ function extractErrorMessage(data: any, defaultMsg: string): string {
       return data.detail.map((d: any) => d.msg || JSON.stringify(d)).join('; ');
     }
     if (typeof data.detail === 'object') {
-      return JSON.stringify(data.detail);
+      return data.detail.message || defaultMsg;
     }
   }
   if (data.message) return data.message;
@@ -47,7 +52,7 @@ function extractErrorMessage(data: any, defaultMsg: string): string {
  * Retrieves the stored authentication token from localStorage.
  */
 export function getStoredToken(): string | null {
-  return localStorage.getItem('token') || localStorage.getItem('admin_token') || null;
+  return memoryToken;
 }
 
 /**
@@ -94,12 +99,19 @@ export async function apiRequest<T = any>(
 
 
   try {
-    const response = await fetch(url, {
+    let response = await fetch(url, {
       ...restOptions,
       credentials: 'include',
       headers: requestHeaders,
     });
 
+    if (response.status === 401 && refreshHandler && !endpoint.startsWith('/auth/')) {
+      const freshToken = await refreshHandler();
+      if (freshToken) {
+        requestHeaders.Authorization = `Bearer ${freshToken}`;
+        response = await fetch(url, { ...restOptions, credentials: 'include', headers: requestHeaders });
+      }
+    }
     // Handle 204 No Content
     if (response.status === 204) {
       return null as unknown as T;

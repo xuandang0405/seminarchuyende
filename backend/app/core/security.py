@@ -7,6 +7,11 @@ from app.core.config import settings
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     try:
+        if hashed_password.startswith("bcrypt-sha256$"):
+            digest = base64.b64encode(hashlib.sha256(plain_password.encode("utf-8")).digest())
+            return bcrypt.checkpw(digest, hashed_password.removeprefix("bcrypt-sha256$").encode())
+        if len(plain_password.encode("utf-8")) > 72:
+            return False
         return bcrypt.checkpw(
             plain_password.encode("utf-8")[:72],
             hashed_password.encode("utf-8")
@@ -17,7 +22,8 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 def get_password_hash(password: str) -> str:
     salt = bcrypt.gensalt()
-    return bcrypt.hashpw(password.encode("utf-8")[:72], salt).decode("utf-8")
+    digest = base64.b64encode(hashlib.sha256(password.encode("utf-8")).digest())
+    return "bcrypt-sha256$" + bcrypt.hashpw(digest, salt).decode("utf-8")
 
 
 def create_access_token(

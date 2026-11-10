@@ -66,10 +66,11 @@ class OwnerRepository(BaseRepository):
         status: str,
         admin_id: str,
         admin_note: Optional[str] = None,
-        expected_version: Optional[int] = None
+        expected_version: Optional[int] = None,
+        session=None
     ) -> Optional[Dict[str, Any]]:
         now = datetime.now(timezone.utc)
-        query: Dict[str, Any] = {"_id": registration_id}
+        query: Dict[str, Any] = {"_id": registration_id, "status": "pending"}
         if expected_version is not None:
             query["version"] = expected_version
 
@@ -84,14 +85,16 @@ class OwnerRepository(BaseRepository):
                 },
                 "$inc": {"version": 1}
             },
-            return_document=True
+            return_document=True,
+            **({"session": session} if session else {})
         )
 
         if updated and status == "approved":
             # Set is_poi_owner_verified = True in admin_users
             await self.users_col.update_one(
                 {"_id": updated["user_id"]},
-                {"$set": {"is_poi_owner_verified": True, "updated_at": now}}
+                {"$set": {"is_poi_owner_verified": True, "updated_at": now}},
+                **({"session": session} if session else {})
             )
 
         return updated
@@ -141,8 +144,8 @@ class OwnerRepository(BaseRepository):
         cursor = self.submissions_col.find(query).skip(skip).limit(limit).sort("created_at", -1)
         return await cursor.to_list(length=limit)
 
-    async def get_submission(self, submission_id: str) -> Optional[Dict[str, Any]]:
-        return await self.submissions_col.find_one({"_id": submission_id})
+    async def get_submission(self, submission_id: str, session=None) -> Optional[Dict[str, Any]]:
+        return await self.submissions_col.find_one({"_id": submission_id}, **({"session": session} if session else {}))
 
     async def review_submission(
         self,
@@ -150,10 +153,11 @@ class OwnerRepository(BaseRepository):
         status: str,
         admin_id: str,
         admin_note: Optional[str] = None,
-        expected_version: Optional[int] = None
+        expected_version: Optional[int] = None,
+        session=None
     ) -> Optional[Dict[str, Any]]:
         now = datetime.now(timezone.utc)
-        query: Dict[str, Any] = {"_id": submission_id}
+        query: Dict[str, Any] = {"_id": submission_id, "status": "pending"}
         if expected_version is not None:
             query["version"] = expected_version
 
@@ -168,7 +172,8 @@ class OwnerRepository(BaseRepository):
                 },
                 "$inc": {"version": 1}
             },
-            return_document=True
+            return_document=True,
+            **({"session": session} if session else {})
         )
 
     # =========================================================================
@@ -181,7 +186,8 @@ class OwnerRepository(BaseRepository):
         type: str,
         message: str,
         submission_id: Optional[str] = None,
-        registration_id: Optional[str] = None
+        registration_id: Optional[str] = None,
+        session=None
     ) -> Dict[str, Any]:
         now = datetime.now(timezone.utc)
         doc = {
@@ -194,7 +200,7 @@ class OwnerRepository(BaseRepository):
             "is_read": False,
             "created_at": now,
         }
-        await self.notifications_col.insert_one(doc)
+        await self.notifications_col.insert_one(doc, **({"session": session} if session else {}))
         return doc
 
     async def list_notifications(self, owner_id: str, skip: int = 0, limit: int = 50) -> List[Dict[str, Any]]:

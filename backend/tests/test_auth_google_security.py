@@ -403,12 +403,12 @@ async def test_9_active_sessions_management(client: AsyncClient):
     )
     assert del_res.status_code == 200
 
-    # Attempting to delete a non-existent or other user's session returns 404
+    # A revoked access token can no longer use authenticated endpoints.
     del_res_other = await client.delete(
         "/api/v1/auth/sessions/sess_non_existent_or_other_user",
         headers={"Authorization": f"Bearer {token}"}
     )
-    assert del_res_other.status_code == 404
+    assert del_res_other.status_code == 401
 
 
 @pytest.mark.asyncio

@@ -132,3 +132,14 @@ async def list_audit_logs(
     """Use Case S04: View audit logs from audit_logs collection."""
     logs = await audit_repo.list(skip=skip, limit=limit, sort=[("timestamp", -1)])
     return logs
+
+@router.get("/pois")
+async def list_admin_pois(
+    search: Optional[str] = None, category: Optional[str] = None,
+    skip: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=100),
+    current_user: dict = Depends(get_current_admin)
+):
+    from app.repositories.poi_repo import poi_repo
+    docs = await poi_repo.find_public(skip=skip, limit=limit, category=category, search=search, include_inactive=True)
+    return {"items": [{**p, "id": str(p["_id"])} for p in docs],
+            "total": await poi_repo.count_public(category=category, include_inactive=True), "skip": skip, "limit": limit}

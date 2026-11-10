@@ -45,3 +45,12 @@ class RoutingProvider(Protocol):
             RoutingUnavailableError: on network, timeout, or provider failure.
         """
         ...
+
+    async def route_waypoints(
+        self,
+        points: list[tuple[float, float]],
+        mode: TravelMode = TravelMode.WALKING,
+        locale: str = "vi",
+    ) -> RouteResultDTO:
+        """Calculate one route through the supplied stops in order."""
+        ...

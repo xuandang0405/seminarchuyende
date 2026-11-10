@@ -5,7 +5,8 @@ from httpx import AsyncClient
 @pytest.mark.asyncio
 async def test_analytics_consent_and_batch_ingestion(client: AsyncClient):
     """Test consent recording and idempotent event batch ingestion."""
-    device_id = "device_test_12345"
+    boot = await client.post("/api/v1/device/bootstrap", json={"platform": "web"})
+    device_id = boot.json()["device_id"]
 
     # 1. Grant consent
     consent_resp = await client.post("/api/v1/analytics/consent", json={

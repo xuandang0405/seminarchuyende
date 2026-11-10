@@ -6,7 +6,7 @@ CRITICAL INVARIANT:
 """
 
 from typing import Any, Dict, List, Optional
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import uuid
 
 from app.repositories.base import BaseRepository
@@ -25,12 +25,13 @@ class AudioRepository(BaseRepository):
         self,
         requested_by: str,
         items: List[Dict[str, Any]],
-        max_attempts: int = 3
+        max_attempts: int = 3,
+        session=None,
+        task_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         now = datetime.now(timezone.utc)
-        task_id = f"task_{uuid.uuid4().hex[:12]}"
         doc = {
-            "_id": task_id,
+            "_id": task_id or f"task_{uuid.uuid4().hex[:12]}",
             "requested_by": requested_by,
             "items": items,
             "status": "queued",
@@ -46,21 +47,38 @@ class AudioRepository(BaseRepository):
             "updated_at": now,
             "expires_at": None,
         }
-        await self.collection.insert_one(doc)
+        options = {"session": session} if session else {}
+        if task_id:
+            return await self.collection.find_one_and_update(
+                {"_id": task_id}, {"$setOnInsert": doc}, upsert=True, return_document=True, **options
+            )
+        await self.collection.insert_one(doc, **options)
         return doc
 
     async def claim_task(self, worker_id: str, lease_duration_seconds: int = 60) -> Optional[Dict[str, Any]]:
         now = datetime.now(timezone.utc)
-        from datetime import timedelta
         lease_until = now + timedelta(seconds=lease_duration_seconds)
 
-        # Claim queued task or expired lease
+        expired = {"status": "running", "lease_until": {"$lte": now}}
+        for flag, terminal in (("cancel_requested", "cancelled"), ("pause_requested", "paused")):
+            await self.collection.update_many(
+                {**expired, flag: True},
+                {"$set": {"status": terminal, "lease_owner": None, "lease_until": None, "updated_at": now,
+                          "expires_at": now + timedelta(days=7) if terminal == "cancelled" else None}},
+            )
+        maxed = {"$expr": {"$gte": ["$attempts", "$max_attempts"]}}
+        await self.collection.update_many(
+            {**expired, **maxed},
+            {"$set": {"status": "failed", "lease_owner": None, "lease_until": None, "updated_at": now,
+                      "expires_at": now + timedelta(days=7), "error_message": "Worker lease expired"}},
+        )
         query = {
             "$or": [
-                {"status": "queued"},
-                {"status": "running", "lease_until": {"$lt": now}, "cancel_requested": False}
+                {"status": "queued", "$or": [{"next_retry_at": None}, {"next_retry_at": {"$lte": now}}]},
+                {**expired, "cancel_requested": {"$ne": True}}
             ]
         }
+        query["pause_requested"] = {"$ne": True}
         update = {
             "$set": {
                 "status": "running",
@@ -75,10 +93,9 @@ class AudioRepository(BaseRepository):
 
     async def update_heartbeat(self, task_id: str, worker_id: str, lease_duration_seconds: int = 60) -> bool:
         now = datetime.now(timezone.utc)
-        from datetime import timedelta
         lease_until = now + timedelta(seconds=lease_duration_seconds)
         res = await self.collection.update_one(
-            {"_id": task_id, "lease_owner": worker_id},
+            {"_id": task_id, "lease_owner": worker_id, "status": "running", "lease_until": {"$gt": now}},
             {"$set": {"heartbeat_at": now, "lease_until": lease_until, "updated_at": now}}
         )
         return res.modified_count > 0
@@ -87,15 +104,18 @@ class AudioRepository(BaseRepository):
         self,
         task_id: str,
         status: str,
-        error_message: Optional[str] = None
+        error_message: Optional[str] = None,
+        worker_id: Optional[str] = None
     ) -> Optional[Dict[str, Any]]:
         now = datetime.now(timezone.utc)
-        from datetime import timedelta
         # Set TTL expires_at 7 days after completion
         expires_at = now + timedelta(days=7)
 
+        query = {"_id": task_id, "status": "running", "lease_owner": worker_id, "lease_until": {"$gt": now}}
+        if status == "succeeded":
+            query.update(cancel_requested={"$ne": True}, pause_requested={"$ne": True})
         return await self.collection.find_one_and_update(
-            {"_id": task_id},
+            query,
             {
                 "$set": {
                     "status": status,
@@ -111,11 +131,31 @@ class AudioRepository(BaseRepository):
 
     async def request_cancel(self, task_id: str) -> bool:
         now = datetime.now(timezone.utc)
-        res = await self.collection.update_one(
-            {"_id": task_id, "status": {"$in": ["queued", "running"]}},
-            {"$set": {"cancel_requested": True, "updated_at": now}}
+        stopped = await self.collection.update_one(
+            {"_id": task_id, "status": {"$in": ["queued", "paused"]}},
+            {"$set": {"status": "cancelled", "cancel_requested": True, "pause_requested": False,
+                      "updated_at": now, "expires_at": now + timedelta(days=7)}},
         )
-        return res.modified_count > 0
+        if stopped.matched_count:
+            return True
+        res = await self.collection.update_one(
+            {"_id": task_id, "status": "running"},
+            {"$set": {"cancel_requested": True, "pause_requested": False, "updated_at": now}}
+        )
+        return res.matched_count > 0
+
+    async def request_pause(self, task_id: str) -> bool:
+        result = await self.collection.update_one(
+            {"_id": task_id, "status": "queued", "cancel_requested": {"$ne": True}},
+            {"$set": {"status": "paused", "pause_requested": True}},
+        )
+        if result.matched_count:
+            return True
+        result = await self.collection.update_one(
+            {"_id": task_id, "status": "running", "cancel_requested": {"$ne": True}},
+            {"$set": {"pause_requested": True}},
+        )
+        return bool(result.matched_count)
 
     async def update_audio_metadata(
         self,
@@ -125,11 +165,13 @@ class AudioRepository(BaseRepository):
         audio_storage_key: str,
         audio_content_hash: str,
         audio_duration_ms: int,
-        audio_source: str = "tts_generated"
+        source_version: int,
+        audio_source: str = "tts_generated",
+        session=None
     ) -> Optional[Dict[str, Any]]:
         now = datetime.now(timezone.utc)
         return await self.localizations_col.find_one_and_update(
-            {"poi_id": poi_id, "lang": lang},
+            {"poi_id": poi_id, "lang": lang, "source_version": source_version},
             {
                 "$set": {
                     "audio_url": audio_url,
@@ -141,7 +183,7 @@ class AudioRepository(BaseRepository):
                     "updated_at": now,
                 }
             },
-            return_document=True
+            return_document=True, **({"session": session} if session else {}),
         )
 
 

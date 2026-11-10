@@ -6,12 +6,10 @@ BR-ACCESS-01 / BR-TRIAL-01..05.
 
 from typing import Any, Dict, Optional, Tuple
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
-import jwt
-
-from app.core.config import settings
-from app.repositories.auth_repo import auth_repo
+from app.api.v1.endpoints.auth import get_optional_current_user
 from app.services.guest_service import guest_service
 from app.services.access_service import access_service
+from app.services.session_service import session_service
 from app.schemas.access import TourAccessResponse, PlaybackGrantRequest, PlaybackGrantResponse
 
 router = APIRouter(tags=["Tour Access & Playback Grants"])
@@ -19,25 +17,8 @@ router = APIRouter(tags=["Tour Access & Playback Grants"])
 
 async def resolve_subject(request: Request) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
     """Resolves whether request is from an authenticated user or a guest session."""
-    user = None
+    user = await get_optional_current_user(token=None, request=request)
     guest = None
-
-    # 1. Try Bearer token
-    auth_header = request.headers.get("Authorization") or request.headers.get("authorization")
-    token = None
-    if auth_header and auth_header.startswith("Bearer "):
-        token = auth_header.split(" ", 1)[1].strip()
-
-    if token:
-        try:
-            payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
-            user_id = payload.get("sub")
-            if user_id:
-                u = await auth_repo.get_user_by_id(user_id)
-                if u and u.get("is_active", True):
-                    user = u
-        except Exception:
-            pass
 
     # 2. If not a user, check guest credential
     if not user:
@@ -78,7 +59,12 @@ async def request_playback_grant_endpoint(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Cần phiên đăng nhập hoặc phiên khách để yêu cầu phát thuyết minh."
         )
+    token = request.headers.get("X-Device-Token") or request.cookies.get("tourvoice_device_token")
+    device = await session_service.verify_device_token(token) if token else None
+    device_id = device["_id"] if device and device.get("consent_granted") and "events" in (device.get("consent_scopes") or []) else None
 
+    if not req.tour_id:
+        return await access_service.request_poi_grant(req.poi_id, req.lang, req.trigger_source, req.consent_trial, user, guest, req.idempotency_key, device_id)
     res = await access_service.request_playback_grant(
         tour_id=req.tour_id,
         poi_id=req.poi_id,
@@ -87,7 +73,7 @@ async def request_playback_grant_endpoint(
         consent_trial=req.consent_trial,
         idempotency_key=req.idempotency_key,
         user=user,
-        guest=guest
+        guest=guest, device_id=device_id,
     )
 
     if not res.get("success"):
@@ -95,6 +81,8 @@ async def request_playback_grant_endpoint(
         status_code = status.HTTP_403_FORBIDDEN
         if err_code == "TOUR_NOT_FOUND" or err_code == "POI_NOT_FOUND":
             status_code = status.HTTP_404_NOT_FOUND
+        elif err_code == "AUDIO_UNAVAILABLE":
+            status_code = status.HTTP_409_CONFLICT
         elif err_code == "TRIAL_CONSENT_REQUIRED":
             status_code = status.HTTP_403_FORBIDDEN
 
@@ -103,6 +91,7 @@ async def request_playback_grant_endpoint(
             detail={
                 "error": err_code,
                 "error_code": err_code,
+                "tour_id": req.tour_id,
                 "message": res.get("message", "Từ chối truy cập.")
             }
         )

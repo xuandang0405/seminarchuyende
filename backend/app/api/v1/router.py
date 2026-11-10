@@ -23,6 +23,7 @@ from app.api.v1.endpoints import (
     visitor_sessions,
     tour_sessions,
     languages,
+    localizations,
     ai,
     poi_contents,
 )
@@ -31,7 +32,9 @@ api_router = APIRouter()
 
 api_router.include_router(health.router)
 api_router.include_router(languages.router)
+api_router.include_router(localizations.router)
 api_router.include_router(map.router)
+api_router.include_router(map.packs_router)
 api_router.include_router(routes.router)
 api_router.include_router(auth.router)
 api_router.include_router(auth.router, prefix="/admin")
@@ -40,6 +43,7 @@ api_router.include_router(access.router)
 api_router.include_router(orders.router)
 api_router.include_router(me.router)
 api_router.include_router(pois.router)
+api_router.include_router(pois.sync_router)
 api_router.include_router(poi_contents.router)
 api_router.include_router(ai.router)
 api_router.include_router(menu.router)

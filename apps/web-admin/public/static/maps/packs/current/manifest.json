@@ -1,0 +1,12 @@
+{
+  "scope": "district-4",
+  "label": "Quận 4 và vùng lân cận",
+  "version": "q4-20261108",
+  "source_date": "2026-11-08",
+  "source": "https://build.protomaps.com/20261108.pmtiles",
+  "license": "https://www.openstreetmap.org/copyright",
+  "bbox": [106.665, 10.721, 106.745, 10.798],
+  "archive": "/static/maps/packs/q4-20261108/district-4.pmtiles",
+  "size": 3931107,
+  "sha256": "ce6a5bc00a0b09dd1e973d12ae4f77ff289258a9b18ed6932084d445b153dce2"
+}

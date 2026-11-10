@@ -1,0 +1,123 @@
+name: Verify and release
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      deploy:
+        description: Publish image and deploy to the configured production host
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            apps/web-admin/package-lock.json
+      - run: python -m pip install -r backend/requirements.lock pytest pytest-asyncio
+      - run: python -m pytest -q --tb=short
+        working-directory: backend
+      - name: Start isolated replica set
+        run: |
+          docker run -d --name tourvoice-ci-mongo -p 127.0.0.1:27028:27017 mongo:7.0 --replSet rs0 --bind_ip_all
+          for i in $(seq 1 30); do
+            if docker exec tourvoice-ci-mongo mongosh --quiet --eval 'db.adminCommand({ping:1})'; then break; fi
+            sleep 1
+          done
+          docker exec tourvoice-ci-mongo mongosh --quiet --eval 'rs.initiate({_id:"rs0",members:[{_id:0,host:"localhost:27017"}]})'
+          for i in $(seq 1 30); do
+            if docker exec tourvoice-ci-mongo mongosh --quiet --eval 'if (!db.hello().isWritablePrimary) quit(1)'; then break; fi
+            sleep 1
+          done
+      - run: python verify_mongo.py
+        working-directory: backend
+      - run: npm ci
+        working-directory: apps/web-admin
+      - run: npm run build
+        working-directory: apps/web-admin
+      - name: Browser checkout, playback and offline regression
+        shell: bash
+        run: |
+          command -v ffmpeg || (sudo apt-get update && sudo apt-get install -y ffmpeg)
+          export BROWSER_MP3_FIXTURE="$RUNNER_TEMP/tourvoice-fixture.mp3"
+          export MEDIA_STORAGE_DIR="$RUNNER_TEMP/tourvoice-browser-media"
+          export APP_ENV=test PAYMENT_MODE=mock ALLOW_MOCK_DATABASE=false DATABASE_NAME=tourvoice_review_browser
+          export SECRET_KEY="$(python -c 'import secrets; print(secrets.token_hex(32))')"
+          export MONGODB_URI='mongodb://127.0.0.1:27028/?directConnection=true&replicaSet=rs0'
+          export PUBLIC_WEB_URL='http://127.0.0.1:18081'
+          ffmpeg -hide_banner -loglevel error -f lavfi -i 'sine=frequency=440:duration=3' -q:a 7 "$BROWSER_MP3_FIXTURE"
+          cd backend
+          python verify_browser_seed.py
+          python -m uvicorn app.main:app --host 127.0.0.1 --port 18081 >"$RUNNER_TEMP/tourvoice-browser.log" 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:18081/api/v1/health; then break; fi
+            sleep 1
+          done
+          cd ..
+          node apps/web-admin/scripts/smoke-browser.mjs || { cat "$RUNNER_TEMP/tourvoice-browser.log"; exit 1; }
+      - run: node --test shared/tests/*.test.mjs
+      - name: Build complete runtime image
+        run: docker build -f backend/Dockerfile -t tourvoice:ci .
+      - name: Container smoke check
+        run: |
+          docker network create tourvoice-ci
+          docker network connect tourvoice-ci tourvoice-ci-mongo
+          docker run -d --name tourvoice-ci-app --network tourvoice-ci -p 127.0.0.1:8000:8000 \
+            -e APP_ENV=test -e PAYMENT_MODE=mock -e DATABASE_NAME=tourvoice_smoke \
+            -e SECRET_KEY="$(python -c 'import secrets; print(secrets.token_hex(32))')" \
+            -e MONGODB_URI='mongodb://tourvoice-ci-mongo:27017/?directConnection=true&replicaSet=rs0' tourvoice:ci
+          for i in $(seq 1 45); do
+            if curl -fsS http://127.0.0.1:8000/api/v1/health; then break; fi
+            sleep 1
+          done
+          bash deploy/scripts/smoke-test.sh
+      - name: Diagnostics and cleanup
+        if: always()
+        run: |
+          docker logs tourvoice-ci-app 2>&1 || true
+          docker rm -f tourvoice-ci-app tourvoice-ci-mongo 2>/dev/null || true
+  deploy:
+    if: github.event_name == 'workflow_dispatch' && inputs.deploy
+    needs: verify
+    runs-on: ubuntu-latest
+    environment: production
+    permissions: { contents: read, packages: write }
+    steps:
+      - uses: actions/checkout@v4
+      - name: Publish immutable image
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}:${GITHUB_SHA}"
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker build -f backend/Dockerfile -t "$IMAGE" .
+          docker push "$IMAGE"
+          echo "TOURVOICE_IMAGE=$IMAGE" >> "$GITHUB_ENV"
+      - name: Deploy and verify
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          test -n "$SSH_KEY" && test -n "$KNOWN_HOSTS" && test -n "$DEPLOY_HOST" && test -n "$DEPLOY_USER"
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/id_ed25519 ~/.ssh/known_hosts
+          ssh "$DEPLOY_USER@$DEPLOY_HOST" "cd /opt/tourvoice && docker pull '$TOURVOICE_IMAGE' && TOURVOICE_IMAGE='$TOURVOICE_IMAGE' docker compose -f deploy/docker-compose.prod.yml up -d --no-build && bash deploy/scripts/smoke-test.sh http://127.0.0.1:8080"

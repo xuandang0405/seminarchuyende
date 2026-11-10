@@ -1,0 +1,13 @@
+.git
+**/scratch/
+**/node_modules
+**/.venv*
+**/__pycache__
+**/.env
+**/.env.production
+**/.env.development
+**/storage
+**/.review-bundle
+**/dist
+**/.pytest_cache
+**/.env.demo

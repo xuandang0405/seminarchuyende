@@ -24,8 +24,8 @@
    - Chủ Quán Ăn   : owner.verified@quan4.vn   | Mật khẩu: Owner@123456
    - Khách Du Lịch : tourist@test.vn          | Mật khẩu: User@123456
 
-4. CÁCH CHẠY APP DI ĐỘNG (REACT NATIVE EXPO):
-   - Mở Terminal/CMD mới và chuyển vào thư mục: cd mobile
-   - Chạy lệnh: npm start
-   - Dùng camera điện thoại quét mã QR (trên ứng dụng Expo Go) để chạy app trực tiếp trên thiết bị iOS/Android thật.
+4. WEB APP TRÊN ĐIỆN THOẠI:
+   - Mở trình duyệt và truy cập https://<ten-mien>/client/.
+   - Dùng cùng Web App cho khách, chủ sạp và quản trị viên.
+   - GPS và tính năng PWA cần HTTPS (hoặc localhost khi phát triển).
 ======================================================================

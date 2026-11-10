@@ -2,10 +2,10 @@ import uuid
 from datetime import datetime, timezone
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
-from app.api.v1.endpoints.auth import get_current_user, get_current_admin
+from app.api.v1.endpoints.auth import get_current_user, get_current_admin, get_verified_owner
 from app.repositories.poi_repo import poi_repo
 from app.repositories.content_repo import content_repo
-from app.repositories.audio_repo import audio_repo
+from app.repositories.audio_asset_repo import audio_asset_repo
 from app.schemas.poi_content import (
     POIContentCreate,
     POIContentUpdate,
@@ -18,7 +18,8 @@ router = APIRouter(prefix="/pois/{poi_id}/contents", tags=["POI Multilingual Con
 @router.get("", response_model=List[POIContentResponse])
 async def list_poi_contents(
     poi_id: str,
-    language_code: Optional[str] = None
+    language_code: Optional[str] = None,
+    current_user: dict = Depends(get_current_admin)
 ):
     query = {"poi_id": poi_id}
     if language_code:
@@ -32,6 +33,8 @@ async def get_active_poi_content(
     poi_id: str,
     language_code: str
 ):
+    if not await poi_repo.get_public_by_id(poi_id):
+        raise HTTPException(404, "POI chưa được công bố.")
     """Returns the currently approved/published content for the specified language."""
     contents = await content_repo.find_by_poi_and_lang(poi_id, language_code, status="approved")
     if not contents:
@@ -47,7 +50,7 @@ async def get_active_poi_content(
 async def create_poi_content(
     poi_id: str,
     content_in: POIContentCreate,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_verified_owner)
 ):
     poi = await poi_repo.get_by_id(poi_id)
     if not poi:
@@ -74,6 +77,7 @@ async def create_poi_content(
         "narration_text": content_in.narration_text,
         "review_status": status_val,
         "source_content_id": content_in.source_content_id,
+        "source_version": poi.get("content_version", 1),
         "reviewed_at": reviewed_at,
         "created_by": current_user["_id"],
         "created_at": now,
@@ -89,14 +93,19 @@ async def update_poi_content(
     poi_id: str,
     content_id: str,
     content_in: POIContentUpdate,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_verified_owner)
 ):
     existing = await content_repo.get_by_id(content_id)
     if not existing or existing.get("poi_id") != poi_id:
         raise HTTPException(status_code=404, detail="Content not found")
+    poi = await poi_repo.get_by_id(poi_id)
+    if not poi or (current_user.get("role") not in ("admin", "super_admin") and poi.get("owner_id") != current_user["_id"]):
+        raise HTTPException(403, "Bạn không có quyền sửa nội dung này.")
 
     update_data = {k: v for k, v in content_in.model_dump(exclude_unset=True).items() if v is not None}
     update_data["updated_at"] = datetime.now(timezone.utc)
+    update_data["review_status"] = "draft"
+    update_data["version"] = existing.get("version", 1) + 1
 
     updated = await content_repo.update_by_id(content_id, update_data)
     return updated
@@ -132,20 +141,25 @@ async def publish_content(
     if content.get("review_status") != "approved":
         raise HTTPException(status_code=400, detail="Only approved content can be published")
 
-    # If audio_asset_id not provided, find latest audio for this content
-    final_audio_id = audio_asset_id
-    if not final_audio_id:
-        audios = await audio_repo.find_by_content_id(content_id)
-        if audios:
-            final_audio_id = audios[0]["_id"]
-        else:
-            final_audio_id = str(uuid.uuid4())  # Placeholder until audio is generated
-
-    updated_poi = await poi_repo.update_published_content(
-        poi_id=poi_id,
-        language_code=content["language_code"],
-        content_id=content_id,
-        audio_asset_id=final_audio_id,
-        published_by=current_user["_id"]
-    )
-    return {"message": "Content published successfully", "poi": updated_poi}
+    from pathlib import Path
+    from app.services.audio_service import audio_service
+    from app.services.poi_admin_service import poi_admin_service
+    poi = await poi_repo.get_by_id(poi_id)
+    if not poi or poi.get("deleted_at"):
+        raise HTTPException(404, "POI không tồn tại.")
+    candidates = [await audio_asset_repo.get_by_id(audio_asset_id)] if audio_asset_id else await audio_asset_repo.find_by_content_id(content_id)
+    audio = next((a for a in candidates if a and a.get("poi_content_id") == content_id
+                  and a.get("content_version") == content.get("version", 1)), None)
+    if not audio or not Path(audio_service.get_audio_filepath(audio["storage_key"])).is_file():
+        raise HTTPException(409, "Chưa có file audio của phiên bản nội dung này.")
+    if content.get("source_version") != poi.get("content_version", 1):
+        raise HTTPException(409, "Nội dung đã cũ; vui lòng tạo lại từ phiên bản hiện tại.")
+    lang = content["language_code"]
+    await poi_repo.localizations_collection.update_one({"poi_id": poi_id, "lang": lang}, {"$set": {
+        "poi_id": poi_id, "lang": lang, "name": content["title"], "description": content["narration_text"],
+        "translation_status": "ready", "audio_status": "ready", "audio_storage_key": audio["storage_key"],
+        "audio_url": "/storage/" + audio["storage_key"], "audio_duration_ms": audio["duration_ms"],
+        "source_version": poi.get("content_version", 1), "updated_at": datetime.now(timezone.utc)}}, upsert=True)
+    if poi.get("activation_requested"):
+        await poi_admin_service.toggle_activation(poi_id, True)
+    return {"message": "Content published successfully", "poi": await poi_repo.get_by_id(poi_id)}

@@ -1,22 +1,41 @@
 import os
 import hashlib
 import uuid
+from pathlib import Path
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any
 from fastapi import HTTPException, status
 from fastapi.responses import StreamingResponse
 from app.core.config import settings
-from app.repositories.audio_repo import audio_repo
+from app.repositories.audio_asset_repo import audio_asset_repo
 
 
 class AudioService:
+    @classmethod
+    def localization_file_exists(cls, localization: dict) -> bool:
+        key = localization.get("audio_storage_key") or localization.get("audio_url")
+        if not key:
+            return False
+        key = key.split("?", 1)[0].removeprefix("/api/v1/audio/").removesuffix("/stream")
+        try:
+            path = Path(cls.get_audio_filepath(key))
+            return path.is_file() and path.stat().st_size > 0
+        except (OSError, ValueError, HTTPException):
+            return False
+
     @staticmethod
     def get_audio_filepath(storage_key: str) -> str:
-        # Strip leading slashes if any
-        clean_key = storage_key.lstrip("/\\")
-        if clean_key.startswith("storage/audio/") or clean_key.startswith("storage\\audio\\"):
-            return clean_key
-        return os.path.join(settings.MEDIA_STORAGE_DIR, "audio", clean_key)
+        base = Path(settings.MEDIA_STORAGE_DIR).resolve()
+        key = storage_key.replace("\\", "/").removeprefix("/storage/").lstrip("/")
+        if not key.startswith("audio/"):
+            key = "audio/" + key
+        path = (base / key).resolve()
+        if not path.is_relative_to(base / "audio") or path.suffix.lower() != ".mp3":
+            raise HTTPException(404, "Audio file not found")
+        legacy = (base / "audio" / key).resolve()
+        if not path.is_file() and legacy.is_relative_to(base / "audio") and legacy.is_file():
+            return str(legacy)
+        return str(path)
 
     @classmethod
     async def save_uploaded_audio(
@@ -39,7 +58,8 @@ class AudioService:
         file_size = len(content_bytes)
         sha256_hash = hashlib.sha256(content_bytes).hexdigest()
         # Duration approximation (128 kbps = 16,000 bytes/sec)
-        duration_ms = max(1000, int((file_size / 16000) * 1000))
+        from app.services.audio_metadata import mp3_duration_ms
+        duration_ms = mp3_duration_ms(content_bytes)
 
         doc = {
             "_id": str(uuid.uuid4()),
@@ -54,22 +74,14 @@ class AudioService:
             "voice_id": None,
             "created_at": datetime.now(timezone.utc)
         }
-        await audio_repo.insert_one(doc)
+        await audio_asset_repo.insert_one(doc)
         return doc
 
     @classmethod
     def stream_audio_file(cls, storage_key: str, range_header: Optional[str] = None):
         filepath = cls.get_audio_filepath(storage_key)
-        if not os.path.exists(filepath):
-            try:
-                os.makedirs(os.path.dirname(filepath), exist_ok=True)
-                # Valid minimal silent MPEG-1 Layer 3 frames
-                silent_mp3 = bytes([0xFF, 0xFB, 0x90, 0x64] + [0x00] * 414) * 10
-                with open(filepath, "wb") as f:
-                    f.write(silent_mp3)
-            except Exception:
-                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Audio file not found")
-
+        if not os.path.isfile(filepath):
+            raise HTTPException(404, "Audio file not found")
         file_size = os.path.getsize(filepath)
         content_type = "audio/mpeg"
 
@@ -90,9 +102,20 @@ class AudioService:
             )
 
         # Range request handling (HTTP 206 Partial Content)
-        byte_range = range_header.replace("bytes=", "").split("-")
-        start = int(byte_range[0]) if byte_range[0] else 0
-        end = int(byte_range[1]) if len(byte_range) > 1 and byte_range[1] else file_size - 1
+        try:
+            if not range_header.startswith("bytes=") or "," in range_header:
+                raise ValueError()
+            first, last = range_header[6:].split("-", 1)
+            if not first:
+                start = max(0, file_size - int(last))
+                end = file_size - 1
+            else:
+                start = int(first)
+                end = min(int(last), file_size - 1) if last else file_size - 1
+            if start < 0 or start >= file_size or end < start:
+                raise ValueError()
+        except (ValueError, TypeError):
+            raise HTTPException(416, "Invalid byte range", headers={"Content-Range": f"bytes */{file_size}"})
         length = end - start + 1
 
         def iterfile_range():

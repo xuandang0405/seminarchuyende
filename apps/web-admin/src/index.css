@@ -43,31 +43,20 @@
   }
 }
 
-/* Glassmorphism & Visual Polish */
-.glass-panel {
-  background: rgba(15, 23, 42, 0.75);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+/* Clean Minimalist Surface Polish */
+.flat-panel {
+  background: #0F172A;
+  border: 1px solid #1E293B;
 }
 
-.glass-card {
-  background: rgba(15, 23, 42, 0.65);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+.flat-card {
+  background: #0F172A;
+  border: 1px solid #1E293B;
+  transition: border-color 0.15s ease;
 }
 
-.glass-card:hover {
-  background: rgba(30, 41, 59, 0.7);
-  border-color: rgba(99, 102, 241, 0.25);
-  box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.5), 0 0 20px -5px rgba(99, 102, 241, 0.1);
-  transform: translateY(-2px);
-}
-
-.glow-indigo {
-  box-shadow: 0 0 25px -5px rgba(99, 102, 241, 0.35);
+.flat-card:hover {
+  border-color: #334155;
 }
 
 /* Skeleton Shimmer Effect */

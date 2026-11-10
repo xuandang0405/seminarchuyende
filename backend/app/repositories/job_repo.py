@@ -10,16 +10,16 @@ class JobRepository(BaseRepository):
     async def claim_next_job(self) -> Optional[Dict[str, Any]]:
         now = datetime.now(timezone.utc)
         # Atomically find a queued job or a retry-eligible job and set to running
-        query = {
-            "status": "queued",
-            "$or": [
-                {"next_retry_at": None},
-                {"next_retry_at": {"$lte": now}}
-            ]
-        }
+        query = {"$or": [
+            {"status": "queued", "$or": [{"next_retry_at": None}, {"next_retry_at": {"$lte": now}}]},
+            {"status": "running", "lease_until": {"$lt": now}},
+            {"status": "running", "lease_until": None, "updated_at": {"$lt": now - timedelta(minutes=5)}}
+        ]}
         update = {
             "$set": {
                 "status": "running",
+                "lease_until": now + timedelta(seconds=120),
+                "lease_owner": __import__("uuid").uuid4().hex,
                 "started_at": now,
                 "updated_at": now
             },

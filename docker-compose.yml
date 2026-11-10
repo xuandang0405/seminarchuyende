@@ -1,57 +1,44 @@
-version: '3.8'
-
 services:
   mongodb:
     image: mongo:7.0
-    container_name: tourvoice_mongodb
     restart: unless-stopped
-    ports:
-      - "27017:27017"
-    volumes:
-      - mongo_data:/data/db
+    ports: ["127.0.0.1:27017:27017"]
+    volumes: ["mongo_data:/data/db"]
     command: ["--replSet", "rs0", "--bind_ip_all"]
     healthcheck:
-      test: echo "try { rs.status() } catch (err) { rs.initiate() }" | mongosh --port 27017 --quiet
-      interval: 10s
-      timeout: 10s
-      retries: 5
-
-  redis:
-    image: redis:7.2-alpine
-    container_name: tourvoice_redis
-    restart: unless-stopped
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "mongosh --quiet --eval 'try { rs.status() } catch (e) { rs.initiate({_id:\"rs0\",members:[{_id:0,host:\"mongodb:27017\"}]}) }'"]
       interval: 5s
       timeout: 5s
-      retries: 3
-
+      retries: 20
   backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    container_name: tourvoice_backend
-    restart: unless-stopped
-    ports:
-      - "8000:8000"
-    environment:
-      - MONGODB_URI=mongodb://mongodb:27017/tourvoice_district4?replicaSet=rs0
-      - MONGODB_DB_NAME=tourvoice_district4
-      - REDIS_URL=redis://redis:6379/0
-      - JWT_SECRET=super_secret_seminar_tourvoice_key_2026
-      - STORAGE_DIR=/app/storage
-    volumes:
-      - ./backend/storage:/app/storage
+    build: { context: ., dockerfile: backend/Dockerfile }
+    ports: ["127.0.0.1:8000:8000"]
+    environment: &app-environment
+      APP_ENV: development
+      DEBUG: "false"
+      SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY to a random value of at least 32 characters}
+      MONGODB_URI: mongodb://mongodb:27017/?replicaSet=rs0
+      DATABASE_NAME: tourvoice_dev
+      ALLOW_MOCK_DATABASE: "false"
+      PAYMENT_MODE: mock
+      PUBLIC_WEB_URL: http://localhost:8000
+      FRONTEND_URL: http://localhost:8000
+      COOKIE_SECURE: "false"
+      MEDIA_STORAGE_DIR: /app/backend/storage
+      SUPERADMIN_BOOTSTRAP_MODE: ${SUPERADMIN_BOOTSTRAP_MODE:-disabled}
+      SUPERADMIN_EMAIL: ${SUPERADMIN_EMAIL:-admin@tourvoice.vn}
+      SUPERADMIN_PASSWORD: ${SUPERADMIN_PASSWORD:-}
+    volumes: ["media_data:/app/backend/storage"]
     depends_on:
-      mongodb:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-
+      mongodb: { condition: service_healthy }
+  worker:
+    build: { context: ., dockerfile: backend/Dockerfile }
+    environment: *app-environment
+    command: ["python", "worker.py"]
+    volumes: ["media_data:/app/backend/storage"]
+    depends_on:
+      backend: { condition: service_healthy }
+    healthcheck: { disable: true }
 volumes:
   mongo_data:
-  redis_data:
+  media_data:

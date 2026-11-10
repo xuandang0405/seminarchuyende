@@ -72,14 +72,16 @@ class TourService:
         price = tour.get("price_amount", tour.get("price_vnd", 0))
         is_paid = tour.get("is_paid", price > 0)
         is_purchasable = tour.get("is_purchasable", tour.get("for_sale", True))
+        translated = (tour.get("localizations") or {}).get(lang) or {}
+        name = translated.get("name") or translated.get("title") or tour.get("name", tour.get("title", ""))
 
         return {
             "id": str(tour["_id"]),
             "_id": str(tour["_id"]),
             "code": tour.get("code") or str(tour["_id"]),
-            "title": tour.get("name", tour.get("title", "")),
-            "name": tour.get("name", tour.get("title", "")),
-            "description": tour.get("description", ""),
+            "title": name,
+            "name": name,
+            "description": translated.get("description") or tour.get("description", ""),
             "localizations": tour.get("localizations", {}),
             "pois": ordered_pois,
             "stops": [{"poi_id": pid, "stop_order": i + 1} for i, pid in enumerate(tour.get("poi_ids", []))],

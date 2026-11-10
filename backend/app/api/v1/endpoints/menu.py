@@ -6,7 +6,7 @@ T06 / C05 / O09.
 from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from app.api.v1.endpoints.auth import get_current_user
+from app.api.v1.endpoints.auth import get_verified_owner
 from app.services.menu_service import menu_service
 from app.schemas.menu import MenuItemCreate, MenuItemUpdate
 
@@ -23,7 +23,7 @@ async def list_poi_menu(poi_id: str):
 async def create_menu_item(
     poi_id: str,
     item_in: MenuItemCreate,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_verified_owner)
 ):
     """Use Case C05, O09: Add a dish to POI menu."""
     role = current_user.get("role", "user")
@@ -43,7 +43,7 @@ async def create_menu_item(
 async def update_menu_item(
     item_id: str,
     item_in: MenuItemUpdate,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_verified_owner)
 ):
     """Use Case C05, O09: Update dish."""
     role = current_user.get("role", "user")
@@ -67,7 +67,7 @@ async def update_menu_item(
 @router.delete("/menu/{item_id}")
 async def delete_menu_item(
     item_id: str,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_verified_owner)
 ):
     """Use Case C05, O09: Delete dish or deactivate."""
     role = current_user.get("role", "user")

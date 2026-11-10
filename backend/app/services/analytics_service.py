@@ -4,6 +4,7 @@ F08 / S05 / S06 / S07 / S08 / O10 / SD11 / AD11 / SD12 / AD12 / SD13 / AD13.
 Implements BR-LISTEN-01, BR-LISTEN-02, BR-SYNC-01.
 """
 
+import asyncio
 from typing import Any, Dict, List, Optional
 from app.repositories.analytics_repo import analytics_repo
 
@@ -39,6 +40,13 @@ class AnalyticsService:
 
     async def get_tours(self) -> List[Dict[str, Any]]:
         return await analytics_repo.get_admin_tours_analytics()
+
+    async def get_live_snapshot(self, actor_role: str, actor_id: str) -> Dict[str, Any]:
+        if actor_role == "poi_owner":
+            overview = await analytics_repo.get_owner_summary(actor_id)
+            return {"overview": overview, "pois": overview["top_pois"], "tours": []}
+        overview, pois, tours = await asyncio.gather(self.get_overview(), self.get_top_pois(50), self.get_tours())
+        return {"overview": overview, "pois": pois, "tours": tours}
 
     async def get_dashboard(self, actor_role: str, actor_id: str) -> Dict[str, Any]:
         """Provides backward-compatible summary for existing dashboard and owner portal."""

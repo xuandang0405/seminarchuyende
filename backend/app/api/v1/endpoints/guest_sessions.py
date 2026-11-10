@@ -38,6 +38,14 @@ async def create_guest_session(request: Request, response: Response):
     """G01: Creates an anonymous guest session with cryptographically secure credential."""
     client_ip = request.client.host if request.client else None
     ua = request.headers.get("User-Agent")
+    credential = request.headers.get("X-Guest-Token") or request.cookies.get(GUEST_COOKIE_NAME)
+    existing = await guest_service.resolve_guest_session(credential) if credential else None
+    if existing:
+        set_guest_cookie(response, credential)
+        return {"guest_session_id": existing["_id"], "guest_credential": credential, "guest_token": credential,
+                "expires_at": existing["expires_at"], "message": "Tiếp tục phiên khách hiện tại."}
+    from app.services.rate_limit_service import enforce_rate_limit
+    await enforce_rate_limit("guest:" + str(client_ip), 30, 3600)
 
     res = await guest_service.create_guest_session(ip_address=client_ip, user_agent=ua)
     res["guest_token"] = res["guest_credential"]

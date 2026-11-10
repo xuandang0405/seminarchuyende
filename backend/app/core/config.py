@@ -1,5 +1,5 @@
 from typing import List, Union, Optional
-from pydantic import field_validator
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 import json
 import os
@@ -9,14 +9,15 @@ class Settings(BaseSettings):
     PROJECT_NAME: str = "TourVoice API"
     HOST: str = "0.0.0.0"
     PORT: int = 8000
-    DEBUG: bool = True
+    DEBUG: bool = False
 
     # MongoDB Settings
     MONGODB_URL: Optional[str] = None
     MONGODB_URI: Optional[str] = None
+    MONGODB_ATLAS_URI: Optional[str] = None
     MONGODB_USERNAME: Optional[str] = None
     MONGODB_PASSWORD: Optional[str] = None
-    DATABASE_NAME: str = "tour_guide"
+    DATABASE_NAME: str = Field("tour_guide", validation_alias=AliasChoices("DATABASE_NAME", "MONGODB_DB_NAME"))
 
     @property
     def mongodb_connection_string(self) -> str:
@@ -26,7 +27,7 @@ class Settings(BaseSettings):
         return "mongodb://localhost:27017"
 
     # Security Settings
-    SECRET_KEY: str = "tourvoice_super_secret_jwt_key_seminar_district_4"
+    SECRET_KEY: str = Field("", validation_alias=AliasChoices("SECRET_KEY", "JWT_SECRET"))
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 15  # Short-lived access token (15 mins)
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30    # Long-lived refresh token in HttpOnly cookie
@@ -35,7 +36,7 @@ class Settings(BaseSettings):
     APP_ENV: str = "production"  # "development" | "staging" | "production"
     PUBLIC_WEB_URL: str = "https://seminar.bkpvp.top"
     TRUSTED_HOSTS: Union[List[str], str] = ["*"]
-    FORWARDED_ALLOW_IPS: str = "*"
+    FORWARDED_ALLOW_IPS: str = "127.0.0.1"
 
     # Cookies & CSRF Settings
     SESSION_COOKIE_NAME: str = "tourvoice_refresh_token"
@@ -58,10 +59,21 @@ class Settings(BaseSettings):
 
     # Media Storage
     MEDIA_STORAGE_DIR: str = "storage"
+    ALLOW_MOCK_DATABASE: bool = False
+    SMTP_HOST: Optional[str] = None
+    SMTP_PORT: int = 587
+    SMTP_USERNAME: Optional[str] = None
+    SMTP_PASSWORD: Optional[str] = None
+    SMTP_FROM: str = "noreply@tourvoice.vn"
+    SMTP_STARTTLS: bool = True
+    BANK_BIN: Optional[str] = None
+    BANK_ACCOUNT_NO: Optional[str] = None
+    BANK_ACCOUNT_NAME: Optional[str] = None
 
     # Default Super Admin
     SUPERADMIN_EMAIL: str = "admin@tourvoice.vn"
     SUPERADMIN_PASSWORD: str = "Admin@123456"
+    SUPERADMIN_BOOTSTRAP_MODE: str = "disabled"
 
     # External AI / TTS / Weather integrations (Optional)
     OPENAI_API_KEY: Optional[str] = None
@@ -72,11 +84,14 @@ class Settings(BaseSettings):
     PAYMENT_MODE: str = "mock"  # "mock" | "live"
     TRIAL_POLICY_VERSION: int = 1
     OFFLINE_LICENSE_VALID_DAYS: int = 7
+    OFFLINE_LICENSE_PRIVATE_KEY: Optional[str] = None
 
     # VNPAY Configuration
     VNPAY_TMN_CODE: str = "DEMO"
     VNPAY_HASH_SECRET: str = "DEMOHASHSECRET1234567890ABCDEF"
     VNPAY_PAY_URL: str = "https://sandbox.vnpayment.vn/paymentv2/vpcpay.html"
+    VNPAY_API_URL: str = "https://sandbox.vnpayment.vn/merchant_webapi/api/transaction"
+    VNPAY_IP_ADDRESS: str = "127.0.0.1"
     VNPAY_RETURN_URL: str = "http://localhost:8000/admin/orders"
 
     # payOS Configuration
@@ -93,11 +108,11 @@ class Settings(BaseSettings):
     MAP_BOUNDS_MAX_LNG: float = 106.720
     MAP_BOUNDS_MAX_LAT: float = 10.775
     MAP_TILE_PROVIDER_NAME: str = "Google Maps"
-    MAP_TILE_STYLE_URL: str = "https://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}"
+    MAP_TILE_STYLE_URL: str = "https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}"
     MAP_ATTRIBUTION: str = "© Google Maps"
 
     # Routing Engine Configuration (OSRM)
-    ROUTING_PROVIDER_URL: str = "https://router.project-osrm.org"
+    ROUTING_PROVIDER_URL: str = "https://routing.openstreetmap.de/routed-{mode}"
     ROUTING_TIMEOUT_SECONDS: float = 6.0
     ROUTING_CACHE_TTL_HOURS: int = 24
     ROUTING_MAX_POINTS_PER_REQUEST: int = 25
@@ -118,6 +133,27 @@ class Settings(BaseSettings):
     ]
     CORS_ALLOWED_ORIGINS: Optional[Union[List[str], str]] = None
 
+    @property
+    def is_development(self) -> bool:
+        return self.APP_ENV in ("development", "test", "testing")
+
+    def validate_runtime(self):
+        if len(self.SECRET_KEY) < 32 or self.SECRET_KEY.startswith(("change", "CHANGE", "tourvoice_super")):
+            raise RuntimeError("SECRET_KEY must be a unique random secret of at least 32 characters.")
+        if not self.is_development:
+            if self.DEBUG or self.ALLOW_MOCK_DATABASE or self.PAYMENT_MODE == "mock":
+                raise RuntimeError("Production forbids DEBUG, mock database and mock payments.")
+            if not self.PUBLIC_WEB_URL.startswith("https://") or not self.COOKIE_SECURE:
+                raise RuntimeError("Production requires HTTPS and COOKIE_SECURE=true.")
+            import base64
+            try:
+                if len(base64.b64decode(self.OFFLINE_LICENSE_PRIVATE_KEY or "", validate=True)) != 32:
+                    raise ValueError()
+            except Exception as exc:
+                raise RuntimeError("OFFLINE_LICENSE_PRIVATE_KEY must be a base64-encoded 32-byte Ed25519 private seed.") from exc
+            if not self.SMTP_HOST or not self.SMTP_FROM:
+                raise RuntimeError("Production password recovery requires SMTP_HOST and SMTP_FROM.")
+
     @field_validator("CORS_ORIGINS", "CORS_ALLOWED_ORIGINS", mode="before")
     @classmethod
     def assemble_cors_origins(cls, v: Union[str, List[str], None]) -> Union[List[str], None]:
@@ -133,7 +169,11 @@ class Settings(BaseSettings):
         return v
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=(
+            os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), ".env"),
+            "backend/.env",
+            ".env"
+        ),
         env_file_encoding="utf-8",
         extra="ignore"
     )

@@ -1,3 +1,5 @@
+> Phạm vi hiện tại chỉ còn **Web App** từ 10/11/2026. Các mô tả native trong tài liệu này thuộc thiết kế trước đây; xem [phạm vi cập nhật](../WEB_APP_SCOPE.md).
+
 # T08, T09 & T10 — Thuyết Minh Âm Thanh & Điều Khiển
 
 ## 1. Thông Tin Nhận Diện

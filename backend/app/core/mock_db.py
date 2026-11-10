@@ -30,6 +30,25 @@ class AsyncMockCollection:
     async def find_one_and_update(self, *args, **kwargs):
         return self._col.find_one_and_update(*args, **kwargs)
 
+    async def find_one_and_delete(self, *args, **kwargs):
+        if hasattr(self._col, "find_one_and_delete"):
+            return self._col.find_one_and_delete(*args, **kwargs)
+        doc = self._col.find_one(*args, **kwargs)
+        if doc:
+            self._col.delete_one({"_id": doc["_id"]})
+        return doc
+
+    async def find_one_and_replace(self, *args, **kwargs):
+        if hasattr(self._col, "find_one_and_replace"):
+            return self._col.find_one_and_replace(*args, **kwargs)
+        doc = self._col.find_one(*args, **kwargs)
+        if doc and len(args) > 1:
+            self._col.replace_one({"_id": doc["_id"]}, args[1])
+        return doc
+
+    async def replace_one(self, *args, **kwargs):
+        return self._col.replace_one(*args, **kwargs)
+
     async def delete_one(self, *args, **kwargs):
         return self._col.delete_one(*args, **kwargs)
 
@@ -51,6 +70,14 @@ class AsyncMockCollection:
     def aggregate(self, *args, **kwargs):
         res = self._col.aggregate(*args, **kwargs)
         return AsyncMockCursor(res)
+
+    def __getattr__(self, name):
+        attr = getattr(self._col, name)
+        if callable(attr):
+            async def async_wrapper(*args, **kwargs):
+                return attr(*args, **kwargs)
+            return async_wrapper
+        return attr
 
 
 class AsyncMockCursor:
@@ -86,6 +113,9 @@ class AsyncMockDatabase:
 
     def __getitem__(self, name):
         return AsyncMockCollection(self._db[name])
+
+    def __getattr__(self, name):
+        return AsyncMockCollection(getattr(self._db, name))
 
     async def list_collection_names(self):
         return list(self._db.list_collection_names())

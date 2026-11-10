@@ -125,7 +125,7 @@ export const poiService = {
    * Retrieves paginated list of POIs with search and category filtering.
    */
   async getPOIs(params: POIListParams = {}): Promise<POIListResponse> {
-    const data = await apiClient.get<any>('/pois', {
+    const data = await apiClient.get<any>('/admin/pois', {
       params: {
         search: params.search,
         category: params.category,

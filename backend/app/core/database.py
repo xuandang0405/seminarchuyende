@@ -34,9 +34,11 @@ async def connect_to_mongo():
             masked_url = f"{protocol_user}:****@{suffix}"
 
     logger.info(f"Connecting to MongoDB with PyMongo Async at {masked_url}...")
+    client = None
     try:
         # Build client options
         client_kwargs = {
+            "tz_aware": True,
             "serverSelectionTimeoutMS": 4000,
             "connectTimeoutMS": 4000,
             "socketTimeoutMS": 8000,
@@ -49,12 +51,48 @@ async def connect_to_mongo():
 
         # Verify connectivity
         await client["admin"].command("ping")
+        if not settings.is_development:
+            hello = await client["admin"].command("hello")
+            if not hello.get("setName") and hello.get("msg") != "isdbgrid":
+                raise RuntimeError("Production payment settlement requires a MongoDB replica set.")
         db_manager.client = client
         db_manager.db = client[settings.DATABASE_NAME]
         db_manager.is_connected = True
         db_manager.is_mock = False
         logger.info(f"Connected successfully to live MongoDB database: '{settings.DATABASE_NAME}' via PyMongo Async.")
     except Exception as e:
+        if client is not None:
+            await client.close()
+
+        # Fallback 1: Try MongoDB Atlas if configured and different from connection_str
+        atlas_uri = getattr(settings, "MONGODB_ATLAS_URI", None)
+        if atlas_uri and atlas_uri != connection_str:
+            atlas_client = None
+            try:
+                logger.info("Attempting fallback connection to MongoDB Atlas...")
+                atlas_kwargs = {
+                    "tz_aware": True,
+                    "serverSelectionTimeoutMS": 4000,
+                    "connectTimeoutMS": 4000,
+                    "socketTimeoutMS": 8000,
+                    "tlsCAFile": certifi.where(),
+                }
+                atlas_client = AsyncMongoClient(atlas_uri, **atlas_kwargs)
+                await atlas_client["admin"].command("ping")
+                db_manager.client = atlas_client
+                db_manager.db = atlas_client[settings.DATABASE_NAME]
+                db_manager.is_connected = True
+                db_manager.is_mock = False
+                logger.info(f"Connected successfully to live MongoDB Atlas database: '{settings.DATABASE_NAME}'.")
+                return
+            except Exception as atlas_e:
+                logger.warning(f"Fallback to MongoDB Atlas failed: {atlas_e}")
+                if atlas_client is not None:
+                    await atlas_client.close()
+
+        if not settings.is_development or not settings.ALLOW_MOCK_DATABASE:
+            db_manager.is_connected = False
+            raise RuntimeError("MongoDB unavailable; refusing to replace persistent data with demo data.") from e
         err_str = str(e)
         if "10061" in err_str or "refused" in err_str.lower():
             reason = "Dịch vụ MongoDB cục bộ (localhost:27017) chưa được khởi động trên máy tính."

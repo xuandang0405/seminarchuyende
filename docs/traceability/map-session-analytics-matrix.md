@@ -1,3 +1,5 @@
+> Phạm vi hiện tại chỉ còn **Web App** từ 10/11/2026. Các mô tả native trong tài liệu này thuộc thiết kế trước đây; xem [phạm vi cập nhật](../WEB_APP_SCOPE.md).
+
 # Ma Trận Truy Vết Toàn Diện: Bản Đồ, Phiên Tham Quan & Analytics (Traceability Matrix)
 
 Ma trận này ánh xạ đầy đủ từ **Use Case / Business Rule** đến **Màn hình giao diện**, **API Endpoint**, **Service**, **Repository / Provider**, **MongoDB Collection & Index**, **Sự kiện / Chỉ số đo lường**, **Sơ đồ thiết kế** và **Mã kiểm thử thực tế**.

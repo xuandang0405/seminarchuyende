@@ -1,4 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
+import LocalizationJobs from '../components/LocalizationJobs';
+import { DEFAULT_TILE_URL, DEFAULT_ATTRIBUTION, configureMapTiles } from '../services/mapTiles';
 import { 
   Plus, 
   Search, 
@@ -54,11 +56,11 @@ const MapPicker: React.FC<MapPickerProps> = ({ lat, lng, onChange }) => {
     const safeLng = isNaN(lng) ? 106.7042 : lng;
 
     const map = L.map(containerRef.current).setView([safeLat, safeLng], 15);
-    L.tileLayer('https://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
-      subdomains: ['mt0', 'mt1', 'mt2', 'mt3'],
-      attribution: '© Google Maps',
+    const tiles = L.tileLayer(DEFAULT_TILE_URL, {
+      attribution: DEFAULT_ATTRIBUTION,
       maxZoom: 20
     }).addTo(map);
+    void configureMapTiles(tiles);
 
     const marker = L.marker([safeLat, safeLng], { draggable: true }).addTo(map);
     marker.on('dragend', (e: any) => {
@@ -120,6 +122,7 @@ export const POIList: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [queuedTasks, setQueuedTasks] = useState<string[]>([]);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiRefining, setAiRefining] = useState(false);
   const [aiNarrating, setAiNarrating] = useState(false);
@@ -304,14 +307,10 @@ export const POIList: React.FC = () => {
           });
         }
 
-        if (poiIdToSync) {
-          await poiService.syncMultilingual(poiIdToSync);
-          await fetchPOIs();
-        }
 
         setMessage({
           type: 'success',
-          text: `✨ Gemini AI đã dịch bản địa hóa chuẩn ẩm thực & văn hóa cho 6 thứ tiếng, đồng thời đồng bộ giọng đọc Google TTS!`,
+          text: 'Đã tạo bản dịch đề xuất. Kiểm tra nội dung trước khi lưu và tạo giọng đọc.',
         });
       }
     } catch (e: any) {
@@ -631,9 +630,10 @@ export const POIList: React.FC = () => {
     setMessage(null);
     try {
       const data = await poiService.syncMultilingual(poiId);
+      setQueuedTasks([data.task_id]);
       setMessage({
         type: 'success',
-        text: `Đã dịch tự động sang 6 thứ tiếng và tạo audio Google TTS thành công cho "${data.name}"!`
+        text: 'Đã đưa vào hàng đợi dịch và tạo giọng đọc. Theo dõi trạng thái bên dưới.'
       });
       fetchPOIs();
     } catch (err: any) {
@@ -652,9 +652,10 @@ export const POIList: React.FC = () => {
     setMessage(null);
     try {
       const data = await poiService.batchSyncAll();
+      setQueuedTasks(data.task_ids);
       setMessage({
         type: 'success',
-        text: `Đã hoàn tất đồng bộ 6 thứ tiếng & Google TTS cho ${data.synced_count}/${data.total_pois} địa điểm!`
+        text: `Đã xếp lịch xử lý ${data.total_pois} địa điểm. Trạng thái thành công chỉ xuất hiện khi worker hoàn tất.`
       });
       fetchPOIs();
     } catch (err: any) {
@@ -723,36 +724,37 @@ export const POIList: React.FC = () => {
         }
       />
 
+      <LocalizationJobs ids={queuedTasks} onDone={() => { void fetchPOIs(); }} />
       {message && (
         <div
-          className={`p-4 rounded-xl text-sm font-medium flex items-center space-x-2.5 ${
+          className={`p-3 rounded text-xs font-medium flex items-center space-x-2 ${
             message.type === 'success'
-              ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-400'
-              : 'bg-rose-500/10 border border-rose-500/30 text-rose-400'
+              ? 'bg-emerald-950/80 border border-emerald-800 text-emerald-300'
+              : 'bg-rose-950/80 border border-rose-800 text-rose-300'
           }`}
         >
-          <span className={`w-2 h-2 rounded-full ${message.type === 'success' ? 'bg-emerald-400' : 'bg-rose-400'}`} />
+          <span className={`w-2 h-2 rounded-sm ${message.type === 'success' ? 'bg-emerald-400' : 'bg-rose-400'}`} />
           <span>{message.text}</span>
         </div>
       )}
 
       {/* Filters Bar */}
-      <div className="flex flex-col sm:flex-row gap-3">
+      <div className="flex flex-col sm:flex-row gap-2.5">
         <form onSubmit={handleSearchSubmit} className="flex-1 relative">
-          <Search className="w-4 h-4 absolute left-3.5 top-3.5 text-slate-500 pointer-events-none" />
+          <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-500 pointer-events-none" />
           <input
             type="text"
             placeholder="Tìm theo tên địa điểm hoặc địa chỉ..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full pl-10 pr-4 py-2.5 bg-slate-900/90 border border-slate-800 rounded-xl text-white placeholder-slate-500 text-sm focus:outline-none focus:border-indigo-500 transition-colors"
+            className="w-full pl-9 pr-3 py-2 bg-slate-900 border border-slate-700 rounded text-white placeholder-slate-500 text-xs focus:outline-none focus:border-indigo-500 transition-colors"
           />
         </form>
 
         <select
           value={category}
           onChange={(e) => setCategory(e.target.value)}
-          className="px-4 py-2.5 bg-slate-900/90 border border-slate-800 rounded-xl text-slate-300 text-sm focus:outline-none focus:border-indigo-500 transition-colors cursor-pointer"
+          className="px-3 py-2 bg-slate-900 border border-slate-700 rounded text-slate-300 text-xs focus:outline-none focus:border-indigo-500 transition-colors cursor-pointer"
         >
           <option value="">Tất cả danh mục</option>
           <option value="historical">Di tích lịch sử</option>
@@ -764,7 +766,7 @@ export const POIList: React.FC = () => {
 
       {/* POI Cards Grid */}
       {loading ? (
-        <div className="text-center py-20 text-slate-400 font-medium">Đang tải danh sách địa điểm...</div>
+        <div className="text-center py-16 text-slate-400 text-xs">Đang tải danh sách địa điểm...</div>
       ) : pois.length === 0 ? (
         <EmptyState
           title="Không tìm thấy địa điểm nào"
@@ -779,7 +781,7 @@ export const POIList: React.FC = () => {
         />
       ) : (
         <>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {paginatedPOIs.map((poi: any) => {
               const poiId = poi.id || poi._id;
               const catLabels: Record<string, string> = {
@@ -790,39 +792,39 @@ export const POIList: React.FC = () => {
               };
 
               return (
-                <Card key={poiId} hoverEffect className="flex flex-col justify-between">
+                <Card key={poiId} className="flex flex-col justify-between">
                   <div>
-                    <div className="flex items-start justify-between gap-2 mb-3">
+                    <div className="flex items-start justify-between gap-2 mb-2.5">
                       <Badge variant="purple" size="sm">
                         {catLabels[poi.category] || poi.category}
                       </Badge>
-                      <div className="flex items-center space-x-2">
-                        <span className="text-[11px] text-slate-500 font-mono">r={poi.trigger_radius}m</span>
+                      <div className="flex items-center space-x-1.5">
+                        <span className="text-[10px] text-slate-400 font-mono">r={poi.trigger_radius}m</span>
                         {poi.is_active ? (
-                          <Badge variant="success" size="sm" showDot>
+                          <Badge variant="success" size="sm">
                             Công bố
                           </Badge>
                         ) : (
-                          <Badge variant="warning" size="sm" showDot>
+                          <Badge variant="warning" size="sm">
                             Bản nháp
                           </Badge>
                         )}
                       </div>
                     </div>
 
-                    <h3 className="text-base font-bold text-white line-clamp-1 tracking-tight">{poi.name}</h3>
+                    <h3 className="text-sm font-semibold text-white line-clamp-1">{poi.name}</h3>
                     <p className="text-xs text-slate-400 mt-1 line-clamp-2 leading-relaxed">{poi.description}</p>
                     
-                    <div className="mt-3 text-xs text-slate-400 truncate flex items-center gap-1.5">
-                      <MapPin className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                    <div className="mt-2 text-xs text-slate-400 truncate flex items-center gap-1.5">
+                      <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                       <span className="truncate">{poi.address || 'Quận 4, TP.HCM'}</span>
                     </div>
-                    <p className="text-[11px] text-slate-500 font-mono mt-0.5">
+                    <p className="text-[10px] text-slate-500 font-mono mt-0.5">
                       [{poi.location?.coordinates?.[1]?.toFixed(5)}, {poi.location?.coordinates?.[0]?.toFixed(5)}]
                     </p>
 
-                    {/* Multi-language interactive buttons */}
-                    <div className="flex items-center flex-wrap gap-1.5 mt-3 pt-2.5 border-t border-slate-800/80">
+                    {/* Multi-language clickable buttons */}
+                    <div className="flex items-center flex-wrap gap-1 mt-2.5 pt-2 border-t border-slate-800">
                       {[
                         { code: 'vi' as const, flag: '🇻🇳', label: 'VI' },
                         { code: 'en' as const, flag: '🇬🇧', label: 'EN' },
@@ -840,12 +842,12 @@ export const POIList: React.FC = () => {
                               e.stopPropagation();
                               openMultilingualModal(poi, code);
                             }}
-                            className={`px-2 py-0.5 rounded-lg text-[10px] font-mono font-medium flex items-center space-x-1 transition-all cursor-pointer hover:scale-105 active:scale-95 ${
+                            className={`px-1.5 py-0.5 rounded-sm text-[10px] font-mono flex items-center space-x-1 transition-colors cursor-pointer ${
                               hasLang
-                                ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/25'
-                                : 'bg-slate-800/60 text-slate-500 border border-slate-700/40 hover:bg-slate-700/50'
+                                ? 'bg-emerald-950 text-emerald-300 border border-emerald-800 hover:bg-emerald-900'
+                                : 'bg-slate-950 text-slate-500 border border-slate-800 hover:bg-slate-800'
                             }`}
-                            title={`Bấm để xem bản dịch & nghe audio: ${label}`}
+                            title={`Xem bản dịch & audio: ${label}`}
                           >
                             <span>{flag}</span>
                             <span>{label}</span>
@@ -855,66 +857,65 @@ export const POIList: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* Audio status & Actions */}
-                  <div className="mt-5 pt-3.5 border-t border-slate-800/80 flex items-center justify-between gap-2">
+                  {/* Audio status & Explicit Text Action Buttons */}
+                  <div className="mt-4 pt-2.5 border-t border-slate-800 flex items-center justify-between gap-2">
                     <div className="flex items-center space-x-1">
                       {poi.audio_url ? (
-                        <span className="text-xs text-emerald-400 flex items-center space-x-1.5 bg-emerald-500/10 px-2 py-0.5 rounded-lg border border-emerald-500/20 font-medium">
-                          <Headphones className="w-3 h-3" />
-                          <span>{Math.round((poi.audio_duration_ms || 15000) / 1000)}s</span>
+                        <span className="text-[11px] text-emerald-400 bg-emerald-950 px-1.5 py-0.5 rounded-sm border border-emerald-800 font-medium">
+                          Audio {Math.round((poi.audio_duration_ms || 15000) / 1000)}s
                         </span>
                       ) : (
-                        <span className="text-xs text-slate-500">Chưa có audio</span>
+                        <span className="text-[11px] text-slate-500">Chưa có audio</span>
                       )}
                     </div>
 
                     {(user?.role === 'admin' || user?.role === 'super_admin' || user?.role === 'poi_owner') ? (
-                      <div className="flex items-center space-x-1.5">
-                        {/* Multilingual Sync Button */}
+                      <div className="flex items-center space-x-1">
+                        {/* Multilingual Sync Button - Clear Text */}
                         <button
                           onClick={() => handleSyncMultilingual(poiId)}
                           disabled={actionLoading === `sync_${poiId}`}
-                          className="p-1.5 rounded-xl bg-indigo-600/15 hover:bg-indigo-600/25 text-indigo-300 border border-indigo-500/25 transition-colors"
+                          className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-indigo-300 border border-slate-700 text-xs transition-colors"
                           title="Dịch tự động sang 6 thứ tiếng và tạo audio Google TTS"
                         >
-                          <Globe className={`w-3.5 h-3.5 ${actionLoading === `sync_${poiId}` ? 'animate-spin' : ''}`} />
+                          {actionLoading === `sync_${poiId}` ? 'Đang dịch...' : 'Dịch & TTS'}
                         </button>
 
-                        {/* Edit Button */}
+                        {/* Edit Button - Clear Text */}
                         <button
                           onClick={() => openEditModal(poi)}
-                          className="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white transition-colors border border-slate-700/60"
+                          className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs transition-colors"
                           title="Chỉnh sửa thông tin POI & Bản đồ"
                         >
-                          <Edit3 className="w-3.5 h-3.5" />
+                          Sửa
                         </button>
 
-                        {/* Delete Button */}
+                        {/* Delete Button - Clear Text */}
                         {(user?.role === 'admin' || user?.role === 'super_admin') && (
                           <button
                             onClick={() => setDeleteConfirmPoi(poi)}
-                            className="p-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 transition-colors"
+                            className="px-2 py-1 rounded bg-slate-800 hover:bg-rose-950 text-rose-400 border border-slate-700 text-xs transition-colors"
                             title="Xóa địa điểm khỏi hệ thống"
                           >
-                            <Trash2 className="w-3.5 h-3.5" />
+                            Xóa
                           </button>
                         )}
 
-                        {/* Toggle Active Button */}
+                        {/* Toggle Active Button - Clear Text */}
                         <button
                           onClick={() => handleToggleActive(poiId, poi.is_active)}
                           disabled={actionLoading === `toggle_${poiId}`}
-                          className={`px-2.5 py-1 rounded-xl text-xs font-medium transition-all ${
+                          className={`px-2 py-1 rounded text-xs transition-colors ${
                             poi.is_active
-                              ? 'bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 border border-amber-500/20'
-                              : 'bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 border border-emerald-500/20'
+                              ? 'bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700'
+                              : 'bg-emerald-900 hover:bg-emerald-800 text-emerald-200 border border-emerald-700'
                           }`}
                         >
                           {poi.is_active ? 'Ẩn' : 'Công Bố'}
                         </button>
                       </div>
                     ) : (
-                      <span className="text-xs text-slate-500 bg-slate-800/60 px-2 py-0.5 rounded-lg border border-slate-700/60">
+                      <span className="text-[11px] text-slate-500 bg-slate-900 px-2 py-0.5 rounded border border-slate-800">
                         Chế độ xem
                       </span>
                     )}
@@ -926,19 +927,18 @@ export const POIList: React.FC = () => {
 
           {/* Pagination Controls */}
           {totalPages > 1 && (
-            <div className="flex items-center justify-between pt-6 border-t border-slate-800">
-              <span className="text-xs text-slate-400 font-medium">
+            <div className="flex items-center justify-between pt-4 border-t border-slate-800">
+              <span className="text-xs text-slate-400">
                 Trang {page} / {totalPages} ({pois.length} địa điểm)
               </span>
 
-              <div className="flex items-center space-x-2">
+              <div className="flex items-center space-x-1.5">
                 <button
                   onClick={() => setPage((p) => Math.max(1, p - 1))}
                   disabled={page <= 1}
-                  className="inline-flex items-center space-x-1 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-slate-300 hover:text-white text-xs font-medium transition-all disabled:opacity-40"
+                  className="px-2.5 py-1 rounded bg-slate-900 border border-slate-800 text-slate-300 hover:text-white text-xs disabled:opacity-40"
                 >
-                  <ChevronLeft className="w-4 h-4" />
-                  <span>Trước</span>
+                  Trước
                 </button>
 
                 <div className="flex items-center space-x-1">
@@ -946,9 +946,9 @@ export const POIList: React.FC = () => {
                     <button
                       key={num}
                       onClick={() => setPage(num)}
-                      className={`w-7 h-7 rounded-xl text-xs font-mono font-medium transition-all ${
+                      className={`w-6 h-6 rounded text-xs font-medium ${
                         page === num
-                          ? 'bg-indigo-600 text-white font-bold'
+                          ? 'bg-indigo-600 text-white'
                           : 'bg-slate-900 text-slate-400 hover:bg-slate-800 border border-slate-800'
                       }`}
                     >
@@ -960,10 +960,9 @@ export const POIList: React.FC = () => {
                 <button
                   onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                   disabled={page >= totalPages}
-                  className="inline-flex items-center space-x-1 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-slate-300 hover:text-white text-xs font-medium transition-all disabled:opacity-40"
+                  className="px-2.5 py-1 rounded bg-slate-900 border border-slate-800 text-slate-300 hover:text-white text-xs disabled:opacity-40"
                 >
-                  <span>Sau</span>
-                  <ChevronRight className="w-4 h-4" />
+                  Sau
                 </button>
               </div>
             </div>
@@ -973,23 +972,23 @@ export const POIList: React.FC = () => {
 
       {/* Delete Confirmation Modal */}
       {deleteConfirmPoi && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 w-full max-w-md shadow-2xl animate-in zoom-in-95 duration-200">
-            <div className="flex items-center space-x-3 text-rose-400 mb-3">
-              <div className="p-2 rounded-xl bg-rose-500/10 border border-rose-500/20">
-                <Trash2 className="w-5 h-5" />
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 animate-in fade-in duration-150">
+          <div className="bg-slate-900 border border-slate-700 rounded p-5 w-full max-w-md shadow-xl animate-in zoom-in-95 duration-150">
+            <div className="flex items-center space-x-2.5 text-rose-400 mb-3">
+              <div className="p-1.5 rounded bg-rose-950 border border-rose-800">
+                <Trash2 className="w-4 h-4" />
               </div>
-              <h2 className="text-base font-bold text-white tracking-tight">Xác Nhận Xóa Địa Điểm</h2>
+              <h2 className="text-sm font-semibold text-white">Xác Nhận Xóa Địa Điểm</h2>
             </div>
             
-            <p className="text-sm text-slate-300 mb-2">
+            <p className="text-xs text-slate-300 mb-2">
               Bạn có chắc chắn muốn xóa địa điểm <strong className="text-white">"{deleteConfirmPoi.name}"</strong> không?
             </p>
-            <p className="text-xs text-slate-400 mb-6 bg-slate-950/80 p-3 rounded-xl border border-slate-800/80 leading-relaxed">
-              ⚠️ Thao tác này sẽ xóa địa điểm, ẩn khỏi ứng dụng du khách và tự động gỡ toàn bộ các mã QR liên quan.
+            <p className="text-xs text-slate-400 mb-5 bg-slate-950 p-2.5 rounded border border-slate-800">
+              Thao tác này sẽ xóa địa điểm, ẩn khỏi ứng dụng du khách và tự động gỡ toàn bộ các mã QR liên quan.
             </p>
 
-            <div className="flex justify-end space-x-2.5">
+            <div className="flex justify-end space-x-2">
               <Button
                 variant="secondary"
                 size="sm"
@@ -1012,29 +1011,29 @@ export const POIList: React.FC = () => {
 
       {/* Create / Edit POI Modal */}
       {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 w-full max-w-2xl shadow-2xl max-h-[92vh] overflow-y-auto animate-in zoom-in-95 duration-200">
-            <h2 className="text-xl font-bold text-white mb-1 tracking-tight">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 animate-in fade-in duration-150">
+          <div className="bg-slate-900 border border-slate-700 rounded p-5 w-full max-w-2xl shadow-xl max-h-[92vh] overflow-y-auto animate-in zoom-in-95 duration-150">
+            <h2 className="text-base font-semibold text-white mb-1">
               {isEditing ? `Chỉnh Sửa Địa Điểm: ${name}` : 'Thêm Địa Điểm Du Lịch Mới'}
             </h2>
             <p className="text-xs text-slate-400 mb-4">
-              Chọn vị trí chính xác trên bản đồ, lấy GPS thật của máy và tạo giọng đọc chuẩn Google TTS
+              Chọn vị trí trên bản đồ, lấy GPS thật của máy và tạo giọng đọc Google TTS
             </p>
 
-            <form onSubmit={handleSubmitPOI} className="space-y-4">
+            <form onSubmit={handleSubmitPOI} className="space-y-3.5">
               {/* Tên POI & Nút AI Gemini */}
               <div>
                 <div className="flex items-center justify-between mb-1">
-                  <label className="block text-xs font-semibold text-slate-300 uppercase">Tên Địa Điểm / Quán Ăn</label>
+                  <label className="block text-xs font-medium text-slate-300 uppercase">Tên Địa Điểm / Quán Ăn</label>
                   <button
                     type="button"
                     onClick={handleAiAutoFill}
                     disabled={aiLoading || !name.trim()}
-                    className="inline-flex items-center space-x-1.5 px-3 py-1 bg-gradient-to-r from-purple-600 via-indigo-600 to-sky-600 hover:from-purple-500 hover:to-sky-500 text-white rounded-lg text-xs font-bold shadow-md shadow-purple-600/25 transition-all disabled:opacity-40 active:scale-95"
-                    title="Gemini AI sẽ nhận diện tên quán và tự động viết mô tả, tìm địa chỉ, chọn danh mục và tọa độ"
+                    className="inline-flex items-center space-x-1 px-2.5 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded text-xs font-medium transition-colors disabled:opacity-40"
+                    title="Gemini AI nhận diện tên quán và tự động viết mô tả, tìm địa chỉ, chọn danh mục và tọa độ"
                   >
                     <Sparkles className={`w-3.5 h-3.5 ${aiLoading ? 'animate-spin' : ''}`} />
-                    <span>{aiLoading ? 'Gemini AI đang phân tích...' : '✨ AI Nhận Diện & Tự Điền'}</span>
+                    <span>{aiLoading ? 'Đang phân tích...' : 'AI Tự Điền'}</span>
                   </button>
                 </div>
                 <div className="flex gap-2">
@@ -1043,21 +1042,21 @@ export const POIList: React.FC = () => {
                     required
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    placeholder="Ví dụ: Quán Ốc Oanh Vĩnh Khánh, Phá Lấu Bò Dì Nủi, Chợ Xóm Chiếu..."
-                    className="flex-1 px-4 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white text-sm focus:outline-none focus:border-indigo-500"
+                    placeholder="Ví dụ: Quán Ốc Oanh Vĩnh Khánh, Phá Lấu Bò Dì Nủi..."
+                    className="flex-1 px-3 py-1.5 bg-slate-950 border border-slate-700 rounded text-white text-xs focus:outline-none focus:border-indigo-500"
                   />
                   <button
                     type="button"
                     onClick={handleAiAutoFill}
                     disabled={aiLoading || !name.trim()}
-                    className="px-3 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white rounded-xl text-xs font-bold transition-all shrink-0 flex items-center gap-1"
+                    className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-200 border border-slate-700 rounded text-xs font-medium transition-colors shrink-0 flex items-center gap-1"
                   >
                     <Sparkles className="w-3.5 h-3.5" />
-                    <span>Gợi Ý AI</span>
+                    <span>Gợi Ý</span>
                   </button>
                 </div>
                 <p className="text-[11px] text-slate-400 mt-1">
-                  💡 Nhập tên quán rồi bấm <strong>"AI Nhận Diện"</strong>, Gemini sẽ tự viết mô tả, tìm địa chỉ và phân loại giúp bạn!
+                  Nhập tên quán rồi bấm <strong>"AI Tự Điền"</strong> để hệ thống tự điền thông tin giúp bạn.
                 </p>
               </div>
 
@@ -1065,23 +1064,22 @@ export const POIList: React.FC = () => {
               <div className="space-y-2">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center space-x-2">
-                    <label className="block text-xs font-semibold text-slate-300 uppercase">
+                    <label className="block text-xs font-medium text-slate-300 uppercase">
                       Mô Tả Chi Tiết (Nội Dung Thuyết Minh)
                     </label>
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-gradient-to-r from-purple-900/50 to-indigo-900/50 border border-purple-500/30 text-purple-300 font-bold flex items-center gap-1">
-                      <Sparkles className="w-3 h-3 text-purple-400" />
-                      Gemini 3.6 AI
+                    <span className="text-[10px] px-1.5 py-0.2 rounded-sm bg-slate-800 border border-slate-700 text-indigo-300 font-medium">
+                      Gemini 3.6
                     </span>
                   </div>
 
                   {/* Thanh công cụ Gemini AI cho Mô tả */}
                   <div className="flex flex-wrap items-center gap-1.5">
-                    <div className="flex items-center space-x-1 bg-slate-900/90 border border-slate-700/80 rounded-lg px-2 py-0.5">
-                      <span className="text-[11px] text-slate-400 font-medium">Giọng:</span>
+                    <div className="flex items-center space-x-1 bg-slate-950 border border-slate-700 rounded px-2 py-0.5">
+                      <span className="text-[11px] text-slate-400">Giọng:</span>
                       <select
                         value={aiTone}
                         onChange={(e: any) => setAiTone(e.target.value)}
-                        className="bg-transparent text-white text-xs font-semibold focus:outline-none cursor-pointer"
+                        className="bg-transparent text-white text-xs focus:outline-none cursor-pointer"
                         title="Tông điệu cho bài viết của Gemini"
                       >
                         <option value="cuốn hút" className="bg-slate-900">Cuốn hút, sinh động</option>
@@ -1095,22 +1093,20 @@ export const POIList: React.FC = () => {
                       type="button"
                       onClick={handleAiRefineDescription}
                       disabled={aiRefining || !name.trim()}
-                      className="inline-flex items-center space-x-1 px-2.5 py-1 bg-gradient-to-r from-purple-600 via-indigo-600 to-sky-600 hover:from-purple-500 hover:to-sky-500 text-white rounded-lg text-xs font-bold shadow-sm transition-all disabled:opacity-40 active:scale-95"
-                      title="Gemini AI viết lại hoặc trau chuốt đoạn văn hấp dẫn, đậm chất du lịch"
+                      className="inline-flex items-center space-x-1 px-2 py-0.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded text-xs font-medium transition-colors disabled:opacity-40"
                     >
-                      <Sparkles className={`w-3.5 h-3.5 ${aiRefining ? 'animate-spin' : ''}`} />
-                      <span>{aiRefining ? 'Đang tối ưu...' : '✨ Gemini Tối Ưu Mô Tả'}</span>
+                      <Sparkles className={`w-3 h-3 ${aiRefining ? 'animate-spin' : ''}`} />
+                      <span>{aiRefining ? 'Đang tối ưu...' : 'Tối Ưu Mô Tả'}</span>
                     </button>
 
                     <button
                       type="button"
                       onClick={handleAiGenerateNarration}
                       disabled={aiNarrating || !name.trim()}
-                      className="inline-flex items-center space-x-1 px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-indigo-300 border border-indigo-500/30 rounded-lg text-xs font-bold shadow-sm transition-all disabled:opacity-40 active:scale-95"
-                      title="Gemini AI soạn bài thuyết minh GPS truyền cảm để phát audio khi du khách đến gần"
+                      className="inline-flex items-center space-x-1 px-2 py-0.5 bg-slate-800 hover:bg-slate-700 text-indigo-300 border border-slate-700 rounded text-xs font-medium transition-colors disabled:opacity-40"
                     >
-                      <Wand2 className={`w-3.5 h-3.5 ${aiNarrating ? 'animate-spin' : ''}`} />
-                      <span>{aiNarrating ? 'Đang soạn...' : '✨ Soạn Thuyết Minh GPS'}</span>
+                      <Wand2 className={`w-3 h-3 ${aiNarrating ? 'animate-spin' : ''}`} />
+                      <span>{aiNarrating ? 'Đang soạn...' : 'Soạn Thuyết Minh'}</span>
                     </button>
                   </div>
                 </div>
@@ -1120,8 +1116,8 @@ export const POIList: React.FC = () => {
                   rows={3}
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  placeholder="Nội dung lịch sử, văn hóa hoặc giới thiệu món ăn... (Gõ tay hoặc bấm nút Gemini ở trên để tự động viết)"
-                  className="w-full px-4 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white text-sm focus:outline-none focus:border-indigo-500 transition-colors"
+                  placeholder="Nội dung lịch sử, văn hóa hoặc giới thiệu món ăn..."
+                  className="w-full px-3 py-1.5 bg-slate-950 border border-slate-700 rounded text-white text-xs focus:outline-none focus:border-indigo-500 transition-colors"
                 />
 
                 {/* Hàng hành động Audio & Dịch Đa Ngôn Ngữ */}
@@ -1130,7 +1126,7 @@ export const POIList: React.FC = () => {
                     <select
                       value={ttsTargetLang}
                       onChange={(e) => setTtsTargetLang(e.target.value)}
-                      className="px-2 py-1 bg-slate-900 border border-slate-700 text-white rounded-lg text-xs font-medium focus:outline-none focus:border-indigo-500"
+                      className="px-2 py-1 bg-slate-900 border border-slate-700 text-white rounded text-xs focus:outline-none focus:border-indigo-500"
                       title="Chọn ngôn ngữ giọng đọc TTS"
                     >
                       <option value="vi">🇻🇳 VI</option>
@@ -1145,11 +1141,11 @@ export const POIList: React.FC = () => {
                       type="button"
                       onClick={() => handleGenerateGoogleTTS(ttsTargetLang)}
                       disabled={actionLoading === 'tts_gen'}
-                      className="inline-flex items-center space-x-1 px-2.5 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold shadow transition-all disabled:opacity-50"
+                      className="inline-flex items-center space-x-1 px-2.5 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded text-xs font-medium transition-colors disabled:opacity-50"
                       title={`Tạo giọng đọc Google TTS (${ttsTargetLang.toUpperCase()})`}
                     >
                       <Sparkles className="w-3.5 h-3.5" />
-                      <span>{actionLoading === 'tts_gen' ? 'Đang tạo...' : `Đọc Google TTS (${ttsTargetLang.toUpperCase()})`}</span>
+                      <span>{actionLoading === 'tts_gen' ? 'Đang tạo...' : `Đọc TTS (${ttsTargetLang.toUpperCase()})`}</span>
                     </button>
                   </div>
 
@@ -1158,20 +1154,20 @@ export const POIList: React.FC = () => {
                       type="button"
                       onClick={() => handleGeminiMultilingualTranslate()}
                       disabled={aiTranslatingMulti || actionLoading?.startsWith('sync_') || actionLoading === 'tts_gen'}
-                      className="inline-flex items-center space-x-1 px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold shadow transition-all disabled:opacity-50"
+                      className="inline-flex items-center space-x-1 px-2.5 py-1 bg-emerald-700 hover:bg-emerald-600 text-white rounded text-xs font-medium transition-colors disabled:opacity-50"
                       title="Dịch bản địa hóa sang 6 thứ tiếng với trí tuệ nhân tạo Gemini AI và sinh giọng đọc Google TTS"
                     >
                       <Globe className={`w-3.5 h-3.5 ${aiTranslatingMulti ? 'animate-spin' : ''}`} />
-                      <span>{aiTranslatingMulti ? 'Gemini đang dịch...' : '✨ Gemini Dịch 6 Thứ Tiếng & TTS'}</span>
+                      <span>{aiTranslatingMulti ? 'Đang dịch...' : 'Dịch 6 Thứ Tiếng & TTS'}</span>
                     </button>
                   </div>
                 </div>
               </div>
 
               {/* Audio Player / Recording Section */}
-              <div className="p-3 bg-slate-950 border border-slate-800 rounded-xl space-y-2">
+              <div className="p-3 bg-slate-950 border border-slate-700 rounded space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold text-slate-300 uppercase flex items-center space-x-1.5">
+                  <span className="text-xs font-medium text-slate-300 uppercase flex items-center space-x-1.5">
                     <Headphones className="w-4 h-4 text-indigo-400" />
                     <span>File Thuyết Minh Âm Thanh</span>
                   </span>
@@ -1181,7 +1177,7 @@ export const POIList: React.FC = () => {
                       <button
                         type="button"
                         onClick={stopRecording}
-                        className="px-2.5 py-1 bg-red-600 hover:bg-red-500 text-white rounded-lg text-xs font-semibold flex items-center space-x-1 animate-pulse"
+                        className="px-2 py-1 bg-red-600 hover:bg-red-500 text-white rounded text-xs font-medium flex items-center space-x-1 animate-pulse"
                       >
                         <Square className="w-3 h-3" />
                         <span>Dừng Ghi Âm</span>
@@ -1190,14 +1186,14 @@ export const POIList: React.FC = () => {
                       <button
                         type="button"
                         onClick={startRecording}
-                        className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-medium flex items-center space-x-1"
+                        className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded text-xs font-medium flex items-center space-x-1"
                       >
                         <Mic className="w-3.5 h-3.5" />
-                        <span>Ghi Âm Trực Tiếp</span>
+                        <span>Ghi Âm</span>
                       </button>
                     )}
 
-                    <label className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-medium cursor-pointer flex items-center space-x-1">
+                    <label className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded text-xs font-medium cursor-pointer flex items-center space-x-1">
                       <Upload className="w-3.5 h-3.5" />
                       <span>Tải MP3</span>
                       <input type="file" accept="audio/*" onChange={handleFileUpload} className="hidden" />
@@ -1211,19 +1207,19 @@ export const POIList: React.FC = () => {
                   </div>
                 ) : (
                   <p className="text-[11px] text-slate-500">
-                    Chưa có âm thanh. Hãy bấm nút <span className="text-indigo-400 font-semibold">"Đọc Google TTS (VI)"</span> ở trên hoặc tải lên bản ghi âm.
+                    Chưa có âm thanh. Hãy bấm nút <span className="text-indigo-400 font-semibold">"Đọc TTS (VI)"</span> ở trên hoặc tải lên bản ghi âm.
                   </p>
                 )}
               </div>
 
               {/* Danh Mục, Bán Kính & Ưu Tiên */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 uppercase mb-1">Danh Mục</label>
+                  <label className="block text-xs font-medium text-slate-300 uppercase mb-1">Danh Mục</label>
                   <select
                     value={cat}
                     onChange={(e) => setCat(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white text-sm"
+                    className="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded text-white text-xs"
                   >
                     <option value="sightseeing">Cảnh quan</option>
                     <option value="historical">Di tích lịch sử</option>
@@ -1233,52 +1229,52 @@ export const POIList: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 uppercase mb-1">Bán Kính GPS (mét)</label>
+                  <label className="block text-xs font-medium text-slate-300 uppercase mb-1">Bán Kính GPS (mét)</label>
                   <input
                     type="number"
                     min="5"
                     max="500"
                     value={radius}
                     onChange={(e) => setRadius(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white text-sm"
+                    className="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded text-white text-xs"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 uppercase mb-1">Độ Ưu Tiên Phát</label>
+                  <label className="block text-xs font-medium text-slate-300 uppercase mb-1">Độ Ưu Tiên</label>
                   <input
                     type="number"
                     min="1"
                     max="100"
                     value={priority}
                     onChange={(e) => setPriority(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white text-sm"
+                    className="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded text-white text-xs"
                   />
                 </div>
               </div>
 
               {/* Địa Chỉ */}
               <div>
-                <label className="block text-xs font-semibold text-slate-300 uppercase mb-1">Địa Chỉ</label>
+                <label className="block text-xs font-medium text-slate-300 uppercase mb-1">Địa Chỉ</label>
                 <input
                   type="text"
                   value={address}
                   onChange={(e) => setAddress(e.target.value)}
                   placeholder="Số 01 Nguyễn Tất Thành, Phường 12, Quận 4"
-                  className="w-full px-4 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white text-sm focus:outline-none focus:border-indigo-500"
+                  className="w-full px-3 py-1.5 bg-slate-950 border border-slate-700 rounded text-white text-xs focus:outline-none focus:border-indigo-500"
                 />
               </div>
 
-              {/* Map Location Picker with 100% Real GPS Button */}
-              <div className="space-y-2">
+              {/* Map Location Picker with Real GPS Button */}
+              <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
-                  <label className="block text-xs font-semibold text-slate-300 uppercase">
-                    Vị Trí Bản Đồ & Tọa Độ GPS (100% Real)
+                  <label className="block text-xs font-medium text-slate-300 uppercase">
+                    Vị Trí Bản Đồ & Tọa Độ GPS
                   </label>
                   <button
                     type="button"
                     onClick={handleGetRealGPS}
-                    className="inline-flex items-center space-x-1.5 px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold shadow transition-all"
+                    className="inline-flex items-center space-x-1 px-2.5 py-1 bg-emerald-700 hover:bg-emerald-600 text-white rounded text-xs font-medium transition-colors"
                   >
                     <Crosshair className="w-3.5 h-3.5" />
                     <span>Lấy GPS Thật Của Máy</span>
@@ -1294,36 +1290,36 @@ export const POIList: React.FC = () => {
                   }} 
                 />
 
-                <div className="grid grid-cols-2 gap-3 pt-1">
+                <div className="grid grid-cols-2 gap-2.5 pt-1">
                   <div>
-                    <label className="block text-[11px] font-semibold text-slate-400 uppercase mb-0.5">Vĩ Độ (Latitude)</label>
+                    <label className="block text-[11px] text-slate-400 mb-0.5">Vĩ Độ (Latitude)</label>
                     <input
                       type="text"
                       required
                       value={lat}
                       onChange={(e) => setLat(e.target.value)}
-                      className="w-full px-3 py-1.5 bg-slate-950 border border-slate-800 rounded-lg text-white text-xs font-mono"
+                      className="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded text-white text-xs font-mono"
                     />
                   </div>
                   <div>
-                    <label className="block text-[11px] font-semibold text-slate-400 uppercase mb-0.5">Kinh Độ (Longitude)</label>
+                    <label className="block text-[11px] text-slate-400 mb-0.5">Kinh Độ (Longitude)</label>
                     <input
                       type="text"
                       required
                       value={lng}
                       onChange={(e) => setLng(e.target.value)}
-                      className="w-full px-3 py-1.5 bg-slate-950 border border-slate-800 rounded-lg text-white text-xs font-mono"
+                      className="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded text-white text-xs font-mono"
                     />
                   </div>
                 </div>
               </div>
 
               {/* Submit Buttons */}
-              <div className="flex justify-end space-x-2.5 pt-4 border-t border-slate-800/80">
+              <div className="flex justify-end space-x-2 pt-3 border-t border-slate-800">
                 <Button
                   type="button"
                   variant="secondary"
-                  size="md"
+                  size="sm"
                   onClick={() => setShowModal(false)}
                 >
                   Hủy Bỏ
@@ -1331,7 +1327,7 @@ export const POIList: React.FC = () => {
                 <Button
                   type="submit"
                   variant="primary"
-                  size="md"
+                  size="sm"
                   loading={actionLoading === 'save_poi'}
                 >
                   {isEditing ? 'Lưu Thay Đổi' : 'Thêm Địa Điểm'}
@@ -1352,24 +1348,19 @@ export const POIList: React.FC = () => {
           }}
           maxWidth="2xl"
           title={
-            <div className="flex items-center space-x-2.5">
-              <span className="p-2 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400">
-                <Globe className="w-5 h-5" />
-              </span>
-              <div>
-                <h3 className="text-base font-bold text-white">
-                  Chi Tiết & Nghe Thuyết Minh 6 Thứ Tiếng
-                </h3>
-                <p className="text-xs text-slate-400">
-                  {selectedPoiForMulti.name}
-                </p>
-              </div>
+            <div>
+              <h3 className="text-base font-semibold text-white">
+                Chi Tiết & Nghe Thuyết Minh 6 Ngôn Ngữ
+              </h3>
+              <p className="text-xs text-slate-400">
+                {selectedPoiForMulti.name}
+              </p>
             </div>
           }
         >
-          <div className="space-y-5">
+          <div className="space-y-4">
             {/* Language Selector Tabs */}
-            <div className="flex items-center gap-1.5 p-1.5 bg-slate-950 rounded-xl border border-slate-800 overflow-x-auto">
+            <div className="flex items-center gap-1 p-1 bg-slate-950 rounded border border-slate-800 overflow-x-auto">
               {[
                 { code: 'vi' as const, flag: '🇻🇳', label: 'Tiếng Việt' },
                 { code: 'en' as const, flag: '🇬🇧', label: 'English' },
@@ -1393,10 +1384,10 @@ export const POIList: React.FC = () => {
                       stopMultilingualAudio();
                       setActiveLangTab(code);
                     }}
-                    className={`flex-1 min-w-[90px] py-2 px-2.5 rounded-lg text-xs font-semibold flex items-center justify-center space-x-1.5 transition-all cursor-pointer ${
+                    className={`flex-1 min-w-[80px] py-1.5 px-2 rounded-sm text-xs font-medium flex items-center justify-center space-x-1 transition-colors cursor-pointer ${
                       isActive
-                        ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/25'
-                        : 'text-slate-400 hover:text-white hover:bg-slate-900/60'
+                        ? 'bg-indigo-600 text-white'
+                        : 'text-slate-400 hover:text-white hover:bg-slate-900'
                     }`}
                   >
                     <span>{flag}</span>
@@ -1428,46 +1419,41 @@ export const POIList: React.FC = () => {
               const playUrl = rawAudioUrl.includes('?') ? `${rawAudioUrl}&t=${Date.now()}` : `${rawAudioUrl}?t=${Date.now()}`;
 
               return (
-                <div className="space-y-4">
+                <div className="space-y-3">
                   {/* Name Card */}
-                  <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-1">
-                    <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
-                      Tiêu Đề / Tên Địa Điểm ({activeLangTab.toUpperCase()})
+                  <div className="p-3 rounded bg-slate-950 border border-slate-800 space-y-1">
+                    <span className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">
+                      Tiêu Đề ({activeLangTab.toUpperCase()})
                     </span>
-                    <h4 className="text-base font-bold text-white">
+                    <h4 className="text-sm font-semibold text-white">
                       {langData?.name || selectedPoiForMulti.name}
                     </h4>
                   </div>
 
                   {/* Description Card */}
-                  <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-1.5">
-                    <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
-                      Nội Dung Thuyết Minh Đã Dịch
+                  <div className="p-3 rounded bg-slate-950 border border-slate-800 space-y-1">
+                    <span className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">
+                      Nội Dung Thuyết Minh
                     </span>
-                    <p className="text-sm text-slate-300 leading-relaxed max-h-48 overflow-y-auto pr-1 whitespace-pre-line">
+                    <p className="text-xs text-slate-300 leading-relaxed max-h-40 overflow-y-auto pr-1 whitespace-pre-line">
                       {langData?.description || (
                         <span className="text-slate-500 italic">
-                          Chưa có bản dịch cho ngôn ngữ này. Hãy bấm nút "Đồng Bộ Lại TTS & Dịch".
+                          Chưa có bản dịch cho ngôn ngữ này. Hãy bấm nút "Tạo Lại TTS" hoặc "Dịch 6 Thứ Tiếng".
                         </span>
                       )}
                     </p>
                   </div>
 
                   {/* Audio Player Card */}
-                  <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-3">
+                  <div className="p-3 rounded bg-slate-950 border border-slate-800 space-y-2.5">
                     <div className="flex items-center justify-between">
-                      <div className="flex items-center space-x-2">
-                        <span className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                          <Volume2 className="w-4 h-4" />
+                      <div>
+                        <span className="text-xs font-medium text-white">
+                          Thuyết Minh Google TTS ({activeLangTab.toUpperCase()})
                         </span>
-                        <div>
-                          <span className="text-xs font-semibold text-white">
-                            Thuyết Minh Giọng Đọc Google TTS ({activeLangTab.toUpperCase()})
-                          </span>
-                          <p className="text-[11px] text-slate-400 font-mono">
-                            {rawAudioUrl}
-                          </p>
-                        </div>
+                        <p className="text-[10px] text-slate-400 font-mono">
+                          {rawAudioUrl}
+                        </p>
                       </div>
 
                       {/* Play / Pause Button */}
@@ -1476,7 +1462,7 @@ export const POIList: React.FC = () => {
                           <button
                             type="button"
                             onClick={stopMultilingualAudio}
-                            className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition-all shadow-md shadow-rose-600/20"
+                            className="inline-flex items-center space-x-1 px-2.5 py-1 rounded bg-rose-600 hover:bg-rose-500 text-white text-xs font-medium transition-colors"
                           >
                             <Pause className="w-3.5 h-3.5" />
                             <span>Tạm Dừng</span>
@@ -1485,10 +1471,10 @@ export const POIList: React.FC = () => {
                           <button
                             type="button"
                             onClick={() => playMultilingualAudio(playUrl)}
-                            className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-all shadow-md shadow-emerald-600/20"
+                            className="inline-flex items-center space-x-1 px-2.5 py-1 rounded bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-medium transition-colors"
                           >
                             <Play className="w-3.5 h-3.5" />
-                            <span>Nghe Thử Ngay</span>
+                            <span>Nghe Thử</span>
                           </button>
                         )}
                       </div>
@@ -1508,7 +1494,7 @@ export const POIList: React.FC = () => {
                   {/* Re-generate & Gemini Multilingual Buttons */}
                   <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-800">
                     <span className="text-xs text-slate-500">
-                      Bản dịch hoặc audio bị lỗi? Bạn có thể đồng bộ lại hoặc nhờ Gemini AI dịch lại.
+                      Bản dịch hoặc audio bị lỗi?
                     </span>
 
                     <div className="flex items-center space-x-2">
@@ -1516,18 +1502,18 @@ export const POIList: React.FC = () => {
                         type="button"
                         onClick={() => handleGeminiMultilingualTranslate(poiId)}
                         disabled={aiTranslatingMulti}
-                        className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-purple-600 via-indigo-600 to-sky-600 hover:from-purple-500 hover:to-sky-500 text-white text-xs font-bold shadow-md shadow-purple-600/25 transition-all disabled:opacity-50 active:scale-95"
+                        className="inline-flex items-center space-x-1 px-2.5 py-1 rounded bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium transition-colors disabled:opacity-50"
                         title="Dịch chuẩn ẩm thực và bản địa hóa 6 ngôn ngữ bằng Gemini AI"
                       >
                         <Sparkles className={`w-3.5 h-3.5 ${aiTranslatingMulti ? 'animate-spin' : ''}`} />
-                        <span>{aiTranslatingMulti ? 'Gemini đang dịch...' : '✨ Gemini Dịch 6 Thứ Tiếng'}</span>
+                        <span>{aiTranslatingMulti ? 'Đang dịch...' : 'Dịch 6 Thứ Tiếng'}</span>
                       </button>
 
                       <button
                         type="button"
                         onClick={() => handleRecreateLanguageTTS(poiId, activeLangTab)}
                         disabled={recreatingLang === activeLangTab}
-                        className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 shadow transition-all disabled:opacity-50"
+                        className="inline-flex items-center space-x-1 px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium border border-slate-700 transition-colors disabled:opacity-50"
                         title={`Tạo lại file giọng đọc Google TTS cho tab ${activeLangTab.toUpperCase()}`}
                       >
                         <RefreshCw className={`w-3.5 h-3.5 ${recreatingLang === activeLangTab ? 'animate-spin' : ''}`} />

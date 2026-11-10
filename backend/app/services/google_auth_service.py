@@ -392,7 +392,8 @@ class GoogleAuthService:
         access_token = auth_service.create_access_token(
             target_user["_id"],
             role_name,
-            auth_version
+            auth_version,
+            session_id,
         )
 
         target_return = tx.get("return_to", "/client")

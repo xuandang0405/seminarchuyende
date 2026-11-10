@@ -1,3 +1,5 @@
+> Phạm vi hiện tại chỉ còn **Web App** từ 10/11/2026. Các mô tả native trong tài liệu này thuộc thiết kế trước đây; xem [phạm vi cập nhật](WEB_APP_SCOPE.md).
+
 # Mobile Background Behavior & Geofencing Specification
 
 Tài liệu này phân biệt rõ ràng các cấp độ hoạt động nền (background behavior) trên hệ điều hành Android và iOS, nhằm đảm bảo kỳ vọng thực tế khi nghiệm thu và demo đề tài.

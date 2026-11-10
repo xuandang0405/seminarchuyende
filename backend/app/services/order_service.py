@@ -36,6 +36,12 @@ class OrderService:
                 detail="Yêu cầu đăng nhập tài khoản để mua tour."
             )
 
+        if idempotency_key:
+            existing = await order_repo.get_by_user_and_idempotency(user_id, idempotency_key)
+            if existing:
+                if existing.get("tour_id") != tour_id:
+                    raise HTTPException(409, "Mã yêu cầu đã được sử dụng cho tour khác.")
+                return existing
         # 1. Check if user already owns this tour
         if await entitlement_service.has_tour_entitlement(user_id, tour_id):
             raise HTTPException(
@@ -43,15 +49,9 @@ class OrderService:
                 detail="Bạn đã sở hữu tour này rồi, không cần mua lại."
             )
 
-        # 2. Check idempotency
-        if idempotency_key:
-            existing = await order_repo.get_by_user_and_idempotency(user_id, idempotency_key)
-            if existing:
-                return existing
-
         # 3. Read tour from database (Price snapshot invariant)
-        tour = await tour_repo.get_by_id(tour_id)
-        if not tour or not tour.get("is_active", True):
+        tour = await tour_repo.get_public_tour(tour_id)
+        if not tour:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Tour không tồn tại hoặc đã ngừng hoạt động."
@@ -63,7 +63,7 @@ class OrderService:
                 detail="Tour này hiện chưa được mở bán."
             )
 
-        amount_vnd = int(tour.get("price_amount", 0))
+        amount_vnd = int(tour.get("price_amount") or tour.get("price_vnd") or 0)
         if amount_vnd <= 0:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -109,8 +109,8 @@ class OrderService:
 
         return order
 
-    async def list_user_orders(self, user_id: str, skip: int = 0, limit: int = 50) -> List[Dict[str, Any]]:
-        return await order_repo.list_user_orders(user_id=user_id, skip=skip, limit=limit)
+    async def list_user_orders(self, user_id: str, skip: int = 0, limit: int = 50, status_filter: Optional[str] = None) -> List[Dict[str, Any]]:
+        return await order_repo.list_user_orders(user_id=user_id, skip=skip, limit=limit, status_filter=status_filter)
 
     async def list_all_orders_admin(self, skip: int = 0, limit: int = 50, status_filter: Optional[str] = None) -> List[Dict[str, Any]]:
         return await order_repo.list_all_orders(skip=skip, limit=limit, status=status_filter)

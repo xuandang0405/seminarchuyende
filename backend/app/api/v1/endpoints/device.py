@@ -11,6 +11,7 @@ from app.schemas.device_session import (
     DeviceBootstrapResponse,
 )
 from app.services.session_service import session_service
+from app.core.config import settings
 
 router = APIRouter(prefix="/device", tags=["Device Identity"])
 
@@ -41,7 +42,7 @@ async def bootstrap_device_endpoint(
         max_age=365 * 24 * 3600,  # 1 year
         httponly=True,
         samesite="lax",
-        secure=False  # Set True in HTTPS production
+        secure=settings.COOKIE_SECURE
     )
 
     return DeviceBootstrapResponse(

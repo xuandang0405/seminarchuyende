@@ -1,3 +1,4 @@
+import { useLiveRefresh } from '../services/useLiveRefresh';
 import React, { useEffect, useState } from 'react';
 import { 
   Receipt, 
@@ -26,8 +27,8 @@ export const Orders: React.FC = () => {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  const fetchOrders = async () => {
-    setLoading(true);
+  const fetchOrders = async (background = false) => {
+    if (!background) setLoading(true);
     try {
       const data = await orderService.getOrders(statusFilter || undefined, 0, 50);
       setOrders(Array.isArray(data) ? data : []);
@@ -38,6 +39,8 @@ export const Orders: React.FC = () => {
       setLoading(false);
     }
   };
+
+  useLiveRefresh(() => fetchOrders(true), true);
 
   useEffect(() => {
     fetchOrders();
@@ -88,12 +91,13 @@ export const Orders: React.FC = () => {
       case 'completed':
         return <Badge variant="success" size="sm" showDot>Đã thanh toán</Badge>;
       case 'pending':
+      case 'pending_payment':
         return <Badge variant="warning" size="sm" showDot>Chờ thanh toán</Badge>;
       case 'cancelled':
       case 'failed':
         return <Badge variant="danger" size="sm" showDot>Đã hủy</Badge>;
       default:
-        return <Badge variant="neutral" size="sm">{status || 'Không rõ'}</Badge>;
+        return <Badge variant="neutral" size="sm" title={status || undefined}>Chưa xác định</Badge>;
     }
   };
 
@@ -107,7 +111,7 @@ export const Orders: React.FC = () => {
           <Button
             variant="secondary"
             size="md"
-            onClick={fetchOrders}
+            onClick={() => void fetchOrders()}
             loading={loading}
             icon={<RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-indigo-400' : ''}`} />}
           >
@@ -132,16 +136,17 @@ export const Orders: React.FC = () => {
       {/* Filters Bar */}
       <div className="flex flex-col sm:flex-row gap-3 items-center justify-between">
         <div className="flex items-center space-x-2">
-          <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Trạng Thái:</label>
+          <label htmlFor="order-status" className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Trạng thái</label>
           <select
+            id="order-status"
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
             className="px-3.5 py-2 bg-slate-900 border border-slate-800 rounded-xl text-slate-200 text-sm focus:outline-none focus:border-indigo-500 cursor-pointer transition-colors"
           >
             <option value="">Tất cả trạng thái</option>
-            <option value="pending">Chờ thanh toán (Pending)</option>
-            <option value="paid">Đã thanh toán (Paid)</option>
-            <option value="cancelled">Đã hủy (Cancelled)</option>
+            <option value="pending">Chờ thanh toán</option>
+            <option value="paid">Đã thanh toán</option>
+            <option value="cancelled">Đã hủy</option>
           </select>
         </div>
 
@@ -160,10 +165,10 @@ export const Orders: React.FC = () => {
             description="Các đơn mua vé và dịch vụ sẽ tự động xuất hiện ở đây khi có giao dịch mới."
           />
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm text-slate-300">
-              <thead className="bg-slate-950/70 text-xs uppercase font-semibold text-slate-400 border-b border-slate-800">
-                <tr>
+          <div className="console-orders overflow-x-auto">
+            <table role="table" aria-label="Danh sách đơn hàng" className="w-full text-left text-sm text-slate-300">
+              <thead role="rowgroup" className="bg-slate-950/70 text-xs uppercase font-semibold text-slate-400 border-b border-slate-800">
+                <tr role="row">
                   <th className="py-3.5 px-4">Mã Đơn / Thời Gian</th>
                   <th className="py-3.5 px-4">Khách Hàng</th>
                   <th className="py-3.5 px-4">Sản Phẩm / Dịch Vụ</th>
@@ -173,10 +178,11 @@ export const Orders: React.FC = () => {
                   <th className="py-3.5 px-4 text-right">Thao Tác</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-800/60 font-medium">
+              <tbody role="rowgroup" className="divide-y divide-slate-800/60 font-medium">
                 {orders.map((order) => (
-                  <tr key={order.order_id || order.id || order._id} className="hover:bg-slate-800/30 transition-colors">
-                    <td className="py-3.5 px-4">
+                  <tr role="row" key={order.order_id || order.id || order._id} className="hover:bg-slate-800/30 transition-colors">
+                    <td role="cell" className="py-3.5 px-4">
+                      <span className="console-order-label" aria-hidden="true">Mã đơn</span>
                       <div className="font-mono text-xs text-indigo-400 font-bold">
                         #{order.order_id || order.id || order._id}
                       </div>
@@ -184,24 +190,29 @@ export const Orders: React.FC = () => {
                         {order.created_at ? new Date(order.created_at).toLocaleString('vi-VN') : '--'}
                       </div>
                     </td>
-                    <td className="py-3.5 px-4">
+                    <td role="cell" className="py-3.5 px-4">
+                      <span className="console-order-label" aria-hidden="true">Khách hàng</span>
                       <div className="text-white font-semibold">{order.customer_name || 'Khách Vãng Lai'}</div>
                       <div className="text-xs text-slate-400">{order.customer_email || order.customer_phone || '--'}</div>
                     </td>
-                    <td className="py-3.5 px-4">
+                    <td role="cell" className="py-3.5 px-4">
+                      <span className="console-order-label" aria-hidden="true">Sản phẩm / dịch vụ</span>
                       <div className="text-white line-clamp-1">{order.item_title || order.item_id}</div>
                       <div className="text-xs text-slate-400">Số lượng: {order.quantity || 1}</div>
                     </td>
-                    <td className="py-3.5 px-4 font-bold text-emerald-400">
+                    <td role="cell" className="py-3.5 px-4 font-bold text-emerald-400">
+                      <span className="console-order-label" aria-hidden="true">Số tiền</span>
                       {formatVND(order.total_amount || (order.unit_price * (order.quantity || 1)))}
                     </td>
-                    <td className="py-3.5 px-4">
+                    <td role="cell" className="py-3.5 px-4">
+                      <span className="console-order-label" aria-hidden="true">Trạng thái</span>
                       {getStatusBadge(order.status)}
                     </td>
-                    <td className="py-3.5 px-4 text-xs uppercase font-semibold text-slate-400">
+                    <td role="cell" className="py-3.5 px-4 text-xs uppercase font-semibold text-slate-400">
+                      <span className="console-order-label normal-case" aria-hidden="true">Phương thức</span>
                       {order.payment_method || 'VietQR'}
                     </td>
-                    <td className="py-3.5 px-4 text-right space-x-1.5">
+                    <td role="cell" className="py-3.5 px-4 text-right space-x-1.5">
                       <button
                         onClick={() => handleReconcile(order.order_id || order.id || order._id)}
                         disabled={actionLoading === `reconcile_${order.order_id || order.id || order._id}`}
@@ -211,7 +222,7 @@ export const Orders: React.FC = () => {
                         {actionLoading === `reconcile_${order.order_id || order.id || order._id}` ? 'Đang kiểm tra...' : 'Đối Soát'}
                       </button>
 
-                      {order.status === 'pending' && (
+                      {order.mock_mode && ['pending', 'pending_payment'].includes(order.status) && (
                         <button
                           onClick={() => handleSimulateSuccess(order.order_id || order.id || order._id)}
                           disabled={actionLoading === `simulate_${order.order_id || order.id || order._id}`}

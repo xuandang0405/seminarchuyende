@@ -51,8 +51,8 @@ class BaseRepository:
     def collection(self):
         return self.db[self.collection_name]
 
-    async def get_by_id(self, doc_id: str) -> Optional[Dict[str, Any]]:
-        doc = await self.collection.find_one(build_id_filter(doc_id))
+    async def get_by_id(self, doc_id: str, session=None) -> Optional[Dict[str, Any]]:
+        doc = await self.collection.find_one(build_id_filter(doc_id), **({"session": session} if session else {}))
         return serialize_mongo_doc(doc)
 
     async def find_one(self, query: Dict[str, Any]) -> Optional[Dict[str, Any]]:
